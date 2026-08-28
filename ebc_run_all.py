@@ -9,6 +9,7 @@ Stages, in order:
 
     locate      find the stimulator box in every recording          (one pass per video)
     stimulus    read both LEDs at full rate and detect every pulse   (one pass per video)
+    triage      judge each CS channel; anchor on the US, or exclude, where it failed
     protocol    turn pulses into trials and check the block structure
     eyes        track the eyelids in a window around every trial
     score       one pooled closure scale, blink metrics, response classes
@@ -120,6 +121,22 @@ def main():
     if "stimulus" in todo:
         print("\n>>> ebc_stimulus.py  (%d recordings, %d at a time)" % (len(tags), a.jobs))
         run_parallel("ebc_stimulus.py", cfg_path, tags, a.jobs, logs)
+    # Between reading the LEDs and building trials, decide what each recording can
+    # actually support.  Everything downstream runs on the effective config this writes.
+    eff = os.path.join(wdir, "effective_config.json")
+    if "protocol" in todo:
+        run("ebc_triage.py", cfg_path)
+    if os.path.exists(eff):
+        cfg_path = eff
+        # triage may have dropped a recording it cannot score; nothing downstream should
+        # still be asked to process it
+        cfg = C.load(cfg_path)
+        kept = {r["tag"] for r in cfg["recordings"]}
+        dropped = [t for t in tags if t not in kept]
+        if dropped:
+            print("   left out by triage: " + ", ".join(dropped))
+        tags = [t for t in tags if t in kept]
+
     if "protocol" in todo:
         run("ebc_protocol.py", cfg_path)
     if "eyes" in todo:

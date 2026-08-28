@@ -142,18 +142,40 @@ hand if the automatic search ever picks the wrong spot.
 
 ### When the CS LED cannot be read
 
-`"anchor": "us"` on a recording builds its trials from the US (blue) LED instead of the CS
-(yellow) one, and infers the CS onset as `us_onset - us_onset_ms`:
+**This is handled for you.**  `anchor` defaults to `"auto"`, and after the LEDs have been
+read `ebc_triage.py` looks at what each channel actually did and decides:
 
-```json
-{"tag": "csus2", "file": "CSUS 2.MP4", "role": "conditioning", "order": 2, "anchor": "us"}
-```
+| what it finds | what it does |
+|---|---|
+| CS channel healthy | nothing - trials come from the CS, as normal |
+| CS unreadable, US clean, recording has a US | trials from the US, CS onset inferred, **and a warning** |
+| CS unreadable, recording delivers no US (extinction, CS-only) | **excluded, with an explanation** - the rest of the study still runs |
 
-Reach for it when `ebc_qc.py leds` reports weak contrast and a pulse count far below the
-rejected count - the signature of a CS window whose baseline has drifted up into the
-threshold, so the detector is triggering on noise. A wooden or warm-coloured stimulator box
-under changing room light does exactly this to the yellow channel, while the blue US LED,
-having nothing in the scene to compete with, stays clean.
+Writing `"anchor": "cs"` or `"anchor": "us"` explicitly overrides the decision, and is
+obeyed even when the evidence disagrees (it says so, and carries on).
+
+The tests are three, and a recording needs two of them to be judged unreadable - or one
+overwhelming one:
+
+- **acceptance ratio** - how many detected pulses survive the duration filter. A healthy
+  channel keeps 80-100%; an unreadable one keeps under 2%, because the threshold is sitting
+  inside the noise and the "pulses" were never pulses.
+- **contrast** - lit level minus resting level, below 55.
+- **CS against US** - a US only ever fires inside a CS, so far fewer CS pulses than clean US
+  pulses means the CS channel, not the participant, is at fault.
+
+These are calibrated on every recording processed so far, where the two populations do not
+come close to overlapping:
+
+| | contrast | pulses kept |
+|---|---|---|
+| healthy (11 recordings) | 73 - 150 | 80 - 100% |
+| unreadable (2 recordings) | 30 - 43 | 0.1 - 1.3% |
+
+A wooden or warm-coloured stimulator box under changing room light is what produces the
+second row: the box itself is as "yellow" as the LED, so as the light warms the resting
+level climbs toward the lit level and the margin disappears.  The blue US LED has nothing
+in the scene to compete with and stays clean, which is why it can be used as the fallback.
 
 Because a US is only ever delivered inside a CS, every accepted US marks a paired trial.
 `ebc_eyes.py` then aligns the window on the blue LED and steps back by the protocol lag, so
@@ -247,6 +269,7 @@ response there is by definition unconditioned.
 | `ebc_signal.py` | Bimodal threshold + Schmitt trigger: a 1-D LED signal to a list of pulses. |
 | `ebc_locate.py` | Study-level: where the stimulator box is in each recording, with a consensus for the clips that cannot tell. |
 | `ebc_stimulus.py` | Per recording: survey pass, then the full-rate read. Writes `<tag>_stim.json`. |
+| `ebc_triage.py` | Judges each CS channel from what the LEDs did; anchors on the US or excludes the recording, and says why. |
 | `ebc_protocol.py` | Pulses to trials; pairs CS with US; recovers the blocks and checks them against the protocol. |
 | `ebc_eyes.py` | Per recording: eyelid tracking in a window around every trial. |
 | `ebc_score.py` | One pooled closure scale, blink metrics, response classes. |

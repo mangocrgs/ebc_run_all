@@ -12,7 +12,6 @@
     "cs_tol": 0.35,
     "us_tol": 0.6
   },
-  "_note": "extinction.MP4 and CS ONLY.MP4 are deliberately absent: their CS LED is unreadable and, delivering no US, they cannot be recovered automatically. Score them by hand.",
   "recordings": [
     {
       "tag": "csus1",
@@ -26,30 +25,41 @@
       "file": "CSUS 2.MP4",
       "label": "CSUS 2",
       "role": "conditioning",
-      "order": 2,
-      "anchor": "us"
+      "order": 2
     },
     {
       "tag": "csus3",
       "file": "CSUS 3.MP4",
       "label": "CSUS 3",
       "role": "conditioning",
-      "order": 3,
-      "anchor": "us"
+      "order": 3
     },
     {
       "tag": "csusfin",
       "file": "CSUS fin.MP4",
       "label": "CSUS fin",
       "role": "conditioning",
-      "order": 4,
-      "anchor": "us"
+      "order": 4
     },
     {
       "tag": "usonly",
       "file": "US ONLY.MP4",
       "label": "US-only baseline",
       "role": "baseline_us",
+      "order": 1
+    },
+    {
+      "tag": "extinction",
+      "file": "extinction.MP4",
+      "label": "Extinction",
+      "role": "extinction",
+      "order": 1
+    },
+    {
+      "tag": "csonly",
+      "file": "CS ONLY.MP4",
+      "label": "CS-only baseline",
+      "role": "baseline_cs",
       "order": 1
     }
   ],

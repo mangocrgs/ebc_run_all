@@ -77,6 +77,30 @@ td.r,th.r{text-align:right}
 .note{font-size:12.5px;color:var(--muted);margin:10px 0 0}
 .hide{display:none}
 .err{color:var(--alert);font-size:13.5px}
+.tri{border-left:3px solid var(--cs);background:var(--sunken);padding:11px 14px;
+     margin:12px 0;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
+.tri.stop{border-left-color:var(--alert)}
+.tri.look{border-left-color:var(--muted)}
+.tri h4{margin:0 0 6px;font-size:13px;letter-spacing:.01em}
+.tri.stop h4{color:var(--alert)}
+.tri ul{margin:4px 0 6px 16px;padding:0}
+.tri li{margin:2px 0;color:var(--muted)}
+.tri .why{color:var(--ink);margin-top:6px}
+.tri .rec{font-weight:600;margin-top:9px}
+details.guide{margin-top:12px;border-top:1px solid var(--rule);padding-top:10px}
+details.guide summary{cursor:pointer;font-size:13px;color:var(--accent);
+                      list-style:none;user-select:none}
+details.guide summary::-webkit-details-marker{display:none}
+details.guide summary:before{content:"B8  ";display:inline-block;transition:transform .12s}
+details.guide[open] summary:before{content:"BE  "}
+.guide .body{font-size:12.8px;line-height:1.6;color:var(--muted);margin-top:10px}
+.guide .body b{color:var(--ink)}
+.guide table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.4px}
+.guide th,.guide td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--rule);
+                    vertical-align:top}
+.guide th{color:var(--ink);font-weight:600}
+.guide .good{color:var(--ok)}
+.guide .bad{color:var(--alert)}
 details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:10px}
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
 .settings label{display:flex;flex-direction:column;gap:4px}
@@ -103,6 +127,34 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
   <div id="vidwrap"></div>
   <p class="note" id="pick">Tick the recordings to analyse. Videos are read where they sit — nothing is copied or uploaded, so a 4 GB file costs no extra disk.
      Conditioning chapters are stitched into one timeline in the order shown; use ▲▼ if the recording order differs.</p>
+
+  <details class="guide">
+    <summary>What each recording is for, and what makes one usable</summary>
+    <div class="body">
+      <table>
+        <tr><th style="width:150px">Role</th><th>What it contains</th></tr>
+        <tr><td><b>Conditioning chapter</b></td><td>Paired CS&ndash;US trials plus the CS-only probe that closes each block. Chapters run on one continuous clock, so their order matters.</td></tr>
+        <tr><td><b>Extinction</b></td><td>CS alone after conditioning. Scored against the learned US window.</td></tr>
+        <tr><td><b>CS-only baseline</b></td><td>CS alone, outside conditioning. Gives the false-positive rate for the CR window.</td></tr>
+        <tr><td><b>US-only baseline</b></td><td>US alone. No CS exists, so trials are anchored on the US automatically.</td></tr>
+      </table>
+
+      <p><b>The one thing that breaks a recording is a CS LED with no contrast left.</b>
+      The stimulator box is wooden and warm-coloured, so as room light dims or warms, the box
+      itself becomes as &ldquo;yellow&rdquo; as the CS LED. The resting level climbs toward the lit
+      level, the detector ends up thresholding noise, and the trials are lost &mdash; two of one
+      participant&rsquo;s four conditioning recordings failed exactly this way.</p>
+
+      <p>When filming: keep the light on the box <b>constant across all recordings of a session</b>,
+      avoid letting daylight fall on it, and keep the box in shot and in focus. Face roughly frontal,
+      camera fixed. A camera re-aimed <i>between</i> recordings is fine; re-aimed <i>within</i> one is
+      detected and flagged.</p>
+
+      <p>Nothing needs to be perfect &mdash; the app checks every LED itself and tells you what it
+      found. Position of the face and of the LEDs is discovered per recording, so participants may
+      sit differently and the box may be moved between sessions.</p>
+    </div>
+  </details>
 </div>
 
 <div class="card">
@@ -113,6 +165,22 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
     <label>US onset (ms)<input type="number" id="uson" value="350" step="10"></label>
     <label>US duration (ms)<input type="number" id="usdur" value="50" step="10"></label>
   </div>
+  <details class="guide">
+    <summary>These numbers should not normally be changed</summary>
+    <div class="body">
+      <p>Every session runs the same experiment, and these are already it:
+      <b>CS 400 ms</b>, <b>US 50 ms co-terminating</b> with it, so the US begins at
+      <b>350 ms</b> &mdash; and <b>9 paired trials + 1 CS-only probe, ten times over</b>
+      (100 trials).</p>
+      <p>The protocol is used as a <b>test</b>, never as an instruction. Trials are recovered
+      from what the LEDs actually did, and the result is then compared against the structure
+      above. Nothing is renumbered to make it fit.</p>
+      <p><b>So if the trial count comes out wrong, do not adjust these numbers to match.</b>
+      A disagreement is a finding about the recording &mdash; almost always a CS LED that could
+      not be read &mdash; and the app will tell you which recording and why. Change these only to
+      record a genuine deviation in how the session was actually run.</p>
+    </div>
+  </details>
   <p class="note">CS and US co-terminate: US onset + US duration should equal CS duration.
      The block structure is detected from the recording, not assumed.</p>
   <div class="row" style="margin-top:16px">
@@ -131,6 +199,24 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="elapsed"></span>
   </div>
   <div id="vids"></div>
+  <details class="guide">
+    <summary>What is happening, and how long it takes</summary>
+    <div class="body">
+      <table>
+        <tr><th style="width:190px">Stage</th><th>What it does</th></tr>
+        <tr><td>finding the stimulator box</td><td>One quick survey pass per recording to locate the LEDs.</td></tr>
+        <tr><td>reading the LEDs</td><td>Full-rate read of a small window around the box. <b>The slow part</b> &mdash; about 12 min per 4 GB recording.</td></tr>
+        <tr><td>checking the LED signal quality</td><td>Judges each CS channel and decides where trials come from. Any warning appears below.</td></tr>
+        <tr><td>building trials</td><td>Pulses become trials; blocks are recovered and checked.</td></tr>
+        <tr><td>tracking eyelids</td><td>A short seek per trial, roughly 4 min per recording.</td></tr>
+        <tr><td>scoring &rarr; workbooks</td><td>Seconds.</td></tr>
+      </table>
+      <p>A full session of four 4 GB recordings takes <b>roughly an hour</b>. Finished work is
+      cached, so re-running skips anything already done &mdash; only new or changed recordings cost
+      time. It is safe to leave this running and come back.</p>
+    </div>
+  </details>
+  <div id="triage"></div>
   <div id="log" class="mono"></div>
 </div>
 
@@ -143,6 +229,39 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
   <p class="note hide" id="stalenote" style="margin:0 0 10px">
      Greyed entries are left over from a previous run — this run did not produce them.</p>
   <div id="res"></div>
+
+  <details class="guide" open>
+    <summary>Before you trust these numbers</summary>
+    <div class="body">
+      <p><b>1. Open every <i>qc_leds_&lt;name&gt;.png</i> first.</b> This is the step that matters.
+      A run can finish cleanly, report confidently, and still be built on a CS channel that was
+      reading noise. The check page shows the located box, both LED traces, and every pulse
+      accepted or rejected.</p>
+
+      <table>
+        <tr><th style="width:210px">What you see</th><th>What it means</th></tr>
+        <tr><td class="good">n/n pulses accepted, steady ITI</td><td>Healthy. Nothing to do.</td></tr>
+        <tr><td class="bad">accepted far below rejected<br>(6/464, 1/1058)</td><td>The threshold is sitting in the noise. Trials from this recording&rsquo;s CS LED are not real.</td></tr>
+        <tr><td class="bad">weak contrast warning</td><td>Lit minus resting has collapsed &mdash; usually room light on a warm-coloured box.</td></tr>
+      </table>
+
+      <p><b>2. Read the trial count as a result, not a formality.</b> <i>93 found / 100 expected</i>
+      is a finding. <i>41 found / 100</i> is a detection failure to diagnose &mdash; not a
+      participant who missed trials.</p>
+
+      <p><b>3. Check the provenance columns</b> in the workbook&rsquo;s <i>Paired trials</i> sheet:
+      <i>CS timing source</i> says whether each CS onset was measured from the LED or inferred from
+      the US; <i>Block boundary from</i> says whether each block was closed by an observed probe or
+      by counting. A counted boundary is an assumption from the protocol; a probe is an observation.</p>
+
+      <p><b>4. Filter <i>quality = clean</i></b> for the strictest subset. Flagged trials are kept
+      in the tables rather than silently dropped, and shown in italics.</p>
+
+      <p>For scale, two participants on this identical protocol scored <b>10%</b> and <b>48%</b> CR.
+      Both are real. A wide spread between people is expected; a wide spread between chapters of one
+      session usually means a detection problem, not learning.</p>
+    </div>
+  </details>
 </div>
 
 </div>
@@ -167,7 +286,7 @@ function browse(path){
     document.querySelectorAll(".chip").forEach(c => c.onclick = () => browse(c.dataset.p));
     // Nothing is ticked by default - a folder can hold a dozen multi-GB files and
     // an accidental Run would be a multi-hour job.
-    VIDS = d.videos.map(v => ({...v, role: v.role || "conditioning", anchor: "cs", on: false}));
+    VIDS = d.videos.map(v => ({...v, role: v.role || "conditioning", anchor: "auto", on: false}));
     renderVids();
   });
 }
@@ -198,8 +317,9 @@ function renderVids(){
         <option value="baseline_us"  ${v.role==="baseline_us"?"selected":""}>US-only baseline</option>
       </select></td>
       <td><select data-i="${i}" class="an" ${(v.role==="extinction"||v.role==="baseline_cs")?"disabled":""}
-                  title="Switch to the US LED only when the LED check page shows the CS LED is too washed out to read.">
-        <option value="cs" ${v.anchor!=="us"?"selected":""}>CS LED</option>
+                  title="Automatic reads both LEDs first and picks. Override only if you know better than the LED check page.">
+        <option value="auto" ${(!v.anchor||v.anchor==="auto")?"selected":""}>Automatic</option>
+        <option value="cs" ${v.anchor==="cs"?"selected":""}>CS LED</option>
         <option value="us" ${v.anchor==="us"?"selected":""}>US LED</option>
       </select></td>
       <td><span class="ord">${v.role==="conditioning"?chapterOf(i):"—"}</span>
@@ -215,7 +335,7 @@ function renderVids(){
     const v = VIDS[e.target.dataset.i];
     v.role = e.target.value;
     // extinction and CS-only deliver no US, so there is nothing to anchor on
-    if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "cs";
+    if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "auto";
     renderVids(); });
   document.querySelectorAll(".an").forEach(c => c.onchange = e => {
     VIDS[e.target.dataset.i].anchor = e.target.value; renderVids(); });
@@ -234,7 +354,7 @@ $("#openf").onclick = () => api("/api/open_folder");
 
 $("#run").onclick = () => {
   const items = VIDS.filter(v => v.on).map(v => ({path: v.path, tag: v.tag, label: v.label,
-                                                  role: v.role, anchor: v.anchor || "cs"}));
+                                                  role: v.role, anchor: v.anchor || "auto"}));
   if (!items.length) { $("#err").textContent = "Tick at least one video."; $("#err").classList.remove("hide"); return; }
   $("#err").classList.add("hide");
   api("/api/run", {method:"POST", body: JSON.stringify({
@@ -247,6 +367,55 @@ $("#stop").onclick = () => api("/api/stop", {method:"POST", body:"{}"});
 const PHASES = {videos:"processing videos", scoring:"scoring trials", figures:"drawing figures",
                 tables:"writing tables", workbooks:"building workbooks", done:"done",
                 error:"stopped", idle:"idle"};
+
+function renderTriage(t){
+  const box = $("#triage");
+  if (!t || (!(t.notes||[]).length && !(t.excluded||[]).length && !(t.suspect||[]).length))
+    { box.innerHTML = ""; return; }
+  let h = "";
+  if ((t.notes||[]).length){
+    h += `<div class="tri"><h4>&#9888; The CS LED could not be read in
+          ${t.notes.length} recording${t.notes.length>1?"s":""} &mdash; trials taken from the US LED</h4>`;
+    t.notes.forEach(e => {
+      h += `<div class="rec">${e.label}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") + `</ul>`;
+    });
+    h += `<div class="why">Trial times come from the US LED, which is clean here. The CS onset is
+          <b>inferred</b> as US onset minus the protocol interval, not measured &mdash; accurate to
+          0.3 ms median where both LEDs were readable, under one video frame.
+          <b>CS-only probes cannot be recovered</b> from these recordings, so affected block
+          boundaries are set by counting paired trials. Every trial says which it was, in the
+          workbook's <i>CS timing source</i> and <i>Block boundary from</i> columns.
+          Check <i>qc_leds_&lt;name&gt;.png</i> to see the traces behind this.</div></div>`;
+  }
+  if ((t.suspect||[]).length){
+    h += `<div class="tri look"><h4>&#9432; ${t.suspect.length}
+          recording${t.suspect.length>1?"s":""} passed, but not comfortably</h4>`;
+    t.suspect.forEach(e => {
+      h += `<div class="rec">${e.label}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") + `</ul>`;
+    });
+    h += `<div class="why">Scored normally from the CS LED &mdash; only one of the three checks
+          failed, which is not enough to overrule the channel. But a healthy CS channel usually
+          passes all three. Open <i>qc_leds_&lt;name&gt;.png</i> and satisfy yourself the accepted
+          pulses really look like stimuli before leaning on these trials.</div></div>`;
+  }
+  if ((t.excluded||[]).length){
+    h += `<div class="tri stop"><h4>&#10006; ${t.excluded.length}
+          recording${t.excluded.length>1?"s":""} could not be processed &mdash; score by hand</h4>`;
+    t.excluded.forEach(e => {
+      h += `<div class="rec">${e.label} &middot; ${e.role}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") +
+           `</ul><div class="why">${e.message}</div>`;
+    });
+    h += `<div class="why">This is not a setting that can be tuned. A CS-only or extinction
+          recording delivers no US, so when its CS LED is unreadable there is no second channel
+          to recover the trials from. <b>The rest of the study was processed normally.</b>
+          Open <i>qc_leds_&lt;name&gt;.png</i> for these recordings, then read the trial onsets
+          off the video by hand.</div></div>`;
+  }
+  box.innerHTML = h;
+}
 
 function poll(){
   api("/api/status").then(s => {
@@ -274,6 +443,7 @@ function poll(){
     }).join("");
     const lg = $("#log"); const stick = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
     lg.textContent = (s.log||[]).join("\n"); if (stick) lg.scrollTop = lg.scrollHeight;
+    renderTriage(s.triage);
     const groups = s.results||{}; const any = Object.values(groups).some(a=>a.length);
     $("#rescard").classList.toggle("hide", !any);
     $("#outpath").textContent = s.out||"";

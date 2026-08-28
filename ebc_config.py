@@ -30,7 +30,9 @@ ROLES = ("conditioning", "extinction", "baseline_cs", "baseline_us")
 #        us_onset - us_onset_ms.  Use when the CS LED is too washed out to threshold
 #        reliably (ebc_qc.py leds reports the contrast).  CS-only probes are invisible
 #        to this mode and the CS duration is not measured, only assumed.
-ANCHORS = ("cs", "us")
+#   auto the default: ebc_triage.py looks at what the LEDs actually did in this
+#        recording and picks.  An explicit "cs" or "us" is always obeyed instead.
+ANCHORS = ("auto", "cs", "us")
 
 # Roles that deliver the CS alone.  US-anchoring is impossible for these - there is no US.
 NO_US_ROLES = ("extinction", "baseline_cs")
@@ -138,14 +140,11 @@ def load(path=None, video_dir=None, study=None):
         rec.setdefault("tag", _slug(rec["label"]))
         if rec["role"] not in ROLES:
             raise SystemExit(f"{rec['file']}: unknown role {rec['role']!r} (expected {ROLES})")
-        rec.setdefault("anchor", "cs")
+        rec.setdefault("anchor", "auto")
         if rec["anchor"] not in ANCHORS:
             raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")
         if rec["anchor"] == "us" and rec["role"] in NO_US_ROLES:
             raise SystemExit(NO_US_MESSAGE.format(file=rec["file"], role=rec["role"]))
-        rec.setdefault("anchor", "cs")
-        if rec["anchor"] not in ANCHORS:
-            raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")
         if rec["tag"] in seen:
             raise SystemExit(f"duplicate tag {rec['tag']!r}")
         seen.add(rec["tag"])

@@ -44,7 +44,8 @@ W_STIM, W_EYES = 0.62, 0.38
 
 LOCK = threading.Lock()
 STATE = {"running": False, "phase": "idle", "videos": {}, "order": [], "log": [],
-         "error": None, "started": None, "finished": None, "cancel": False, "out": None}
+         "error": None, "started": None, "finished": None, "cancel": False, "out": None,
+         "triage": None}
 PROC = {"p": None}
 
 
@@ -69,17 +70,36 @@ RE_TRACKED = re.compile(r"(\d+)\s*/\s*(\d+)\s+trials tracked")
 RE_STAGE = re.compile(r"^>>>\s+ebc_(\w+)\.py")
 
 PHASE = {"locate": "finding the stimulator box", "stimulus": "reading the LEDs",
+         "triage": "checking the LED signal quality",
          "protocol": "building trials", "eyes": "tracking eyelids",
          "score": "scoring", "figures": "figures", "export": "tables",
          "workbooks": "workbooks", "qc": "quality-check pages"}
+
+
+def load_triage():
+    """ebc_triage.py has just judged the CS channels; show the verdict straight away."""
+    out = STATE.get("out")
+    if not out:
+        return
+    p = os.path.join(out, "_work", "triage.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            t = json.load(fh)
+    except (OSError, ValueError):
+        return
+    with LOCK:
+        STATE["triage"] = t
 
 
 def on_line(line):
     """Turn one line of ebc_run_all output into progress."""
     m = RE_STAGE.match(line)
     if m:
+        stage = m.group(1)
         with LOCK:
-            STATE["phase"] = PHASE.get(m.group(1), m.group(1))
+            STATE["phase"] = PHASE.get(stage, stage)
+        if stage in ("protocol", "score"):     # triage has run by now
+            load_triage()
         return
     m = RE_TAG.match(line)
     if not m:
@@ -152,8 +172,8 @@ def build_study(body):
         order[role] += 1
         rec = {"tag": it["tag"], "file": os.path.basename(it["path"]),
                "label": it["label"], "role": role, "order": order[role]}
-        if it.get("anchor") == "us":
-            rec["anchor"] = "us"
+        if it.get("anchor") in ("cs", "us"):
+            rec["anchor"] = it["anchor"]
         recs.append(rec)
 
     cfg = {"study": study, "video_dir": video_dir, "out_dir": out,
@@ -170,7 +190,7 @@ def runner(body):
     try:
         items = body["items"]
         with LOCK:
-            STATE.update(running=True, phase="starting", error=None, log=[],
+            STATE.update(running=True, phase="starting", error=None, log=[], triage=None,
                          started=time.time(), finished=None, cancel=False,
                          order=[i["tag"] for i in items],
                          videos={i["tag"]: {"label": i["label"], "pct": 0.0, "stage": "queued",
@@ -188,6 +208,7 @@ def runner(body):
                                  "  (trials from the US LED)" if r.get("anchor") == "us" else ""))
 
         rc = run_pipeline(cfg_path, body.get("force"))
+        load_triage()
         if STATE["cancel"]:
             raise RuntimeError("stopped")
         if rc != 0:
