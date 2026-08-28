@@ -1,20 +1,20 @@
-"""Shared paths for the eyeblink-conditioning pipeline.
+"""Where the intermediates and the results of a study live.
 
-Everything is relative to this file, so the whole folder can be moved or copied
-to another machine and still run.
-
-  <this folder>/                     the .MP4 recordings live here
-  <this folder>/analysis_CSUS/       final workbooks, figures and CSVs
-  <this folder>/analysis_CSUS/_work/ intermediate cache (safe to delete)
+Nothing is written next to the scripts, so one checkout can process any number of
+participants:  <out_dir>/ holds the workbooks, figures and CSVs, <out_dir>/_work/ the
+cache (safe to delete, costs a re-run).
 """
 import os
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(BASE, "analysis_CSUS")
-WORK = os.path.join(OUT, "_work")
-os.makedirs(WORK, exist_ok=True)
 
 
-def video(name):
-    """Absolute path to a recording sitting next to these scripts."""
-    return os.path.join(BASE, name)
+def out_dir(cfg):
+    os.makedirs(cfg["out_dir"], exist_ok=True)
+    return cfg["out_dir"]
+
+
+def work_dir(cfg):
+    w = os.path.join(cfg["out_dir"], "_work")
+    os.makedirs(w, exist_ok=True)
+    return w

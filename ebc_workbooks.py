@@ -1,10 +1,13 @@
-# --- portable paths -------------------------------------------------------
+"""Build the Excel workbooks - one per group of trials that stands on its own.
+
+    python ebc_workbooks.py <config.json>
+
+Each workbook carries its own read-me: the protocol, how the numbers were produced and
+what not to over-read, so a sheet that leaves this folder still explains itself.
+"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ebc_paths import BASE, OUT, WORK          # noqa: E402
-os.chdir(WORK)                                  # cache + intermediates live here
-# --------------------------------------------------------------------------
-import json, os, sys, numpy as np
+import json, numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -15,40 +18,95 @@ from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.drawing.image import Image as XLImage
 
-M = json.load(open("merged.json"))
-META = M["meta"]
-ALLROWS = json.load(open("merged_rows.json"))
-NOM = M["nominal"]
+import ebc_config as C
+from ebc_paths import work_dir, out_dir
+
+CFG = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
+WORK, OUT = work_dir(CFG), out_dir(CFG)
+M = json.load(open(os.path.join(WORK, "merged.json"), encoding="utf-8"))
+ALLROWS = json.load(open(os.path.join(WORK, "merged_rows.json"), encoding="utf-8"))
+NOM = M["protocol"]
+CHECKS = M.get("checks", {})
+TAG_ORDER = [r["tag"] for r in CFG["recordings"]]
+SESSMETA = {s["tag"]: s for s in M["sessions"]}
+REC_FILE = {r["tag"]: r["file"] for r in CFG["recordings"]}
+
+# the sheet code below speaks in these older names; keep them as the bridge
+for _r in ALLROWS:
+    _r["block_kind"] = _r["role"]
+    _r["gidx"] = _r["group_index"]
+    _r["cs_onset_block_s"] = _r.get("session_clock_s")
+    _r["cs_duration_measured_ms"] = _r.get("cs_duration_ms")
+
+CR_LBL = "CR (100-%.0fms)" % NOM["us_onset_ms"]
+UR_LBL = "UR (>=%.0fms)" % NOM["us_onset_ms"]
+ALPHA_LBL = "alpha/startle <100ms"
+MOVING_LBL = "in-progress at stimulus"
+
+
+def is_cr(r):
+    return str(r["scored_class"]).startswith("CR")
+
+
+def is_ur(r):
+    return str(r["scored_class"]).startswith("UR")
+
+
+def is_alpha(r):
+    return str(r["scored_class"]).startswith("alpha")
+
+
+def stim_events(tag):
+    """Every pulse read from the LEDs of one recording, accepted or not."""
+    f = os.path.join(WORK, tag + "_stim.json")
+    if not os.path.exists(f):
+        return []
+    S = json.load(open(f, encoding="utf-8"))
+    out = []
+    for key, nm in (("yellow", "CS (yellow LED)"), ("blue", "US (blue LED)")):
+        for e in S["events"].get(key, []):
+            out.append((e["t"], nm, e))
+    out.sort(key=lambda z: z[0])
+    return out
+
+
 INK, MUT, HDR = "FF141922", "FF59636F", "FF1F2937"
 thin = Side(style="thin", color="FFDCE1E9")
 OUTDIR = OUT
 
 PROTOCOL = [
-    ("Design", "Delay eyeblink conditioning. A block is 9 paired CS-US trials followed by 1 CS-only "
-               "trial; 10 blocks of conditioning, then CS-only trials as extinction."),
+    ("Design", "Delay eyeblink conditioning. A block is %d paired CS-US trials followed by %d CS-only "
+               "trial(s); %d blocks of conditioning, then CS-only trials as extinction."
+               % (NOM["paired_per_block"], NOM["cs_only_per_block"], NOM["n_blocks"])),
     ("Stimuli", f"CS = yellow LED, {NOM['cs_ms']:.0f} ms. US = blue LED, {NOM['us_dur_ms']:.0f} ms. "
                 f"They overlap and co-terminate, so US onset is at {NOM['us_onset_ms']:.0f} ms after CS onset."),
-    ("Structure recovered", "The 9+1 x 10 structure was recovered from the video without being imposed: "
-                            "after filtering CS detections to a plausible duration, the sequence came out "
-                            "as exactly nine paired trials before each CS-only trial, ten times over, with "
-                            "the CS-only probes 150.0-150.2 s apart. That agreement is the check that the "
-                            "detection is right."),
+    ("Structure recovered", "The trial structure was recovered from the video, not imposed on it: the "
+                            "LEDs were read frame by frame and the sequence that came out was then "
+                            "compared with the protocol. Recovered %d paired CS-US and %d CS-only trials "
+                            "against %d and %d expected; the run of paired trials before each CS-only "
+                            "probe was %s. Strict %d+%d x %d structure: %s."
+                            % (CHECKS.get("found_paired", 0), CHECKS.get("found_cs_only", 0),
+                               CHECKS.get("expected_paired", 0), CHECKS.get("expected_cs_only", 0),
+                               CHECKS.get("paired_runs_before_each_probe", []),
+                               NOM["paired_per_block"], NOM["cs_only_per_block"], NOM["n_blocks"],
+                               "yes" if CHECKS.get("strict_block_structure") else "NO - see the report")),
 ]
 METHOD = [
     ("Stimulus detection", "Both LEDs were recovered from the pixels, never assumed. Each is detected as a "
                            "transient against a running background, so a static coloured object cannot "
                            "trigger it, and the two are detected independently of each other."),
-    ("Detection filter", "A genuine CS lasts ~400 ms. Detections outside 330-470 ms, or closer than 6 s to "
-                         "the previous one, are LED flicker rather than stimuli and are discarded (11 in the "
-                         "conditioning recording, 4 at the end of CSUS 4). Blue transients that do not match "
-                         "the US pulse duration are discarded the same way."),
+    ("Detection filter", "A genuine CS lasts about %.0f ms. Pulses outside +-%.0f%% of that, or closer "
+                         "than %g s to the previous accepted one, are LED flicker rather than stimuli and "
+                         "are rejected. Blue pulses that do not match the US duration go the same way. "
+                         "Every rejected pulse is listed in stimulus_events.csv, so nothing is dropped "
+                         "silently." % (NOM["cs_ms"], NOM["cs_tol"] * 100, NOM["min_iti_s"])),
     ("Trial alignment", "Every trial window is cut with the LED and the face inside the same crop, so the CS "
-                        "onset is re-detected inside each window. Alignment is good to one frame = 8.34 ms."),
+                        "onset is re-detected inside each window. The alignment error measured for each trial is a column in the trial tables."),
     ("Eyelid measure", "MediaPipe FaceMesh, 478 landmarks with iris refinement, on a 2x-upscaled face crop. "
                        "Eye aspect ratio per eye, averaged. EAR is normalised by eye width, so it is robust "
                        "to head movement and camera distance."),
     ("Closure scale", "0% = a blink-robust open-eye reference (85th percentile of EAR in that window). "
-                      "100% = a full-closure reference pooled over every trial of all four recordings, so "
+                      "100% = a full-closure reference pooled over every trial of every recording, so "
                       "all blocks sit on one comparable scale. Smoothed with a 5-frame Savitzky-Golay "
                       "filter (42 ms)."),
     ("Blink criterion", "Five robust SDs above the trial's own pre-CS baseline, floor 15% closure, walked "
@@ -74,78 +132,101 @@ CAVEATS = [
                       "'Quality flag' = clean if you want the strictest subset."),
 ]
 
-STUDY = M.get("study", "study")
-GRP = {g: s for g, s in M["groups"]}
+STUDY = CFG["study"]
+ROLE_TITLE = {"conditioning": "delay eyeblink conditioning",
+              "extinction": "extinction / post-conditioning test",
+              "baseline_cs": "baseline - CS alone",
+              "baseline_us": "baseline - US alone"}
+ROLE_FIGS = {"conditioning": [("cond_acquisition.png", "Acquisition by block - conditioned responses "
+                                                       "replace reactions to the puff"),
+                              ("cond_paired_onset_scatter.png", "Blink onset per paired trial, joined in "
+                                                                "order, with the block-mean learning curve"),
+                              ("cond_csonly_onset_scatter.png", "The CS-only probe ending each block"),
+                              ("cond_paired_overview.png", "Eyelid closure per recording - raster and "
+                                                           "overlaid traces")],
+             "extinction": [("ext_onset_scatter.png", "Blink onset per CS-only trial, against the "
+                                                      "learned US window"),
+                            ("ext_overview.png", "Eyelid closure - raster and overlaid traces")],
+             "baseline_cs": [("baseline_cs_onset_scatter.png", "Blink onset per CS-only trial"),
+                             ("baseline_cs_overview.png", "Eyelid closure - raster and overlaid traces")],
+             "baseline_us": [("baseline_us_onset_scatter.png", "Blink latency per US-only trial"),
+                             ("baseline_us_overview.png", "Eyelid closure - raster and overlaid traces")]}
 
 
 def _span(tags):
-    labels = [META[t]["rows"][0]["session_name"] for t in tags if t in META and META[t]["rows"]]
-    mins = sum(META[t]["duration_s"] for t in tags if t in META) / 60.0
+    labels = [SESSMETA[t]["label"] for t in tags if t in SESSMETA]
+    mins = sum(SESSMETA[t]["duration_s"] for t in tags if t in SESSMETA) / 60.0
     return labels, mins
 
 
-_cond_tags = [t for t in GRP.get("conditioning", []) if t in META]
-_test_tags = [t for t in GRP.get("test", []) if t in META]
-_cl, _cm = _span(_cond_tags)
-_tl, _tm = _span(_test_tags)
-_np_ = sum(1 for r in ALLROWS if r["block_kind"] == "conditioning" and r["trial_type"] == "CS-US")
-_nc = sum(1 for r in ALLROWS if r["block_kind"] == "conditioning" and r["trial_type"] == "CS-only")
-_ne = sum(1 for r in ALLROWS if r["block_kind"] == "extinction")
-COND_FILE = M.get("files", {}).get("conditioning", f"EBC_{STUDY}_conditioning.xlsx")
-TEST_FILE = M.get("files", {}).get("test", f"EBC_{STUDY}_extinction.xlsx")
+def _book(role):
+    tags = [t for t in TAG_ORDER if t in SESSMETA and SESSMETA[t]["role"] == role]
+    if not tags or not any(r["role"] == role for r in ALLROWS):
+        return None
+    labels, mins = _span(tags)
+    npair = sum(1 for r in ALLROWS if r["role"] == role and r["trial_type"] == "CS-US")
+    nrest = sum(1 for r in ALLROWS if r["role"] == role and r["trial_type"] != "CS-US")
+    others = [ROLE_TITLE[o] for o in C.ROLES
+              if o != role and any(r["role"] == o for r in ALLROWS)]
+    off = M.get("offsets", {})
+    timeline = "  ".join("%s = %.0f-%.0f s." % (SESSMETA[t]["label"], off.get(t, 0),
+                                                off.get(t, 0) + SESSMETA[t]["duration_s"])
+                         for t in tags if t in off)
+    what = [("What this covers",
+             "%s: %d recording(s) (%s), %.1f min in total. %d paired CS-US trials and %d "
+             "CS-only / US-only trials." % (ROLE_TITLE[role], len(labels), ", ".join(labels),
+                                            mins, npair, nrest))]
+    if role == "conditioning":
+        what.append(("CS-only trials are separate",
+                     "The CS-only probes are scored but held out of the recording summary, the block "
+                     "summary and the main scatter - a trial with no US is a different measurement. "
+                     "They have their own sheet and their own figure."))
+        what.append(("Protocol check",
+                     "%d paired and %d CS-only recovered against %d and %d expected. Run of paired "
+                     "trials before each probe: %s. Strict structure: %s."
+                     % (CHECKS.get("found_paired", 0), CHECKS.get("found_cs_only", 0),
+                        CHECKS.get("expected_paired", 0), CHECKS.get("expected_cs_only", 0),
+                        CHECKS.get("paired_runs_before_each_probe", []),
+                        "yes" if CHECKS.get("strict_block_structure") else "NO")))
+    if role == "extinction":
+        what.append(("Why it is separate",
+                     "No CS is paired with a US here, so this is extinction, not more conditioning. "
+                     "Pooling it with the conditioning trials would mix two measurements."))
+        what.append(("Reading the US column",
+                     "No US was delivered. 'Closure at US' is sampled at %.0f ms - the interval "
+                     "learned during conditioning - and the CR window is that learned interval "
+                     "applied as a probe." % NOM["us_onset_ms"]))
+    if role == "baseline_us":
+        what.append(("What the timings mean",
+                     "There is no CS, so every window is anchored on the US and the latencies are "
+                     "measured from the puff. These are unconditioned responses by definition and "
+                     "give the reflex baseline the CRs are read against."))
+    if role == "baseline_cs":
+        what.append(("What the timings mean",
+                     "The CS alone, before any pairing. Blinks here are orienting or spontaneous, "
+                     "not conditioned, and give the false-positive rate for the CR window."))
+    what.append(("Timeline", (timeline + " 'CS onset on session clock' is the position on that "
+                              "continuous clock.") if timeline else "Single recording."))
+    if others:
+        what.append(("Companion workbooks", "This run also produced: " + ", ".join(others) + "."))
+    return dict(file="EBC_%s_%s.xlsx" % (STUDY, role),
+                title="%s - %s - %s" % (STUDY, ROLE_TITLE[role], ", ".join(labels)),
+                sel=(lambda rl: (lambda r: r["role"] == rl))(role),
+                figs=ROLE_FIGS.get(role, []),
+                what=what)
 
-_offsets = M.get("offsets", {})
-_timeline = "  ".join(
-    f"{META[t]['rows'][0]['session_name']} = {_offsets.get(t, 0):.0f}-"
-    f"{_offsets.get(t, 0) + META[t]['duration_s']:.0f} s."
-    for t in _cond_tags) if _cond_tags else ""
 
-BOOKS = {
-    "conditioning": dict(
-        file=COND_FILE,
-        title=f"{STUDY} - delay eyeblink conditioning - {', '.join(_cl)}",
-        sel=lambda r: r["block_kind"] == "conditioning",
-        figs=[("cond_acquisition.png", "Acquisition by block - conditioned responses replace reactions to the puff"),
-              ("cond_onset_scatter.png", "Blink onset per paired trial, joined in order, with the block-mean learning curve"),
-              ("csonly_onset_scatter.png", "The CS-only probe ending each block, scored separately"),
-              ("cond_overview.png", "Eyelid closure per session - raster and overlaid traces")]
-             + [(f, c) for f, c in
-                [("qc_csus1_t20.png", "Quality check - a conditioned response, image vs measured closure"),
-                 ("qc_csus1_t12.png", "Quality check - a reaction to the puff only, image vs measured closure")]],
-        what=[("What this covers", f"The conditioning block: {len(_cl)} recording(s) "
-                                   f"({', '.join(_cl)}), {_cm:.1f} min in total. "
-                                   f"{_np_} paired CS-US trials and {_nc} CS-only probes."),
-              ("CS-only trials are separate", "The CS-only probes are scored but held out of the session "
-                                              "summary, the block summary and the main scatter - a trial "
-                                              "with no US is a different measurement. They have their own "
-                                              "sheet and their own figure."),
-              ("Timeline", (_timeline + " 'CS onset in block (s)' is the position on that continuous clock.")
-                           if _timeline else "Single recording."),
-              ("Companion workbook", f"{TEST_FILE} holds the extinction / test block."
-                                     if _test_tags else "No separate test block in this run.")]),
-    "test": dict(
-        file=TEST_FILE,
-        title=f"{STUDY} - extinction / post-conditioning test - {', '.join(_tl)}",
-        sel=lambda r: r["block_kind"] == "extinction",
-        figs=[("ext_onset_scatter.png", "Blink onset per CS-only trial, against the learned US window"),
-              ("ext_overview.png", "Eyelid closure - raster and overlaid traces")],
-        what=[("What this covers", f"{', '.join(_tl)}: {_tm:.1f} min, {_ne} CS-only presentation(s) "
-                                   f"that survive the detection filter."),
-              ("Why it is separate", "No CS is paired with a US here, so this is extinction, not more "
-                                     "conditioning. Pooling it with the conditioning trials would mix "
-                                     "two different measurements."),
-              ("Reading the US column", f"No US was delivered. 'Closure at US time' is sampled at "
-                                        f"{NOM['us_onset_ms']:.0f} ms - the interval learned during "
-                                        f"conditioning - and the CR window is that learned interval "
-                                        f"applied as a probe."),
-              ("Companion workbook", f"{COND_FILE} holds the conditioning block.")]),
-}
+BOOKS = dict((role, b) for role, b in
+             ((r, _book(r)) for r in C.ROLES) if b)
+
 
 COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "trial_in_block", "0", 9),
         ("Session", "session_name", None, 10), ("Trial in session", "session_trial", "0", 9),
         ("Type", "trial_type", None, 10),
         ("CS onset in video (s)", "cs_onset_video_s", "0.000", 14),
-        ("CS onset in block (s)", "cs_onset_block_s", "0.000", 14),
+        ("CS onset on session clock (s)", "cs_onset_block_s", "0.000", 14),
+        ("Alignment error (ms)", "alignment_error_ms", "0.00", 11),
+        ("Face tracked (%)", "face_tracked_pct", "0.0", 11),
         ("CS duration measured (ms)", "cs_duration_measured_ms", "0.0", 13),
         ("Quality flag", "quality", None, 24),
         ("Blinks in 1 s window", "n_full_blinks", "0", 10),
@@ -161,8 +242,8 @@ COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "t
         ("Peak closure (%)", "peak_closure_pct", "0.0", 11),
         ("Closing speed (%/ms)", "closing_speed_pct_per_ms", "0.00", 12),
         ("Closure duration (ms)", "closure_duration_ms", "0.0", 13),
-        ("Closure at US 350 ms (%)", "closure_at_US_pct", "0.0", 13),
-        ("Closure at CS offset 400 ms (%)", "closure_at_CSoff_pct", "0.0", 14),
+        ("Closure at US %.0f ms (%%)" % NOM["us_onset_ms"], "closure_at_US_pct", "0.0", 13),
+        ("Closure at CS offset %.0f ms (%%)" % NOM["cs_ms"], "closure_at_CSoff_pct", "0.0", 14),
         ("Half-reopened (ms)", "reopen_half_ms", "0.0", 12),
         ("Fully reopened (ms)", "reopen_full_ms", "0.0", 12),
         ("Closure at 1000 ms (%)", "closure_at_1000ms_pct", "0.0", 13),
@@ -189,7 +270,7 @@ def widths(ws, w):
 
 
 def scoreable(rs):
-    return [r for r in rs if r["scored_class"] not in (None, "in-progress at CS")]
+    return [r for r in rs if r["scored_class"] not in (None, MOVING_LBL)]
 
 
 def write_table(ws, rows):
@@ -226,16 +307,18 @@ def write_table(ws, rows):
 
 
 def scatter_sheet(ws, rows, has_us, xlabel, title):
-    lbl_us = "US onset = 350 ms" if has_us else "learned US onset = 350 ms (none delivered)"
-    hd = ["#", "Block", "Session", "CR (100-350 ms)", "alpha / startle (<100 ms)", "UR only (350 ms +)",
-          "lid moving at CS", "CS onset = 0 ms", lbl_us, "CS / US offset = 400 ms", "Block mean onset"]
+    lbl_us = ("US onset = %.0f ms" % NOM["us_onset_ms"]) if has_us else (
+        "learned US onset = %.0f ms (none delivered)" % NOM["us_onset_ms"])
+    hd = ["#", "Block", "Session", CR_LBL, ALPHA_LBL, UR_LBL,
+          "lid moving at onset", "CS onset = 0 ms", lbl_us,
+          "CS / US offset = %.0f ms" % NOM["cs_ms"], "Block mean onset"]
     for j, x in enumerate(hd, 1):
         ws.cell(row=1, column=j, value=x)
-    colmap = {"CR (100-350ms)": 4, "alpha/startle <100ms": 5, "UR (>=350ms)": 6, "in-progress at CS": 7}
+    colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
     bmean = {}
     for b in sorted({r["block"] for r in rows if r["block"]}):
         g = [r["scored_onset_ms"] for r in rows if r["block"] == b and r["scored_onset_ms"] is not None
-             and r["scored_class"] != "in-progress at CS"]
+             and r["scored_class"] != MOVING_LBL]
         if g:
             bmean[b] = float(np.mean(g))
     for i, r_ in enumerate(rows, 2):
@@ -283,7 +366,7 @@ def build(block):
     paired = [r for r in rows if r["trial_type"] == "CS-US"]
     csonly = [r for r in rows if r["trial_type"] == "CS-only"]
     main = paired if paired else csonly
-    sess = sorted({r["session"] for r in rows}, key=lambda t: ["csus1", "csus2", "csus3", "csus4"].index(t))
+    sess = sorted({r["session"] for r in rows}, key=lambda t: TAG_ORDER.index(t))
     wb = Workbook()
 
     def blockhdr(ws, r, title):
@@ -338,20 +421,20 @@ def build(block):
         for j, x in enumerate(hd, 1):
             ws.cell(row=1, column=j, value=x)
         ri = 2
-        items = [(t, META[t]["video"], [r for r in paired if r["session"] == t]) for t in sess]
-        items.append(("ALL", " + ".join(META[t]["video"] for t in sess), paired))
+        items = [(t, REC_FILE[t], [r for r in paired if r["session"] == t]) for t in sess]
+        items.append(("ALL", " + ".join(REC_FILE[t] for t in sess), paired))
         for tag, vid, rs in items:
             if not rs:
                 continue
             sc = scoreable(rs)
-            cr = [r for r in sc if r["scored_class"] == "CR (100-350ms)"]
+            cr = [r for r in sc if is_cr(r)]
             o = [r["scored_onset_ms"] for r in cr]
             name = "All pooled" if tag == "ALL" else rs[0]["session_name"]
-            vals = [name, vid, round(META[sess[0]]["duration_s"], 1) if tag != "ALL"
-                    else round(sum(META[t]["duration_s"] for t in sess), 1),
+            vals = [name, vid, round(SESSMETA[sess[0]]["duration_s"], 1) if tag != "ALL"
+                    else round(sum(SESSMETA[t]["duration_s"] for t in sess), 1),
                     len(rs), len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
-                    sum(1 for r in sc if r["scored_class"] == "alpha/startle <100ms"),
-                    sum(1 for r in sc if r["scored_class"] == "UR (>=350ms)"),
+                    sum(1 for r in sc if is_alpha(r)),
+                    sum(1 for r in sc if is_ur(r)),
                     len(rs) - len(sc),
                     round(float(np.mean(o)), 1) if o else None,
                     round(float(np.std(o, ddof=1)), 1) if len(o) > 1 else None,
@@ -360,7 +443,7 @@ def build(block):
                     round(float(np.mean([r["closure_at_US_pct"] for r in sc])), 1) if sc else None,
                     sum(1 for r in rs if r["first_response_obscured"] == "yes" and r["secondary_onset_ms"])]
             if tag != "ALL":
-                vals[2] = round(META[tag]["duration_s"], 1)
+                vals[2] = round(SESSMETA[tag]["duration_s"], 1)
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=ri, column=j, value=v)
                 c.font = Font(size=10, bold=(tag == "ALL"), color=INK)
@@ -383,13 +466,13 @@ def build(block):
         for bi, b in enumerate(sorted({r["block"] for r in paired}), 2):
             g = [r for r in paired if r["block"] == b]
             sc = scoreable(g)
-            cr = [r for r in sc if r["scored_class"] == "CR (100-350ms)"]
+            cr = [r for r in sc if is_cr(r)]
             allo = [r["scored_onset_ms"] for r in sc]
             o = [r["scored_onset_ms"] for r in cr]
             vals = [b, len(g), len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
-                    sum(1 for r in sc if r["scored_class"] == "UR (>=350ms)"),
-                    round(100 * sum(1 for r in sc if r["scored_class"] == "UR (>=350ms)") / len(sc), 1) if sc else None,
-                    sum(1 for r in sc if r["scored_class"] == "alpha/startle <100ms"),
+                    sum(1 for r in sc if is_ur(r)),
+                    round(100 * sum(1 for r in sc if is_ur(r)) / len(sc), 1) if sc else None,
+                    sum(1 for r in sc if is_alpha(r)),
                     round(float(np.mean(allo)), 1) if allo else None,
                     round(float(np.std(allo, ddof=1)), 1) if len(allo) > 1 else None,
                     round(float(np.mean(o)), 1) if o else None,
@@ -424,36 +507,30 @@ def build(block):
 
     # ---------------- Stimulus events ----------------
     ws = wb.create_sheet("Stimulus events")
-    hd = ["Session", "Event #", "Event", "Onset frame", "Onset (s)", "Duration (ms)", "Paired with",
-          "CS-US interval (ms)"]
+    hd = ["Recording", "Event #", "Stimulus", "Onset frame", "Onset (s)", "Duration (ms)",
+          "Accepted", "Rejected because"]
     for j, x in enumerate(hd, 1):
         ws.cell(row=1, column=j, value=x)
     ri = 2
-    keepframes = {(r["session"], round(r["cs_onset_video_s"] * META[r["session"]]["fps"])) for r in rows}
     for tag in sess:
-        fps = META[tag]["fps"]
-        name = META[tag]["rows"][0]["session_name"]
-        used = {c for a, b, c in META[tag]["cs_events"] if c >= 0}
-        ev = [(a, ["CS (yellow LED)", a, b, c]) for a, b, c in META[tag]["cs_events"]
-              if (tag, a) in keepframes or (tag, a + 1) in keepframes or (tag, a - 1) in keepframes]
-        ev += [(a, ["US (blue LED)", a, b, -2 if a in used else -1]) for a, b in META[tag]["us_events"]]
-        ev.sort(key=lambda z: z[0])
-        for i, (_, (kind, a, b, c)) in enumerate(ev, 1):
-            pair = ("US" if c >= 0 else "unpaired") if kind.startswith("CS") else ("CS" if c == -2 else "unpaired")
-            vals = [name, i, kind, int(a), round(a / fps, 4), round((b - a + 1) / fps * 1000, 1), pair,
-                    round((c - a) / fps * 1000, 1) if (kind.startswith("CS") and c >= 0) else ""]
+        name = SESSMETA[tag]["label"]
+        for i, (t, kind, e) in enumerate(stim_events(tag), 1):
+            vals = [name, i, kind, e["frame"], round(e["t"], 4), e["dur_ms"],
+                    "yes" if e["ok"] else "no",
+                    e.get("reason", "") or ("" if e["ok"] else "duration off-spec")]
             for j, v in enumerate(vals, 1):
                 cc = ws.cell(row=ri, column=j, value=v)
-                cc.font = Font(size=10, color=INK)
+                cc.font = Font(size=10, color=INK if e["ok"] else MUT,
+                               italic=not e["ok"])
                 cc.border = Border(bottom=thin)
-                cc.alignment = Alignment(horizontal="left" if j in (1, 3, 7) else "right")
+                cc.alignment = Alignment(horizontal="left" if j in (1, 3, 7, 8) else "right")
                 if j == 5:
                     cc.number_format = "0.0000"
-                if j in (6, 8):
+                if j == 6:
                     cc.number_format = "0.0"
             ri += 1
     style_header(ws)
-    widths(ws, [11, 9, 17, 12, 12, 13, 12, 15])
+    widths(ws, [22, 9, 17, 12, 12, 13, 10, 26])
     ws.freeze_panes = "C2"
     ws.sheet_view.showGridLines = False
 
@@ -470,7 +547,7 @@ def build(block):
     t = None
     series = []
     for r in rows:
-        TRC = META[r["session"]]["traces"][str(r["session_trial"])]
+        TRC = M["traces"][r["session"]][str(r["session_trial"])]
         if t is None:
             t = TRC["t"]
         series.append((f"{r['session_name']} T{r['session_trial']} ({r['trial_type']})", TRC["C"]))
@@ -531,5 +608,6 @@ def build(block):
     print(f"saved {out}  ({len(paired)} paired + {len(csonly)} CS-only)")
 
 
-for b in (sys.argv[1:] or ["conditioning", "test"]):
-    build(b)
+for b in (sys.argv[2:] or list(BOOKS)):
+    if b in BOOKS:
+        build(b)

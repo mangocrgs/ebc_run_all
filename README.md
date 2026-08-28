@@ -1,89 +1,151 @@
 # Eyeblink-conditioning video scoring
 
-Scores delay eyeblink conditioning directly from high-speed video: it finds both
-stimulus LEDs in the pixels, aligns every trial to the CS to within one frame, and
-measures eyelid aperture with facial landmarks.
+Scores delay eyeblink conditioning directly from high-speed video: it finds both stimulus
+LEDs in the pixels, aligns every trial to the CS to within one frame, and measures eyelid
+aperture with facial landmarks.
 
-Nothing about the timing is assumed — the CS–US interval, the trial structure and the
-block boundaries are all recovered from the recording and then checked against the
-protocol.
+Nothing about the timing is assumed — the CS duration, the CS–US interval, the trial
+structure and the block boundaries are all recovered from the recording and then *checked*
+against the protocol. The protocol is a test, never an instruction: no trial is renumbered
+to make the structure come out right, and the report says exactly where recording and
+protocol disagree.
+
+One participant per run, driven by a small JSON file, so the same checkout processes any
+number of participants.
 
 ## Run it
 
 ```
-python ebc_run_all.py                # everything; skips videos already processed
-python ebc_run_all.py --force        # re-process the videos from scratch
-python ebc_run_all.py --score-only   # skip the videos, just re-score and rebuild
+python ebc_run_all.py --config studies/thomas.json     # everything
+python ebc_run_all.py --videos "D:/EBC/Video/Alice"    # no config: roles from file names
+python ebc_run_all.py --config studies/thomas.json --from score   # re-score, rebuild
+python ebc_run_all.py --config studies/thomas.json --force        # redo the video passes
 ```
 
-A 4 GB / 531 s recording takes ~12 min. All four take ~40 min. Intermediates are cached
-in `analysis_CSUS/_work`, so `--score-only` reruns everything downstream in seconds —
-that is the flag to use when changing a scoring rule or a figure.
+Requires `ffmpeg` and `ffprobe` on PATH, and
+`opencv-python mediapipe numpy scipy matplotlib openpyxl pillow`.
 
-Requires `ffmpeg` on PATH, and `opencv-python mediapipe numpy scipy matplotlib openpyxl pillow`.
+Two passes are made over each recording (a survey and a full-rate read of a small window),
+plus a short seek per trial for the eyelids. Intermediates are cached in `<out>/_work`, so
+`--from score` reruns everything downstream in seconds — that is the flag to use when
+changing a scoring rule or a figure. `--jobs N` sets how many recordings decode at once.
 
-## The protocol it expects
+## The study file
 
-| | |
-|---|---|
-| Block | 9 paired CS–US trials, then 1 CS-only trial |
-| Conditioning | 10 blocks |
-| CS | yellow LED, 400 ms |
-| US | blue LED, 50 ms |
-| Overlap | the two co-terminate, so US onset is 350 ms after CS onset |
-| Extinction | CS-only trials afterwards (here, the separate CSUS 4 recording) |
+```json
+{
+  "study": "Thomas",
+  "video_dir": "C:/.../Video/Thomas",
+  "protocol": {
+    "cs_ms": 400.0, "us_onset_ms": 350.0, "us_dur_ms": 50.0,
+    "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10,
+    "min_iti_s": 5.0, "cs_tol": 0.35, "us_tol": 0.60
+  },
+  "recordings": [
+    {"tag": "csus1", "file": "CSUS 1.MP4", "label": "CSUS 1", "role": "conditioning", "order": 1},
+    {"tag": "extinction", "file": "extinction.MP4", "label": "Extinction 1", "role": "extinction", "order": 1},
+    {"tag": "csonly", "file": "CS ONLY.MP4", "label": "CS-only baseline", "role": "baseline_cs"},
+    {"tag": "usonly", "file": "US ONLY.MP4", "label": "US-only baseline", "role": "baseline_us"}
+  ]
+}
+```
 
-Change these in `ebc_score.py` (`CS_DUR`, `US_ONSET`, `US_DUR`) if the protocol differs.
-Recordings are listed in `RECORDINGS` in `ebc_run_all.py`; add a line and it joins the run.
+A recording's **role** decides what is expected of it and how it is scored:
+
+| role | what it is | how it is treated |
+|---|---|---|
+| `conditioning` | paired CS–US trials plus the CS-only probe that closes each block | chapters of one session; they concatenate onto one clock and carry the block structure |
+| `extinction` | CS alone after conditioning | scored against the *learned* US window; no US is delivered |
+| `baseline_cs` | CS alone, outside conditioning | gives the false-positive rate for the CR window |
+| `baseline_us` | US alone | no CS exists, so every window is anchored on the US instead |
+
+Omit `recordings` and the folder is scanned: `CSUS *`, `extinction*`, `CS ONLY`, `US ONLY`
+map onto the four roles. Add `"led_yellow": [x, y]` to a recording to pin the CS LED by
+hand if the automatic search ever picks the wrong spot.
+
+## How the stimuli are found
+
+This is the part that has to be right, because everything downstream is measured from it.
+
+1. **The CS LED is found by what it does, not by how it looks.** A survey pass keeps, for
+   every 6×6 block of a 480×270 frame, the strongest yellow value per sampled frame — so
+   every block has a time course. Blocks are then ranked on the two things that make an LED
+   an LED: a large gap between a resting level and a lit level, and pulses that all last the
+   protocol's duration. A table lamp is bright, a painting is yellow, a wooden mask is both;
+   none of them switch. In a sunlit room full of warm-coloured objects the true LED wins by
+   a factor of two to three over the runner-up.
+2. **The US LED is never searched for across the frame.** At 50 ms it is one or two frames in
+   a subsampled survey, indistinguishable from sensor noise or someone walking past — a
+   whole-frame search finds noise, reliably. Instead its window is pinned beside the CS LED,
+   where it physically is on the same panel. That is also what keeps the read window small.
+3. **The box position is decided for the whole participant at once.** Short clips with two
+   CS presentations cannot locate anything on their own, and a US-only recording has no CS
+   to find; both take the position from the recordings that *were* confident. Where the
+   local estimate and the study consensus disagree, the read window spans both.
+4. **Timing comes from a full-rate, full-resolution read** of that window — never from the
+   survey. Onsets are good to one frame: 8.34 ms at 119.88 fps.
+5. **The threshold is derived per recording, not fixed.** An amber lens is yellow even when
+   dark, so the resting level is nowhere near zero and no constant transfers between
+   recordings. What transfers is the switch, so the threshold is placed between the two
+   modes of the signal, with a Schmitt trigger so a flickering edge cannot split one pulse
+   into two.
+6. **Every pulse is kept, accepted or rejected, with the reason.** A pulse outside the
+   duration tolerance, or closer than `min_iti_s` to the previous accepted one, is LED
+   flicker rather than a stimulus — but it still appears in `stimulus_events.csv`. Nothing
+   is dropped silently.
+7. **The pipeline says when it does not trust itself.** Weak contrast, accepted pulses only
+   a fraction of a second apart, or a "lit pixel" that wanders across the frame instead of
+   staying a point source all raise a warning that is carried into the QC page and the JSON.
+
+**Look at `qc_leds_<tag>.png` first on a new participant.** It shows the marker on the LED,
+the window that was read, the whole signal with its thresholds, and a tick for every pulse
+accepted or rejected. If that page is right, the numbers are right.
+
+## How a trial is scored
+
+1. **Alignment.** Each trial window is cut with the anchoring LED *and* the face inside the
+   same crop, so the onset is re-detected inside the window rather than trusted from the
+   seek. The residual error is reported per trial.
+2. **Eyelid measure.** MediaPipe FaceMesh (478 landmarks, iris refinement) on a 2× upscaled
+   face crop; eye aspect ratio per eye, averaged. EAR is normalised by eye width, so it
+   survives head movement and changes of camera distance.
+3. **Closure scale.** 0% = a blink-robust open-eye reference (85th percentile of EAR in the
+   window, which survives a baseline blink where a median does not). 100% = a full-closure
+   reference **pooled across every recording of the participant**, so a two-minute clip and
+   a nine-minute chapter sit on the same axis. Smoothed with a 5-frame Savitzky–Golay filter.
+4. **Blink criterion.** Five robust SDs above the trial's own pre-CS baseline, floor 15%
+   closure, then walked back along the rising edge to the true onset. A separate blink must
+   re-reach 40% closure after first returning below 20%.
+5. **Second look.** If the first event is an alpha blink (<100 ms) or the lid was already
+   moving at onset, the window is searched for a *later* blink — a real CR or UR may sit
+   behind the artefact. Where one is found it becomes the scored response.
+
+**Analyse the `scored_onset_ms` / `scored_class` columns.** They already apply the
+second-look rule; `blink_onset_ms` keeps the unmodified first event for transparency.
+
+Classes: `alpha/startle` <100 ms · `CR` 100 ms–US onset (began before the puff) ·
+`UR` at or after US onset · `in-progress at stimulus` (untimeable, excluded from summaries).
+US-only trials are anchored on the puff, so their latencies are measured from it and every
+response there is by definition unconditioned.
 
 ## Files
 
 | Script | What it does |
 |---|---|
-| `ebc_paths.py` | Where everything lives. Paths are relative to this folder, so it can be moved or copied to another machine. |
-| `ebc_pipeline.py` | Per-recording. Finds the blue LED and the stimulator box, then the yellow LED, then tracks eyelids in a window around every CS. Writes `<tag>_result.json`. |
-| `ebc_score.py` | All recordings together. Filters detections, recovers the block structure, and scores every trial on one pooled closure scale. Writes `merged.json` / `merged_rows.json`. |
-| `ebc_figures.py` | `cond_paired` / `cond_csonly` / `ext` — scatter, acquisition curve, rasters. |
+| `ebc_config.py` | The study file: recordings, roles, protocol. Discovers a folder when there is no config. |
+| `ebc_paths.py` | Where the outputs and the cache live, per study. |
+| `ebc_video.py` | ffmpeg/ffprobe helpers. |
+| `ebc_signal.py` | Bimodal threshold + Schmitt trigger: a 1-D LED signal to a list of pulses. |
+| `ebc_locate.py` | Study-level: where the stimulator box is in each recording, with a consensus for the clips that cannot tell. |
+| `ebc_stimulus.py` | Per recording: survey pass, then the full-rate read. Writes `<tag>_stim.json`. |
+| `ebc_protocol.py` | Pulses to trials; pairs CS with US; recovers the blocks and checks them against the protocol. |
+| `ebc_eyes.py` | Per recording: eyelid tracking in a window around every trial. |
+| `ebc_score.py` | One pooled closure scale, blink metrics, response classes. |
+| `ebc_figures.py` | Onset scatter, acquisition curve, closure rasters — one set per trial group. |
 | `ebc_export_csv.py` | Trials, stimulus events and full traces as CSV. |
-| `ebc_workbooks.py` | The two Excel workbooks. |
-| `ebc_qc.py` | `python ebc_qc.py <tag> "<video>" <trial> [...]` — renders an eye filmstrip for a trial with the measured closure printed on each frame. Use it whenever a number looks wrong. |
-| `ebc_progress.py` | One-line progress readout while a long run is going. |
-
-## How a trial is scored
-
-1. **Stimulus detection.** Each LED is found as a *transient* against a running
-   background, so a static coloured object in the room cannot trigger it, and the two
-   LEDs are detected independently rather than one being anchored to the other.
-2. **Detection filter.** A genuine CS lasts ~400 ms. Detections outside 330–470 ms, or
-   within 6 s of the previous one, are LED flicker and are discarded. Blue transients
-   that do not match the US pulse duration go the same way. The check that this is right:
-   afterwards the sequence comes out as exactly nine paired trials before each CS-only
-   trial, ten times over, with the probes 150.0–150.2 s apart.
-3. **Alignment.** Each trial window is cut with the LED *and* the face inside the same
-   crop, so the CS onset is re-detected inside every window rather than trusted from the
-   seek. Good to one frame — 8.34 ms at 119.88 fps.
-4. **Eyelid measure.** MediaPipe FaceMesh (478 landmarks, iris refinement) on a
-   2×-upscaled face crop. Eye aspect ratio per eye, averaged. EAR is normalised by eye
-   width, so it survives head movement and camera distance.
-5. **Closure scale.** 0% = a blink-robust open-eye reference (85th percentile of EAR in
-   the window, which survives a baseline blink where a median does not). 100% = a
-   full-closure reference **pooled across every recording**, so short blocks stay
-   comparable. Smoothed with a 5-frame Savitzky–Golay filter (42 ms).
-6. **Blink criterion.** Five robust SDs above the trial's own pre-CS baseline, floor 15%
-   closure, then walked back along the falling edge to the true onset. A separate blink
-   must re-reach 40% closure after first returning below 20%.
-7. **Second look.** If the first event is an alpha blink (<100 ms) or the lid was already
-   moving at CS onset, the window is searched for a *later* blink — a real CR or UR may
-   sit behind the artefact. Where one is found it becomes the scored response.
-
-**Analyse the `SCORED onset` / `SCORED class` columns.** They already apply the second-look
-rule. `Raw first blink` keeps the unmodified first event for transparency.
-
-Classes: `alpha/startle` <100 ms · `CR` 100–350 ms (began before the US) · `UR only`
-≥350 ms · `in-progress at CS` (untimeable, excluded from summaries).
-
-CS-only trials are scored but kept out of the session and block summaries and out of the
-main scatter — a trial with no US is a different measurement.
+| `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me. |
+| `ebc_qc.py` | `leds` — the LED check page per recording. `trial <tag> <n>` — an eye filmstrip with the measured closure printed on each frame. |
+| `ebc_run_all.py` | The driver. |
 
 ## Known limits
 
@@ -91,16 +153,19 @@ main scatter — a trial with no US is a different measurement.
   coil. The timings are the reliable quantity; treat absolute closure percentages as
   relative.
 - Trials carrying a quality flag are kept in the tables so nothing is silently dropped.
-  Filter `Quality flag = clean` for the strictest subset.
-- The pipeline assumes one face, roughly frontal, and a stimulator box visible somewhere
-  in frame. If the camera is moved mid-recording, split the file first.
+  Filter `quality = clean` for the strictest subset.
+- One face, roughly frontal, and the stimulator box visible somewhere in frame. A camera
+  re-aimed *between* recordings is handled; a camera re-aimed *within* one is detected and
+  flagged, and the LED window is widened to cover both positions, but a very large move may
+  still need `led_yellow` set by hand.
+- Trials whose window runs off the end of a recording are marked `truncated`.
 
 ## Output
 
-Everything lands in `analysis_CSUS/`:
+Everything lands in `<video_dir>/analysis_EBC/`:
 
-- `EBC_Marie_CSUS.xlsx` — conditioning (90 paired + 10 CS-only)
-- `EBC_Marie_CSUS4.xlsx` — extinction
-- `cond_*` / `csonly_*` / `ext_*` PNG figures
+- `EBC_<study>_conditioning.xlsx`, `_extinction.xlsx`, `_baseline_cs.xlsx`, `_baseline_us.xlsx`
+- `qc_leds_<tag>.png` — the stimulus-detection check, one per recording
+- `cond_*`, `ext_*`, `baseline_*` PNG figures
 - `trials_*.csv`, `stimulus_events.csv`, `closure_traces_all.csv`
 - `_work/` — cache, safe to delete (costs a full re-run)

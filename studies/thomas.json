@@ -1,0 +1,25 @@
+{
+  "study": "Thomas",
+  "video_dir": "C:/Users/marga/OneDrive/Bureau/Recherche/EBC/Video/Thomas",
+  "protocol": {
+    "cs_ms": 400.0,
+    "us_onset_ms": 350.0,
+    "us_dur_ms": 50.0,
+    "paired_per_block": 9,
+    "cs_only_per_block": 1,
+    "n_blocks": 10,
+    "min_iti_s": 5.0,
+    "cs_tol": 0.35,
+    "us_tol": 0.60
+  },
+  "recordings": [
+    {"tag": "csus1",      "file": "CSUS 1.MP4",      "label": "CSUS 1",       "role": "conditioning", "order": 1},
+    {"tag": "csus2",      "file": "CSUS 2.MP4",      "label": "CSUS 2",       "role": "conditioning", "order": 2},
+    {"tag": "csus3",      "file": "CSUS 3.MP4",      "label": "CSUS 3",       "role": "conditioning", "order": 3},
+    {"tag": "csus4",      "file": "CSUS 4.MP4",      "label": "CSUS 4",       "role": "conditioning", "order": 4},
+    {"tag": "extinction", "file": "extinction.MP4",  "label": "Extinction 1", "role": "extinction",   "order": 1},
+    {"tag": "extinction2","file": "extinction 2.MP4","label": "Extinction 2", "role": "extinction",   "order": 2},
+    {"tag": "csonly",     "file": "CS ONLY.MP4",     "label": "CS-only baseline", "role": "baseline_cs", "order": 1},
+    {"tag": "usonly",     "file": "US ONLY.MP4",     "label": "US-only baseline", "role": "baseline_us", "order": 1}
+  ]
+}
