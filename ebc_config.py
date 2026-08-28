@@ -22,6 +22,16 @@ import re
 #   baseline_us   US alone.  There is no CS, so trials are anchored on the US instead.
 ROLES = ("conditioning", "extinction", "baseline_cs", "baseline_us")
 
+# Which LED a recording's trials are built from.
+#
+#   cs   the CS (yellow) LED marks trial onset.  The default, and the only one that can
+#        see a CS-only probe, because a probe delivers no US.
+#   us   the US (blue) LED marks the trial and the CS onset is inferred as
+#        us_onset - us_onset_ms.  Use when the CS LED is too washed out to threshold
+#        reliably (ebc_qc.py leds reports the contrast).  CS-only probes are invisible
+#        to this mode and the CS duration is not measured, only assumed.
+ANCHORS = ("cs", "us")
+
 DEFAULT_PROTOCOL = {
     "cs_ms": 400.0,          # CS duration (yellow LED)
     "us_onset_ms": 350.0,    # US onset, measured from CS onset
@@ -107,6 +117,9 @@ def load(path=None, video_dir=None, study=None):
         rec.setdefault("tag", _slug(rec["label"]))
         if rec["role"] not in ROLES:
             raise SystemExit(f"{rec['file']}: unknown role {rec['role']!r} (expected {ROLES})")
+        rec.setdefault("anchor", "cs")
+        if rec["anchor"] not in ANCHORS:
+            raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")
         if rec["tag"] in seen:
             raise SystemExit(f"duplicate tag {rec['tag']!r}")
         seen.add(rec["tag"])

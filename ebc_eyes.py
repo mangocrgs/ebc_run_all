@@ -109,7 +109,12 @@ def main():
     log(tag, "face box x[%.0f,%.0f] y[%.0f,%.0f] from %d samples"
         % (fb["x0"], fb["x1"], fb["y0"], fb["y1"], fb["n"]))
 
-    anchor_led = "blue" if rec["role"] == "baseline_us" else "yellow"
+    us_anchored = rec.get("anchor", "cs") == "us" and rec["role"] != "baseline_us"
+    anchor_led = "blue" if (rec["role"] == "baseline_us" or us_anchored) else "yellow"
+    # A US-anchored trial is cut around the *inferred* CS onset, so the blue flash sits
+    # us_onset_ms into the window.  Find it there and step back to keep k0 meaning what it
+    # means everywhere else: the index of CS onset.  Nothing downstream has to change.
+    us_lag = int(round(cfg["protocol"]["us_onset_ms"] / MS)) if us_anchored else 0
     led = stim["leds"].get(anchor_led) or list(stim["leds"].values())[0]
     if led.get("position"):                       # where the LED actually lit up
         lx, ly = led["position"]["x"], led["position"]["y"]
@@ -151,7 +156,7 @@ def main():
         rest = float(np.percentile(s[:max(PRE // 2, 5)], 50))
         lit = float(s.max())
         on = np.where(s > rest + 0.55 * (lit - rest))[0] if lit - rest > 25 else []
-        k0 = int(on[0]) if len(on) else PRE
+        k0 = int(on[0]) - us_lag if len(on) else PRE
 
         fm = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1,
                                              refine_landmarks=True,

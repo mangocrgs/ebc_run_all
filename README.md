@@ -63,6 +63,38 @@ Omit `recordings` and the folder is scanned: `CSUS *`, `extinction*`, `CS ONLY`,
 map onto the four roles. Add `"led_yellow": [x, y]` to a recording to pin the CS LED by
 hand if the automatic search ever picks the wrong spot.
 
+### When the CS LED cannot be read
+
+`"anchor": "us"` on a recording builds its trials from the US (blue) LED instead of the CS
+(yellow) one, and infers the CS onset as `us_onset - us_onset_ms`:
+
+```json
+{"tag": "csus2", "file": "CSUS 2.MP4", "role": "conditioning", "order": 2, "anchor": "us"}
+```
+
+Reach for it when `ebc_qc.py leds` reports weak contrast and a pulse count far below the
+rejected count - the signature of a CS window whose baseline has drifted up into the
+threshold, so the detector is triggering on noise. A wooden or warm-coloured stimulator box
+under changing room light does exactly this to the yellow channel, while the blue US LED,
+having nothing in the scene to compete with, stays clean.
+
+Because a US is only ever delivered inside a CS, every accepted US marks a paired trial.
+`ebc_eyes.py` then aligns the window on the blue LED and steps back by the protocol lag, so
+alignment is as good as the US pulse - in practice exact to the frame.
+
+Two things are given up, and both are visible in the output rather than assumed away:
+
+- **CS-only probes are invisible**, since a probe delivers no US. Blocks can no longer be
+  closed by their probe, so the block structure is only recovered as far as the last
+  CS-anchored probe. Prefer mixed anchoring - leave the recordings whose CS LED is clean on
+  the default `"cs"` - so the probes that do exist are still found.
+- **The CS onset is inferred, not measured**, and `cs_duration_ms` is empty. Every trial
+  carries a **CS timing source** column saying which it was.
+
+Validated on a recording where both LEDs were clean: inferred CS onset matched the measured
+one to a median of +0.3 ms (SD 1.5 ms, max 8.0 ms - under one frame at 119.88 fps), and the
+scored response class agreed on 29/31 trials.
+
 ## How the stimuli are found
 
 This is the part that has to be right, because everything downstream is measured from it.
@@ -159,6 +191,8 @@ response there is by definition unconditioned.
   flagged, and the LED window is widened to cover both positions, but a very large move may
   still need `led_yellow` set by hand.
 - Trials whose window runs off the end of a recording are marked `truncated`.
+- A recording set to `"anchor": "us"` cannot contribute CS-only probes, so a study anchored
+  that way throughout recovers its paired trials but not its block boundaries.
 
 ## Output
 

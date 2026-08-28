@@ -78,6 +78,8 @@ def build(cfg):
             offset[s["tag"]] = acc
             acc += float(s["duration_s"])
 
+    anchor_of = {r["tag"]: r.get("anchor", "cs") for r in cfg["recordings"]}
+
     trials, report = [], []
     for s in stim:
         cs = [e for e in s["events"].get("yellow", []) if e["ok"]]
@@ -87,7 +89,26 @@ def build(cfg):
         dur = s["duration_s"]
         n_par = sum(1 for _, u in pairs if u)
         rows = []
-        if s["role"] == "baseline_us":
+        us_anchored = anchor_of.get(s["tag"], "cs") == "us" and s["role"] != "baseline_us"
+        if us_anchored:
+            # The CS LED could not be thresholded, but every US was clean.  A US is only
+            # ever delivered inside a CS, so each accepted US marks a paired trial and the
+            # CS onset follows from the protocol lag.  CS-only probes carry no US and are
+            # therefore not recoverable this way - the report says so.
+            lag = proto["us_onset_ms"] / 1000.0
+            for i, u in enumerate([u for u in us_all if u["ok"]], 1):
+                cs_t = u["t"] - lag
+                cs_f = int(round(cs_t * fps))
+                rows.append(dict(session=s["tag"], session_name=s["label"], role=s["role"],
+                                 session_trial=i, trial_type="CS-US",
+                                 cs_onset_s=round(cs_t, 4), cs_frame=cs_f,
+                                 cs_duration_ms=None,          # assumed, never measured
+                                 us_onset_s=round(u["t"], 4), us_frame=u["frame"],
+                                 us_duration_ms=u["dur_ms"],
+                                 isi_ms=round(proto["us_onset_ms"], 1),
+                                 anchor_frame=cs_f, anchor_s=round(cs_t, 4)))
+            n_par = len(rows)
+        elif s["role"] == "baseline_us":
             for i, u in enumerate([u for u in us_all if u["ok"]], 1):
                 rows.append(dict(session=s["tag"], session_name=s["label"], role=s["role"],
                                  session_trial=i, trial_type="US-only",
@@ -108,13 +129,15 @@ def build(cfg):
                                  isi_ms=round((u["t"] - c["t"]) * 1000, 1) if u else None,
                                  anchor_frame=c["frame"], anchor_s=round(c["t"], 4)))
         for r in rows:
+            r["cs_timing"] = "inferred from US" if us_anchored else "measured from CS LED"
             if s["tag"] in offset:
                 r["session_clock_s"] = round(r["anchor_s"] + offset[s["tag"]], 3)
             r["truncated"] = bool(r["anchor_s"] + 1.2 > dur or r["anchor_s"] < 0.35)
         trials += rows
         report.append(dict(tag=s["tag"], label=s["label"], role=s["role"],
-                           duration_s=dur, fps=fps,
-                           n_cs=len(cs), n_paired=n_par, n_cs_only=len(cs) - n_par,
+                           duration_s=dur, fps=fps, anchor="us" if us_anchored else "cs",
+                           n_cs=len(rows) if us_anchored else len(cs), n_paired=n_par,
+                           n_cs_only=0 if us_anchored else len(cs) - n_par,
                            n_us_unpaired=len(unpaired), n_trials=len(rows),
                            cs_rejected=sum(1 for e in s["events"].get("yellow", []) if not e["ok"]),
                            us_rejected=sum(1 for e in us_all if not e["ok"]),

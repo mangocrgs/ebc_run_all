@@ -228,6 +228,7 @@ COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "t
         ("Alignment error (ms)", "alignment_error_ms", "0.00", 11),
         ("Face tracked (%)", "face_tracked_pct", "0.0", 11),
         ("CS duration measured (ms)", "cs_duration_measured_ms", "0.0", 13),
+        ("CS timing source", "cs_timing", None, 20),
         ("Quality flag", "quality", None, 24),
         ("Blinks in 1 s window", "n_full_blinks", "0", 10),
         ("SCORED onset (ms)", "scored_onset_ms", "0.0", 13),
