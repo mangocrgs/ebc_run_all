@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EBC Analyzer</title>
+<style>
+:root{
+  --cs:#B8760F; --us:#3A67CF; --alert:#B03A32; --ok:#2F7D5B;
+  --paper:#F3F4F7; --surface:#FFFFFF; --sunken:#EBEDF2;
+  --ink:#141922; --muted:#59636F; --rule:#DCE1E9; --accent:#2C4C86;
+}
+@media (prefers-color-scheme:dark){:root{
+  --cs:#E0A63C; --us:#7B9CEC; --alert:#E2736A; --ok:#5FBF92;
+  --paper:#0E1218; --surface:#161B23; --sunken:#1C222B;
+  --ink:#E3E8EF; --muted:#8B95A2; --rule:#242C37; --accent:#8FB0E8;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.55;
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
+.mono,.num{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 24px 80px;display:flex;flex-direction:column;gap:20px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-bottom:4px}
+h1{font-size:26px;margin:0;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:14px;margin:0}
+.pill{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--rule);
+  background:var(--surface);color:var(--muted)}
+.pill.on{border-color:var(--accent);color:var(--accent)}
+.pill.err{border-color:var(--alert);color:var(--alert)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px 20px}
+.card h2{font-size:12px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 14px;display:flex;gap:10px;align-items:center}
+.card h2 .n{display:inline-flex;width:19px;height:19px;border-radius:99px;background:var(--accent);
+  color:var(--surface);align-items:center;justify-content:center;font-size:11px;letter-spacing:0}
+label{font-size:13px;color:var(--muted)}
+input[type=text],input[type=number],select{background:var(--paper);color:var(--ink);
+  border:1px solid var(--rule);border-radius:4px;padding:7px 9px;font:inherit;font-size:14px}
+input[type=text]{width:100%}
+button{font:inherit;font-size:14px;border-radius:5px;border:1px solid var(--rule);
+  background:var(--surface);color:var(--ink);padding:8px 15px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;padding:10px 22px}
+button.primary:hover:not(:disabled){filter:brightness(1.1);color:#fff}
+button.danger{border-color:var(--alert);color:var(--alert)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.chip{font-size:12px;padding:4px 9px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);
+  cursor:pointer;color:var(--muted)}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.dirs{display:flex;flex-wrap:wrap;gap:6px;max-height:104px;overflow:auto;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;padding:6px 8px;border-bottom:1px solid var(--rule)}
+td{padding:7px 8px;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:none}
+td.r,th.r{text-align:right}
+.bar{height:7px;border-radius:99px;background:var(--sunken);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--accent);transition:width .35s ease}
+.bar.done>i{background:var(--ok)}
+.vid{display:grid;grid-template-columns:150px 1fr 190px;gap:12px;align-items:center;padding:8px 0}
+.vid .nm{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vid .st{font-size:12px;color:var(--muted);text-align:right}
+#log{background:var(--sunken);border-radius:5px;padding:10px 12px;height:190px;overflow:auto;
+  font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.files{display:flex;flex-direction:column;gap:5px}
+.files a{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border:1px solid var(--rule);
+  border-radius:4px;text-decoration:none;color:var(--ink);font-size:13.5px;background:var(--paper)}
+.files a:hover{border-color:var(--accent);color:var(--accent)}
+.files .sz{color:var(--muted);font-size:12px}
+.ord{font-size:12px;color:var(--muted);margin-right:6px}
+.mv{padding:1px 5px;font-size:10px;line-height:1.4}
+.files a.stale{opacity:.5}
+.files a.stale em{font-style:normal;font-size:11px;color:var(--muted)}
+.grp{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px;font-weight:700}
+.note{font-size:12.5px;color:var(--muted);margin:10px 0 0}
+.hide{display:none}
+.err{color:var(--alert);font-size:13.5px}
+details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:10px}
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.settings label{display:flex;flex-direction:column;gap:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>EBC Analyzer</h1>
+  <p class="sub">Eyeblink conditioning, scored from video</p>
+  <span class="pill" id="pill">idle</span>
+</header>
+
+<div class="card">
+  <h2><span class="n">1</span> Choose videos</h2>
+  <div class="row" style="margin-bottom:10px">
+    <input type="text" id="path" placeholder="folder path" style="flex:1;min-width:260px">
+    <button id="go">Open</button>
+    <button id="up">Up</button>
+  </div>
+  <div class="crumbs" id="drives"></div>
+  <div class="dirs" id="dirs"></div>
+  <div id="vidwrap"></div>
+  <p class="note" id="pick">Tick the recordings to analyse. Videos are read where they sit — nothing is copied or uploaded, so a 4 GB file costs no extra disk.
+     Conditioning chapters are stitched into one timeline in the order shown; use ▲▼ if the recording order differs.</p>
+</div>
+
+<div class="card">
+  <h2><span class="n">2</span> Protocol</h2>
+  <div class="settings">
+    <label>Study name<input type="text" id="study" value="Marie"></label>
+    <label>CS duration (ms)<input type="number" id="cs" value="400" step="10"></label>
+    <label>US onset (ms)<input type="number" id="uson" value="350" step="10"></label>
+    <label>US duration (ms)<input type="number" id="usdur" value="50" step="10"></label>
+  </div>
+  <p class="note">CS and US co-terminate: US onset + US duration should equal CS duration.
+     The block structure is detected from the recording, not assumed.</p>
+  <div class="row" style="margin-top:16px">
+    <button class="primary" id="run">Run analysis</button>
+    <button class="danger hide" id="stop">Stop</button>
+    <label class="row" style="gap:6px"><input type="checkbox" id="force"> re-process videos already done</label>
+  </div>
+  <p class="err hide" id="err"></p>
+</div>
+
+<div class="card hide" id="progcard">
+  <h2><span class="n">3</span> Progress</h2>
+  <div class="bar" id="allbar" style="height:9px;margin-bottom:6px"><i style="width:0"></i></div>
+  <div class="row" style="justify-content:space-between;margin-bottom:14px">
+    <span class="mono" style="font-size:12.5px;color:var(--muted)" id="phase">—</span>
+    <span class="mono" style="font-size:12.5px;color:var(--muted)" id="elapsed"></span>
+  </div>
+  <div id="vids"></div>
+  <div id="log" class="mono"></div>
+</div>
+
+<div class="card hide" id="rescard">
+  <h2><span class="n">4</span> Results</h2>
+  <div class="row" style="margin-bottom:12px">
+    <button id="openf">Open output folder</button>
+    <span class="mono" style="font-size:12px;color:var(--muted)" id="outpath"></span>
+  </div>
+  <p class="note hide" id="stalenote" style="margin:0 0 10px">
+     Greyed entries are left over from a previous run — this run did not produce them.</p>
+  <div id="res"></div>
+</div>
+
+</div>
+
+<script>
+const T = "__TOKEN__";
+const $ = s => document.querySelector(s);
+const api = (p, o = {}) => fetch(p, {...o, headers: {...(o.headers||{}), "X-Token": T,
+  ...(o.body ? {"Content-Type": "application/json"} : {})}}).then(r => r.json());
+const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+" GB" : b > 1e6 ? (b/1e6).toFixed(1)+" MB" : (b/1e3).toFixed(0)+" kB";
+let VIDS = [], CUR = "";
+
+function browse(path){
+  api("/api/browse?path=" + encodeURIComponent(path || "")).then(d => {
+    if (d.error) { $("#err").textContent = d.error; $("#err").classList.remove("hide"); return; }
+    $("#err").classList.add("hide");
+    CUR = d.path; $("#path").value = d.path;
+    $("#drives").innerHTML = (d.drives||[]).map(x => `<span class="chip" data-p="${x}">${x}</span>`).join("");
+    $("#dirs").innerHTML = d.dirs.map(x =>
+      `<span class="chip" data-p="${x.path.replace(/"/g,"&quot;")}">${x.name}</span>`).join("")
+      || `<span style="font-size:12.5px;color:var(--muted)">no sub-folders</span>`;
+    document.querySelectorAll(".chip").forEach(c => c.onclick = () => browse(c.dataset.p));
+    // Nothing is ticked by default - a folder can hold a dozen multi-GB files and
+    // an accidental Run would be a multi-hour job.
+    VIDS = d.videos.map(v => ({...v, role: v.role || "conditioning", anchor: "cs", on: false}));
+    renderVids();
+  });
+}
+
+function chapterOf(i){
+  let n = 0;
+  for (let k = 0; k <= i; k++) if (VIDS[k].on && VIDS[k].role === "conditioning") n++;
+  return VIDS[i].on ? "chapter " + n : "—";
+}
+
+function renderVids(){
+  if (!VIDS.length){
+    $("#vidwrap").innerHTML = `<p style="font-size:13.5px;color:var(--muted)">No videos in this folder.</p>`;
+    return;
+  }
+  $("#vidwrap").innerHTML = `<table><thead><tr>
+      <th style="width:34px"><input type="checkbox" id="all" title="select all"></th><th>File</th><th class="r" style="width:90px">Size</th>
+      <th style="width:190px">Role</th><th style="width:150px">Trials from</th>
+      <th style="width:96px">Order</th></tr></thead><tbody>` +
+    VIDS.map((v,i) => `<tr>
+      <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
+      <td><span class="nm">${v.name}</span></td>
+      <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
+      <td><select data-i="${i}" class="rl">
+        <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
+        <option value="extinction"   ${v.role==="extinction"?"selected":""}>Extinction</option>
+        <option value="baseline_cs"  ${v.role==="baseline_cs"?"selected":""}>CS-only baseline</option>
+        <option value="baseline_us"  ${v.role==="baseline_us"?"selected":""}>US-only baseline</option>
+      </select></td>
+      <td><select data-i="${i}" class="an" ${(v.role==="extinction"||v.role==="baseline_cs")?"disabled":""}
+                  title="Switch to the US LED only when the LED check page shows the CS LED is too washed out to read.">
+        <option value="cs" ${v.anchor!=="us"?"selected":""}>CS LED</option>
+        <option value="us" ${v.anchor==="us"?"selected":""}>US LED</option>
+      </select></td>
+      <td><span class="ord">${v.role==="conditioning"?chapterOf(i):"—"}</span>
+          <button class="mv" data-i="${i}" data-d="-1" title="move earlier">&#9650;</button>
+          <button class="mv" data-i="${i}" data-d="1" title="move later">&#9660;</button></td>
+      </tr>`).join("") + `</tbody></table>`;
+  const all = $("#all");
+  if (all) { all.checked = VIDS.length > 0 && VIDS.every(v => v.on);
+             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked); renderVids(); }; }
+  document.querySelectorAll(".ck").forEach(c => c.onchange = e => {
+    VIDS[e.target.dataset.i].on = e.target.checked; renderVids(); });
+  document.querySelectorAll(".rl").forEach(c => c.onchange = e => {
+    const v = VIDS[e.target.dataset.i];
+    v.role = e.target.value;
+    // extinction and CS-only deliver no US, so there is nothing to anchor on
+    if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "cs";
+    renderVids(); });
+  document.querySelectorAll(".an").forEach(c => c.onchange = e => {
+    VIDS[e.target.dataset.i].anchor = e.target.value; renderVids(); });
+  document.querySelectorAll(".mv").forEach(c => c.onclick = e => {
+    const i = +e.currentTarget.dataset.i, d = +e.currentTarget.dataset.d, j = i + d;
+    if (j < 0 || j >= VIDS.length) return;
+    [VIDS[i], VIDS[j]] = [VIDS[j], VIDS[i]];
+    renderVids();
+  });
+}
+
+$("#go").onclick = () => browse($("#path").value);
+$("#up").onclick = () => api("/api/browse?path=" + encodeURIComponent(CUR)).then(d => d.up && browse(d.up));
+$("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
+$("#openf").onclick = () => api("/api/open_folder");
+
+$("#run").onclick = () => {
+  const items = VIDS.filter(v => v.on).map(v => ({path: v.path, tag: v.tag, label: v.label,
+                                                  role: v.role, anchor: v.anchor || "cs"}));
+  if (!items.length) { $("#err").textContent = "Tick at least one video."; $("#err").classList.remove("hide"); return; }
+  $("#err").classList.add("hide");
+  api("/api/run", {method:"POST", body: JSON.stringify({
+      items, study: $("#study").value.trim() || "study", force: $("#force").checked,
+      nominal: {cs_ms: +$("#cs").value, us_onset_ms: +$("#uson").value, us_dur_ms: +$("#usdur").value}
+    })}).then(r => { if (r.error){ $("#err").textContent = r.error; $("#err").classList.remove("hide"); } poll(); });
+};
+$("#stop").onclick = () => api("/api/stop", {method:"POST", body:"{}"});
+
+const PHASES = {videos:"processing videos", scoring:"scoring trials", figures:"drawing figures",
+                tables:"writing tables", workbooks:"building workbooks", done:"done",
+                error:"stopped", idle:"idle"};
+
+function poll(){
+  api("/api/status").then(s => {
+    const run = s.running;
+    $("#pill").textContent = s.error ? "error" : (run ? PHASES[s.phase]||s.phase : (s.phase==="done"?"done":"idle"));
+    $("#pill").className = "pill" + (s.error ? " err" : run ? " on" : s.phase==="done" ? " ok" : "");
+    $("#run").disabled = run; $("#stop").classList.toggle("hide", !run);
+    if (s.order.length) $("#progcard").classList.remove("hide");
+    $("#phase").textContent = (PHASES[s.phase]||s.phase) + (s.error ? " — " + s.error : "");
+    if (s.started) {
+      const secs = Math.round((s.finished||Date.now()/1000) - s.started);
+      $("#elapsed").textContent = `${Math.floor(secs/60)}m ${String(secs%60).padStart(2,"0")}s`;
+    }
+    const done = s.order.filter(t => s.videos[t]?.done).length;
+    const frac = s.order.length ? s.order.reduce((a,t)=>a+(s.videos[t]?.pct||0),0)/s.order.length : 0;
+    const overall = s.phase==="done" ? 1 : (s.phase==="videos" ? frac*0.9 : 0.9 + 0.1*
+      ({scoring:.2,figures:.5,tables:.7,workbooks:.9}[s.phase]||0));
+    $("#allbar").firstElementChild.style.width = (overall*100).toFixed(1)+"%";
+    $("#allbar").classList.toggle("done", s.phase==="done");
+    $("#vids").innerHTML = s.order.map(t => {
+      const v = s.videos[t] || {};
+      return `<div class="vid"><span class="nm">${v.label||t}</span>
+        <span class="bar${v.done?" done":""}"><i style="width:${((v.pct||0)*100).toFixed(1)}%"></i></span>
+        <span class="st">${v.stage||""}${v.detail?" · "+v.detail:""}</span></div>`;
+    }).join("");
+    const lg = $("#log"); const stick = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
+    lg.textContent = (s.log||[]).join("\n"); if (stick) lg.scrollTop = lg.scrollHeight;
+    const groups = s.results||{}; const any = Object.values(groups).some(a=>a.length);
+    $("#rescard").classList.toggle("hide", !any);
+    $("#outpath").textContent = s.out||"";
+    // Files older than this run are left over from a previous one. Saying so stops an
+    // extinction workbook from a 4-video run being read as output of a 3-video run.
+    const t0 = (s.started||0) - 5;
+    let stale = 0;
+    $("#res").innerHTML = Object.entries(groups).filter(([,a])=>a.length).map(([g,a]) =>
+      `<div class="grp">${g}</div><div class="files">` + a.map(f => {
+        const old = t0 > 0 && f.mtime < t0; if (old) stale++;
+        return `<a class="${old?"stale":""}" href="/api/download?f=${encodeURIComponent(f.name)}&t=${T}" download>
+           <span>${f.name}${old?' <em>from an earlier run</em>':''}</span>
+           <span class="sz">${fmtSize(f.size)}</span></a>`; }).join("") + `</div>`).join("");
+    $("#stalenote").classList.toggle("hide", stale === 0);
+    if (run) setTimeout(poll, 900);
+  }).catch(() => setTimeout(poll, 2000));
+}
+
+browse("");
+poll();
+</script>
+</body>
+</html>

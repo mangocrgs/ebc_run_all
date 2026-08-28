@@ -229,6 +229,7 @@ COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "t
         ("Face tracked (%)", "face_tracked_pct", "0.0", 11),
         ("CS duration measured (ms)", "cs_duration_measured_ms", "0.0", 13),
         ("CS timing source", "cs_timing", None, 20),
+        ("Block boundary from", "block_closed_by", None, 16),
         ("Quality flag", "quality", None, 24),
         ("Blinks in 1 s window", "n_full_blinks", "0", 10),
         ("SCORED onset (ms)", "scored_onset_ms", "0.0", 13),
@@ -295,6 +296,10 @@ def write_table(ws, rows):
     widths(ws, [c[3] for c in COLS])
     ws.freeze_panes = "G2"
     n = len(rows) + 1
+    if not rows:
+        ws.cell(row=2, column=1, value="No trials of this kind in this recording group.")
+        ws.cell(row=2, column=1).font = Font(size=10, color=MUT, italic=True)
+        return
     ws.auto_filter.ref = "A1:" + get_column_letter(len(COLS)) + str(n)
     ws.conditional_formatting.add("L2:L" + str(n), ColorScaleRule(
         start_type="num", start_value=0, start_color="FFF6E7C8",

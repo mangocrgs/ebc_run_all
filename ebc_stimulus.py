@@ -207,6 +207,9 @@ def main():
     tag = sys.argv[2]
     rec = next(r for r in cfg["recordings"] if r["tag"] == tag)
     wdir = work_dir(cfg)
+    if os.path.exists(os.path.join(wdir, tag + "_stim.json")) and "--force" not in sys.argv:
+        log(tag, "pulses already read")
+        return
     proto = cfg["protocol"]
     path = rec["path"]
     W, H, fps, nfr = probe(path)

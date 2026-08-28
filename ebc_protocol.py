@@ -150,9 +150,20 @@ def build(cfg):
     # A block is what the protocol says it is: a run of paired trials closed by a CS-only
     # probe.  Numbering by the probes rather than by counting off ten trials at a time means
     # a block that came up short does not shift every block after it.
+    # A block normally ends at its CS-only probe.  When the probe was never recovered - a
+    # US-anchored recording cannot see one - the count closes the block instead: the
+    # protocol says nine paired trials to a block, so a tenth consecutive paired trial is
+    # a boundary even with no probe to mark it.  Which rule closed each block is recorded,
+    # because a counted boundary is an assumption and a probe is an observation.
     b, k = 1, 0
     runs, run = [], 0
+    closed_by = {}
     for i, t in enumerate(cond):
+        if t["trial_type"] == "CS-US" and run >= proto["paired_per_block"]:
+            runs.append(run)
+            closed_by[b] = "count"
+            run = 0
+            b, k = b + 1, 0
         k += 1
         t["global_trial"] = i + 1
         t["block"] = b
@@ -161,9 +172,12 @@ def build(cfg):
             run += 1
         else:
             runs.append(run)
+            closed_by[b] = "probe"
             run = 0
             b, k = b + 1, 0
     tail = run
+    for t in cond:
+        t["block_closed_by"] = closed_by.get(t["block"], "open")
     want_runs = [proto["paired_per_block"]] * proto["n_blocks"]
     strict = (runs == want_runs and tail == 0)
 
@@ -185,6 +199,8 @@ def build(cfg):
         paired_runs_before_each_probe=runs,
         trailing_paired_without_probe=tail,
         strict_block_structure=bool(strict),
+        blocks_closed_by_probe=sum(1 for v in closed_by.values() if v == "probe"),
+        blocks_closed_by_count=sum(1 for v in closed_by.values() if v == "count"),
         expected_runs=want_runs,
         short_blocks=[{"block": i + 1, "paired": n,
                        "expected": proto["paired_per_block"]}
@@ -225,7 +241,11 @@ def print_report(res):
     for sb in c.get("short_blocks", []):
         print("  block %d has %d paired trials, not %d - the CS-only probe closed it early"
               % (sb["block"], sb["paired"], sb["expected"]))
-    print("  blocks recovered      %d / %d expected" % (c["blocks_found"], p["n_blocks"]))
+    print("  blocks recovered      %d / %d expected   (%d closed by a probe, %d by the count)"
+          % (c["blocks_found"], p["n_blocks"],
+             c.get("blocks_closed_by_probe", 0), c.get("blocks_closed_by_count", 0)))
+    if c.get("blocks_closed_by_count"):
+        print("  a counted boundary is an assumption from the protocol, not an observed probe")
     print("  strict %d+%d x %d structure: %s" %
           (p["paired_per_block"], p["cs_only_per_block"], p["n_blocks"],
            "YES" if c["strict_block_structure"] else "NO - the deviations are listed above"))

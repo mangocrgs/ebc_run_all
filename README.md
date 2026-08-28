@@ -13,6 +13,18 @@ protocol disagree.
 One participant per run, driven by a small JSON file, so the same checkout processes any
 number of participants.
 
+## Point and click
+
+Not everyone wants a terminal.  Double-click **`EBC Analyzer.bat`** (or run
+`python ebc_app.py`) and a page opens in your browser: pick a folder, tick the videos,
+confirm what each one is, press Run.  Progress streams per recording; the workbooks,
+figures and CSVs appear as download links when it finishes.
+
+It is only a front end - it writes a study file from what you ticked and hands it to
+`ebc_run_all.py`.  The study file is left in the output folder as `<study>.json`, so
+anything done in the browser can be repeated, tweaked or scripted from the command line.
+Nothing is uploaded: the server listens on 127.0.0.1 only and reads the videos in place.
+
 ## Run it
 
 ```
@@ -29,6 +41,71 @@ Two passes are made over each recording (a survey and a full-rate read of a smal
 plus a short seek per trial for the eyelids. Intermediates are cached in `<out>/_work`, so
 `--from score` reruns everything downstream in seconds — that is the flag to use when
 changing a scoring rule or a figure. `--jobs N` sets how many recordings decode at once.
+
+## What changes from one participant to the next
+
+**The protocol never does.**  Every session is the same experiment:
+
+| | | |
+|---|---|---|
+| CS | 400 ms | yellow LED |
+| US | 50 ms, co-terminating with the CS | blue LED |
+| CS-US interval | 350 ms | US onset, measured from CS onset |
+| Structure | 9 paired + 1 CS-only probe, x 10 blocks | 100 trials |
+
+Those are the defaults in `ebc_config.DEFAULT_PROTOCOL`, so **a study file does not need a
+`protocol` block at all**.  Write one only to record a genuine deviation, and if you find
+yourself editing the numbers to make the trial count come out right, stop: the protocol is
+the test, and a disagreement is a finding about the recording, not a parameter to tune.
+
+**What does change is where things are in the frame** - the participant sits differently,
+the camera is re-aimed, the stimulator box moves, and the room light is not the same on a
+grey afternoon as on a bright morning.  All of that is found per recording:
+
+- the **face** is located by sampling frames across the recording and taking the union of
+  the landmark boxes, so a participant who shifts in their seat is still covered;
+- the **stimulator box** is found per recording, with a study-level consensus for the clips
+  too short or too dim to tell on their own;
+- a camera re-aimed **between** recordings is handled; one re-aimed **within** a recording
+  is detected, flagged, and the LED window widened to cover both positions.
+
+The one thing that genuinely defeats the automatic search is a **CS LED with no contrast
+left**, which is a lighting problem rather than a geometry one.  See *When the CS LED
+cannot be read*.
+
+## Running a new participant
+
+1. Put the recordings in one folder per participant, named so the roles are obvious:
+   `CSUS 1..n`, `extinction`, `CS ONLY`, `US ONLY`.
+2. Run it - no study file needed to start:
+
+   ```
+   python ebc_run_all.py --videos "D:/EBC/Video/Alice"
+   ```
+
+   Roles are guessed from the names and the study file that was inferred is written to
+   `<out>/_work/run_config.json`.  Keep it as `studies/alice.json` once you are happy.
+3. **Open every `qc_leds_<tag>.png` before you read a single number.**  This is the step
+   that matters.  It shows the located box, both LED traces, and every pulse the detector
+   accepted or rejected.  A run can finish cleanly, report confidently, and still be built
+   on a CS channel that was reading noise.
+4. Read the protocol check.  `93 found / 100 expected` is a result; `41 found / 100` is a
+   detection failure to be diagnosed, not a participant who missed trials.
+5. Fix what the check page shows, re-run the affected stage, and only then score.
+
+### Reading the LED check page
+
+| What you see | What it means | What to do |
+|---|---|---|
+| `n/n pulses accepted`, ITI steady near 13 s | healthy | nothing |
+| **accepted far below rejected** (`6/464`, `1/1058`) | the threshold is sitting in the noise: hundreds of spurious pulses are found and then thrown out on duration | the CS channel is unusable - see below |
+| `!! weak contrast (30)` | lit minus rest has collapsed | check the trace before trusting any trial from this recording |
+| resting level climbing across recordings | the room light warmed or dimmed and the box itself is now as "yellow" as the LED | US-anchor the affected recordings |
+| blue clean, yellow noisy | the usual case: nothing else in the scene is blue, while a wooden or warm-coloured box competes with the yellow LED | US-anchor |
+
+The `rest` and `lit` numbers on the page are the whole diagnosis.  A yellow LED lighting to
+203 above a resting 130 is comfortable; lighting to 192 above a resting 162 is not, and the
+detector will fire on noise long before it fails outright.
 
 ## The study file
 
@@ -178,6 +255,7 @@ response there is by definition unconditioned.
 | `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me. |
 | `ebc_qc.py` | `leds` — the LED check page per recording. `trial <tag> <n>` — an eye filmstrip with the measured closure printed on each frame. |
 | `ebc_run_all.py` | The driver. |
+| `ebc_app.py`, `ebc_app_ui.html` | The browser front end. Writes a study file and runs the driver on it. |
 
 ## Known limits
 
@@ -191,8 +269,33 @@ response there is by definition unconditioned.
   flagged, and the LED window is widened to cover both positions, but a very large move may
   still need `led_yellow` set by hand.
 - Trials whose window runs off the end of a recording are marked `truncated`.
-- A recording set to `"anchor": "us"` cannot contribute CS-only probes, so a study anchored
-  that way throughout recovers its paired trials but not its block boundaries.
+- A block is closed by its CS-only probe where one was recovered, and by the count of
+  paired trials where none was. The protocol check reports how many boundaries came from
+  each, and every trial carries `block_closed_by`. A counted boundary is an assumption
+  from the protocol; a probe is an observation. Treat block-wise results from a US-anchored
+  study accordingly.
+
+## What the recordings have looked like so far
+
+Two participants, both on the same protocol and the same rig, to calibrate expectations:
+
+| | Thomas | Carole |
+|---|---|---|
+| Conditioning trials recovered | 85 / 100 | 93 / 100 |
+| Paired CS-US | 77 | 90 / 90 |
+| CS-only probes | 8 | 3 (two recordings US-anchored) |
+| CS LED readable | all recordings | CSUS 1 only |
+| **CR rate** | **10%** | **48%** |
+| CR onset | 198 ms | 303 ms |
+
+The spread in CR rate between two people on an identical protocol is the point: 10% and 48%
+are both real results, and a pipeline that quietly discarded two thirds of Carole's trials
+would have reported 36% for her instead of 48% and hidden the acquisition curve
+(32% - 57% - 56% across her three sessions) entirely.
+
+Practical expectations: face tracking runs at 100% on a cooperative, frontally seated
+participant; alignment error is 0.0 ms when a clean LED marks the trial; a 4 GB / 531 s
+recording takes roughly 12 minutes for the LED pass and about 4 more for the eyelids.
 
 ## Output
 

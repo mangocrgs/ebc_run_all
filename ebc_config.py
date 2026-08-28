@@ -32,6 +32,27 @@ ROLES = ("conditioning", "extinction", "baseline_cs", "baseline_us")
 #        to this mode and the CS duration is not measured, only assumed.
 ANCHORS = ("cs", "us")
 
+# Roles that deliver the CS alone.  US-anchoring is impossible for these - there is no US.
+NO_US_ROLES = ("extinction", "baseline_cs")
+
+NO_US_MESSAGE = """
+{file}: cannot anchor on the US - this recording has none.
+
+  Role '{role}' delivers the CS alone, by design.  There is no blue pulse to mark a
+  trial and nothing from which to infer a CS onset, so if the CS (yellow) LED cannot
+  be thresholded in this recording, then no automatic method can recover its trials.
+  This is a property of the protocol, not a setting to tune.
+
+  SCORE THIS RECORDING MANUALLY.  Run
+
+      python ebc_qc.py <config> leds
+
+  to see what the CS channel actually looks like, then read the trial onsets off the
+  recording by hand.
+
+  Remove '{file}' from the study file to process the rest.
+"""
+
 DEFAULT_PROTOCOL = {
     "cs_ms": 400.0,          # CS duration (yellow LED)
     "us_onset_ms": 350.0,    # US onset, measured from CS onset
@@ -117,6 +138,11 @@ def load(path=None, video_dir=None, study=None):
         rec.setdefault("tag", _slug(rec["label"]))
         if rec["role"] not in ROLES:
             raise SystemExit(f"{rec['file']}: unknown role {rec['role']!r} (expected {ROLES})")
+        rec.setdefault("anchor", "cs")
+        if rec["anchor"] not in ANCHORS:
+            raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")
+        if rec["anchor"] == "us" and rec["role"] in NO_US_ROLES:
+            raise SystemExit(NO_US_MESSAGE.format(file=rec["file"], role=rec["role"]))
         rec.setdefault("anchor", "cs")
         if rec["anchor"] not in ANCHORS:
             raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")

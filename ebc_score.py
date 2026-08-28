@@ -160,6 +160,7 @@ def main():
             session_clock_s=tr.get("session_clock_s"),
             cs_duration_ms=tr["cs_duration_ms"], us_duration_ms=tr["us_duration_ms"],
             cs_timing=tr.get("cs_timing", "measured from CS LED"),
+            block_closed_by=tr.get("block_closed_by"),
             measured_isi_ms=tr["isi_ms"],
             alignment_error_ms=v.get("align_error_ms"),
             face_tracked_pct=round(100 * v.get("face_ok", 0), 1),
