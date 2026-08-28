@@ -45,7 +45,7 @@ W_STIM, W_EYES = 0.62, 0.38
 LOCK = threading.Lock()
 STATE = {"running": False, "phase": "idle", "videos": {}, "order": [], "log": [],
          "error": None, "started": None, "finished": None, "cancel": False, "out": None,
-         "triage": None}
+         "triage": None, "phase_label": "idle"}
 PROC = {"p": None}
 
 
@@ -69,11 +69,15 @@ RE_TRIAL = re.compile(r"trial\s+(\d+)\s*/\s*(\d+)")
 RE_TRACKED = re.compile(r"(\d+)\s*/\s*(\d+)\s+trials tracked")
 RE_STAGE = re.compile(r"^>>>\s+ebc_(\w+)\.py")
 
+# key -> label.  The key is what ebc_run_all prints (">>> ebc_<key>.py"), and the page
+# weights its overall progress bar by it, so these must stay in step with STAGES there.
 PHASE = {"locate": "finding the stimulator box", "stimulus": "reading the LEDs",
          "triage": "checking the LED signal quality",
          "protocol": "building trials", "eyes": "tracking eyelids",
-         "score": "scoring", "figures": "figures", "export": "tables",
-         "workbooks": "workbooks", "qc": "quality-check pages"}
+         "score": "scoring", "figures": "drawing figures",
+         "export_csv": "writing tables", "workbooks": "building workbooks",
+         "qc": "quality-check pages",
+         "starting": "starting", "done": "done", "error": "stopped", "idle": "idle"}
 
 
 def load_triage():
@@ -97,7 +101,8 @@ def on_line(line):
     if m:
         stage = m.group(1)
         with LOCK:
-            STATE["phase"] = PHASE.get(stage, stage)
+            STATE["phase"] = stage
+            STATE["phase_label"] = PHASE.get(stage, stage)
         if stage in ("protocol", "score"):     # triage has run by now
             load_triage()
         return
@@ -190,7 +195,8 @@ def runner(body):
     try:
         items = body["items"]
         with LOCK:
-            STATE.update(running=True, phase="starting", error=None, log=[], triage=None,
+            STATE.update(running=True, phase="starting", phase_label=PHASE["starting"],
+                         error=None, log=[], triage=None,
                          started=time.time(), finished=None, cancel=False,
                          order=[i["tag"] for i in items],
                          videos={i["tag"]: {"label": i["label"], "pct": 0.0, "stage": "queued",
@@ -215,16 +221,19 @@ def runner(body):
             raise RuntimeError("the pipeline stopped with exit code %d - see the log above" % rc)
         with LOCK:
             STATE["phase"] = "done"
+            STATE["phase_label"] = PHASE["done"]
         log("finished")
     except SystemExit as e:                 # a study file the pipeline refuses, said plainly
         with LOCK:
             STATE["error"] = str(e)
             STATE["phase"] = "error"
+            STATE["phase_label"] = PHASE["error"]
         log("!! " + str(e))
     except Exception as e:  # noqa: BLE001
         with LOCK:
             STATE["error"] = str(e)
             STATE["phase"] = "error"
+            STATE["phase_label"] = PHASE["error"]
         log("!! " + str(e))
     finally:
         with LOCK:

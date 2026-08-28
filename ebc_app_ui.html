@@ -364,9 +364,20 @@ $("#run").onclick = () => {
 };
 $("#stop").onclick = () => api("/api/stop", {method:"POST", body:"{}"});
 
-const PHASES = {videos:"processing videos", scoring:"scoring trials", figures:"drawing figures",
-                tables:"writing tables", workbooks:"building workbooks", done:"done",
-                error:"stopped", idle:"idle"};
+// Fallback labels only - the server sends phase_label. Keys match ebc_run_all's stages.
+const PHASES = {starting:"starting", locate:"finding the stimulator box",
+                stimulus:"reading the LEDs", triage:"checking the LED signal quality",
+                protocol:"building trials", eyes:"tracking eyelids", score:"scoring",
+                figures:"drawing figures", export_csv:"writing tables",
+                workbooks:"building workbooks", qc:"quality-check pages",
+                done:"done", error:"stopped", idle:"idle"};
+
+// Where each stage sits along the whole run. Reading the LEDs and tracking eyelids are
+// the long ones and carry per-recording progress; the rest are seconds.
+const WEIGHT = {starting:0, locate:.02, stimulus:.05, triage:.60, protocol:.62, eyes:.64,
+                score:.92, figures:.94, export_csv:.96, workbooks:.98, qc:.99, done:1};
+
+function phaseName(s){ return s.phase_label || PHASES[s.phase] || s.phase; }
 
 function renderTriage(t){
   const box = $("#triage");
@@ -420,19 +431,21 @@ function renderTriage(t){
 function poll(){
   api("/api/status").then(s => {
     const run = s.running;
-    $("#pill").textContent = s.error ? "error" : (run ? PHASES[s.phase]||s.phase : (s.phase==="done"?"done":"idle"));
+    $("#pill").textContent = s.error ? "error" : (run ? phaseName(s) : (s.phase==="done"?"done":"idle"));
     $("#pill").className = "pill" + (s.error ? " err" : run ? " on" : s.phase==="done" ? " ok" : "");
     $("#run").disabled = run; $("#stop").classList.toggle("hide", !run);
     if (s.order.length) $("#progcard").classList.remove("hide");
-    $("#phase").textContent = (PHASES[s.phase]||s.phase) + (s.error ? " — " + s.error : "");
+    $("#phase").textContent = phaseName(s) + (s.error ? " — " + s.error : "");
     if (s.started) {
       const secs = Math.round((s.finished||Date.now()/1000) - s.started);
       $("#elapsed").textContent = `${Math.floor(secs/60)}m ${String(secs%60).padStart(2,"0")}s`;
     }
     const done = s.order.filter(t => s.videos[t]?.done).length;
     const frac = s.order.length ? s.order.reduce((a,t)=>a+(s.videos[t]?.pct||0),0)/s.order.length : 0;
-    const overall = s.phase==="done" ? 1 : (s.phase==="videos" ? frac*0.9 : 0.9 + 0.1*
-      ({scoring:.2,figures:.5,tables:.7,workbooks:.9}[s.phase]||0));
+    // the two long stages advance with the recordings themselves; the rest step by stage
+    const overall = s.phase==="done" ? 1
+      : (s.phase==="stimulus" || s.phase==="eyes") ? 0.05 + frac*0.85
+      : (WEIGHT[s.phase] || 0);
     $("#allbar").firstElementChild.style.width = (overall*100).toFixed(1)+"%";
     $("#allbar").classList.toggle("done", s.phase==="done");
     $("#vids").innerHTML = s.order.map(t => {
