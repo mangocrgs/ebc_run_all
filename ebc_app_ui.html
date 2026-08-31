@@ -6,36 +6,32 @@
 <title>EBC Analyzer</title>
 <style>
 /* ------------------------------------------------------------------ colour
-   One blue anchors the whole page: 210 degrees, measured off the glyph in the lab
-   mark rather than picked by eye.  Each step then takes a neighbour of it on the
-   wheel - the complement at 30, and the two thirds of the triad at 90 and 330 - so
-   the four sections read as four distinct places without any of them shouting.
+   Light only, deliberately: this followed the operating system before, which on a
+   machine set to dark meant a near-black page.
 
-   The tints are the same hues at 96% lightness.  They are what actually does the
-   work here: a page of identical white cards gives the eye nothing to hold on to,
-   and a very slight wash of colour separates "where you choose" from "where it
-   runs" from "where the results are" before a single word is read.
+   Two hues, opposite each other on the wheel, and each with one job.
 
-   Light only, deliberately.  This followed the operating system before, which on a
-   machine set to dark meant a near-black page. */
+   Blue at 210 degrees is measured off the glyph in the lab mark: it carries the
+   structure - headings, step numbers, links - and it is the same on every box.
+   Amber at 30 is its complement, and it is spent only on the two things worth
+   spending it on: something you are meant to press, and something you are meant to
+   read before trusting a number.
+
+   The boxes themselves are all one colour on purpose.  Tinting each step separately
+   made four backgrounds compete for attention when the thing that actually needs
+   attention is the one button you have not pressed yet. */
 :root{
   --brand:#3785D2;                 /* the glyph blue, unmodified */
   --accent:#2E6BA8;                /* the same hue, dark enough to read as text */
+  --action:#A85408;                /* the complement at 30 deg: press this, read this */
+  --action-soft:#FBF1E6;           /* the same, as a background you can put text on */
   --cs:#9B6530; --us:#30669B;      /* the two LEDs: warm 30, cool 210 */
   --alert:#A6332F; --ok:#33795A; --warn:#8A6100;
 
-  --paper:#E9ECF1; --surface:#FFFFFF; --sunken:#F1F4F8;
+  --paper:#E9ECF1; --surface:#FFFFFF; --sunken:#F2F5F9;
   --ink:#161B23; --muted:#59636F; --rule:#D7DDE6;
   --alert-bg:#FBECEC; --ok-bg:#EAF6F0; --warn-bg:#FBF5E8; --info-bg:#ECF3FA;
-
-  /* the default tone, for cards that are not one of the four steps */
-  --tone:#2E6BA8; --tone-bg:#FFFFFF; --tone-rule:#D7DDE6;
 }
-/* one per step, in the order they are worked through */
-.card.t1{--tone:#2E6BA8;--tone-bg:#F5F9FD;--tone-rule:#CCDFF1}   /* blue    210 */
-.card.t2{--tone:#8F6130;--tone-bg:#FDF9F4;--tone-rule:#EDDFC9}   /* amber    30 */
-.card.t3{--tone:#7E4570;--tone-bg:#FCF5FA;--tone-rule:#E9D4E2}   /* rose    330 */
-.card.t4{--tone:#4A7733;--tone-bg:#F6FAF2;--tone-rule:#D5E7C8}   /* green    90 */
 *{box-sizing:border-box}
 /* Century Gothic throughout, except anything that is code, a path or a number - those
    stay monospaced, where column alignment and telling 0 from O is worth more than the
@@ -46,7 +42,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-heigh
   font-family:"Century Gothic",Questrial,Futura,"Segoe UI",system-ui,sans-serif}
 .mono,.num,code{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
   font-variant-numeric:tabular-nums;letter-spacing:0}
-.wrap{max-width:940px;margin:0 auto;padding:0 24px 90px;display:flex;flex-direction:column;gap:18px}
+.wrap{max-width:940px;margin:0 auto;padding:0 24px 42px;display:flex;flex-direction:column;gap:18px}
 
 /* ---------------------------------------------------------------- top bar */
 .topbar{position:sticky;top:0;z-index:20;background:var(--paper);
@@ -73,22 +69,26 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
 /* ---------------------------------------------------------------- cards */
-.card{background:var(--tone-bg);border:1px solid var(--tone-rule);border-radius:8px;
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;
   padding:18px 20px}
 /* the step being worked on right now, lifted off the page rather than outlined louder */
 .card.lead{box-shadow:0 1px 2px rgba(22,27,35,.05),0 6px 18px rgba(22,27,35,.07)}
 /* Headings read as headings rather than as small-caps labels.  Century Gothic is wide
    and open, and uppercase with letter-spacing on top of that turned every label into a
    banner competing with the work underneath it. */
-.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--tone);
+.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--accent);
   margin:0 0 6px;display:flex;gap:10px;align-items:center}
-.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--tone);
+.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--accent);
   color:#fff;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
 .card h2 .n.done{background:var(--ok)}
 .card h2 .n.wait{background:var(--rule);color:var(--muted)}
 /* the running instruction under each heading: what to do here, right now */
 .todo{font-size:13.5px;color:var(--ink);margin:0 0 14px;padding-left:30px}
-.todo b{color:var(--tone)}
+.todo b{color:var(--action)}
+/* The one instruction on the page that must not be skipped, set apart rather than
+   left to look like the other three. */
+.todo.must{background:var(--action-soft);border-left:3px solid var(--action);
+  border-radius:0 6px 6px 0;margin-left:30px;padding:10px 13px;font-size:13px}
 
 label{font-size:13px;color:var(--muted)}
 input[type=text],input[type=number],select{background:var(--surface);color:var(--ink);
@@ -98,10 +98,9 @@ input[type=text]{width:100%}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 button{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--rule);
   background:var(--surface);color:var(--ink);padding:8px 15px;cursor:pointer;white-space:nowrap}
-button:hover:not(:disabled){border-color:var(--tone);color:var(--tone)}
-/* Tone is for wayfinding, not for actions: the button you press stays the one brand
-   blue everywhere, so "the blue button" means the same thing on every step. */
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;padding:10px 22px}
+button:hover:not(:disabled){border-color:var(--action);color:var(--action)}
+/* The one thing on the page that is warm is the thing you are meant to press. */
+button.primary{background:var(--action);border-color:var(--action);color:#fff;font-weight:600;padding:10px 22px}
 button.primary:hover:not(:disabled){filter:brightness(1.12);color:#fff}
 button.danger{border-color:var(--alert);color:var(--alert)}
 button:disabled{opacity:.45;cursor:not-allowed}
@@ -119,7 +118,7 @@ button.primary.busy:after{color:#fff}
 .msg.bad{border-left-color:var(--alert);background:var(--alert-bg)}
 .msg.warn{border-left-color:var(--warn);background:var(--warn-bg)}
 .msg.good{border-left-color:var(--ok);background:var(--ok-bg)}
-.msg.info{border-left-color:var(--accent);background:var(--info-bg)}
+.msg.info{border-left-color:var(--action);background:var(--action-soft)}
 .msg .what{font-weight:600;color:var(--ink);display:block}
 .msg .detail{color:var(--muted);font-size:12.5px;white-space:pre-wrap;word-break:break-word;
   margin-top:4px;font-family:"Cascadia Mono",Consolas,monospace}
@@ -165,7 +164,7 @@ td.r,th.r{text-align:right}
 
 /* ---------------------------------------------------------------- progress */
 .bar{height:8px;border-radius:99px;background:var(--sunken);overflow:hidden;position:relative}
-.bar>i{display:block;height:100%;background:var(--tone);transition:width .35s ease}
+.bar>i{display:block;height:100%;background:var(--accent);transition:width .35s ease}
 .bar.done>i{background:var(--ok)}
 .bar.busy:after{content:"";position:absolute;inset:0;border-radius:99px;
   background:repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.35) 9px 18px);
@@ -196,7 +195,7 @@ td.r,th.r{text-align:right}
 .hide{display:none}
 
 /* ---------------------------------------------------------------- triage */
-.tri{border-left:3px solid var(--cs);background:var(--sunken);padding:11px 14px;
+.tri{border-left:3px solid var(--action);background:var(--action-soft);padding:11px 14px;
      margin:12px 0;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
 .tri.stop{border-left-color:var(--alert);background:var(--alert-bg)}
 .tri.look{border-left-color:var(--muted)}
@@ -229,8 +228,6 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
    to be read without ever competing with the run. */
 .colophon{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;
   margin-top:12px;padding-top:22px;border-top:1px solid var(--rule)}
-.colophon .lockup{width:340px;max-width:100%;height:auto;flex:none;display:block;
-  border-radius:8px;background:#000;box-shadow:0 0 0 1px var(--rule)}
 .colophon .cols{flex:1;min-width:280px}
 .colophon .lede{margin:0 0 12px;font-size:13.5px;color:var(--ink)}
 .colophon .prov{display:grid;grid-template-columns:max-content 1fr;gap:5px 16px;
@@ -240,6 +237,15 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 .colophon .quiet{margin:14px 0 0;font-size:12px;color:var(--muted);opacity:.85}
 .colophon .by{margin:12px 0 0;padding-top:11px;border-top:1px solid var(--rule);
   font-size:12.5px;color:var(--ink)}
+/* ---------------------------------------------------------------- credits */
+/* Full width, edge to edge, and black - which is the field the lab mark is already
+   drawn on, so the mark sits in it without a plaque and the page ends on the lab. */
+.credits{background:#000;color:#E8ECF2;padding:26px 24px;
+  display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap}
+.credits .lockup{width:300px;max-width:100%;height:auto;display:block;flex:none}
+.credits .who{min-width:180px}
+.credits .names{margin:0;font-size:14.5px;color:#FFFFFF}
+.credits .when{margin:3px 0 0;font-size:12.5px;color:#96A0AE}
 </style>
 </head>
 <body>
@@ -262,7 +268,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 <div id="offline"></div>
 
 <!-- =============================================================== step 1 -->
-<div class="card t1 lead" id="card1">
+<div class="card lead" id="card1">
   <h2><span class="n" id="n1">1</span> Choose videos</h2>
   <p class="todo" id="todo1">Press <b>Browse&hellip;</b> and pick the folder that holds this
      participant&rsquo;s recordings.</p>
@@ -273,9 +279,6 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <button class="primary" id="pick">Browse&hellip;</button>
       <input type="text" id="path" placeholder="…or paste a folder path here and press Enter"
              style="flex:1;min-width:220px" spellcheck="false">
-      <button id="go">Open</button>
-      <button id="up" title="go to the folder above this one">Up</button>
-      <button id="reload" title="re-read this folder from disk">Refresh</button>
     </div>
 
   </div>
@@ -317,7 +320,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 2 -->
-<div class="card t2" id="card2">
+<div class="card" id="card2">
   <h2><span class="n wait" id="n2">2</span> Name it and check the protocol</h2>
   <p class="todo" id="todo2">Finish step 1 first.</p>
 
@@ -366,7 +369,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 3 -->
-<div class="card t3 hide" id="progcard">
+<div class="card hide" id="progcard">
   <h2><span class="n" id="n3">3</span> Progress</h2>
   <p class="todo" id="todo3"></p>
 
@@ -404,9 +407,9 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 4 -->
-<div class="card t4 hide" id="rescard">
+<div class="card hide" id="rescard">
   <h2><span class="n" id="n4">4</span> Results</h2>
-  <p class="todo" id="todo4">Open every <b>qc_leds_&lt;name&gt;.png</b> before trusting any number
+  <p class="todo must" id="todo4">Open every <b>qc_leds_&lt;name&gt;.png</b> before trusting any number
      below it.</p>
   <div class="row" style="margin-bottom:12px">
     <button id="openf">Open output folder</button>
@@ -453,8 +456,6 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
 <!-- ============================================================== colophon -->
 <footer class="colophon">
-  <img class="lockup" src="/assets/logo_full.png"
-       alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
   <div class="cols">
     <p class="lede"><b>EBC Analyzer</b> <span id="colver"></span> &mdash; delay eyeblink
        conditioning, scored from video by the same pipeline every time.</p>
@@ -472,11 +473,24 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
     </dl>
     <p class="quiet">Report the version above with any figure this produces, and open
        every <span class="mono">qc_leds_*.png</span> before trusting the numbers.</p>
-    <p class="by">C.&nbsp;Levenes and M.&nbsp;Courreges &middot; August&nbsp;2026</p>
   </div>
 </footer>
 
+
+
 </div>
+
+<!-- The credits sit on black, which is also the field the lab mark is drawn on, so the
+     mark stops needing a plaque of its own and the page ends on the lab rather than on
+     a caveat. -->
+<footer class="credits">
+  <img class="lockup" src="/assets/logo_full.png"
+       alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
+  <div class="who">
+    <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
+    <p class="when">August&nbsp;2026</p>
+  </div>
+</footer>
 
 <script>
 "use strict";
@@ -547,9 +561,7 @@ function fmtSecs(s){ return `${Math.floor(s/60)}m ${String(Math.round(s%60)).pad
 
 /* ---------------------------------------------------------------- step 1 */
 async function browse(path, quiet){
-  if (!quiet) { $("#go").classList.add("busy"); }
   const r = await api("/api/browse?path=" + encodeURIComponent(path || ""));
-  $("#go").classList.remove("busy");
   if (!r.ok){
     show("#browsemsg", "bad", r.fail);
     $("#vidwrap").innerHTML = "";
@@ -780,13 +792,6 @@ $("#pick").onclick = async () => {
   clear("#browsemsg");
   if (r.data.cancelled) return;
   browse(r.data.path);
-};
-$("#go").onclick = () => browse($("#path").value);
-$("#reload").onclick = () => browse(CUR || $("#path").value);
-$("#up").onclick = () => {
-  if (LAST && LAST.up) return browse(LAST.up);
-  show("#browsemsg", "info", {error:"This is already the top of the drive.",
-    hint:"Use the Drives row below to move to another disk."});
 };
 $("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
 $("#study").addEventListener("input", refreshGuide);
