@@ -15,15 +15,86 @@ number of participants.
 
 ## Point and click
 
-Not everyone wants a terminal.  Double-click **`EBC Analyzer.bat`** (or run
-`python ebc_app.py`) and a page opens in your browser: pick a folder, tick the videos,
-confirm what each one is, press Run.  Progress streams per recording; the workbooks,
-figures and CSVs appear as download links when it finishes.
+Not everyone wants a terminal.  Double-click the **EBC Analyzer** shortcut on the Desktop
+— or, on a machine with Python, **`EBC Analyzer.bat`** or `python ebc_app.py` — and the
+app opens **in its own window**: pick a folder, tick the videos, confirm what each one is,
+press Run.  Progress streams per recording; the workbooks, figures and CSVs appear as
+download links when it finishes.
+
+It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
+away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
+Edge and is on every current Windows machine; the interface it shows is served by a server
+bound to 127.0.0.1 that only this computer can reach.  If WebView2 is somehow absent the
+app falls back to opening a browser rather than failing.
 
 It is only a front end - it writes a study file from what you ticked and hands it to
 `ebc_run_all.py`.  The study file is left in the output folder as `<study>.json`, so
-anything done in the browser can be repeated, tweaked or scripted from the command line.
-Nothing is uploaded: the server listens on 127.0.0.1 only and reads the videos in place.
+anything done in the window can be repeated, tweaked or scripted from the command line.
+Nothing is uploaded, and the recordings are read where they sit.
+
+## The app
+
+The whole thing packages into one installer you can send to anybody:
+
+```
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.0.exe   (~240 MB)
+```
+
+**The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
+and ffmpeg all travel inside it — that is what the ~880 MB installed is. No `pip install`,
+no ffmpeg on PATH, and no administrator: it installs into the user's own AppData, so a
+locked-down lab machine is fine. Verified by running the eyelid stage on a PATH stripped
+to `C:\Windows\system32`, with neither Python nor ffmpeg present.
+
+Windows will say *"Windows protected your PC"* the first time, because the installer is
+not signed with a paid code-signing certificate. **More info → Run anyway.** Buying a
+certificate is the only thing that removes that.
+
+The app is staged in `build/dist/` (git-ignored), deliberately not the folder the
+installer installs into, so a rebuild never overwrites the copy someone has installed.
+
+Everything lives under one folder:
+
+```
+C:\Users\marga\EBC Analyzer\
+    ebc_*.py, ebc_app_ui.html    the pipeline and the interface   (in git)
+    assets/                      the lab mark, cut to three shapes (in git)
+    packaging/                   spec, installer script, build.bat (in git)
+    studies/                     one JSON per participant          (in git)
+    results/                     workbooks, figures, CSVs, caches  (not in git)
+    app/                         the installed app                 (not in git)
+    build/                       PyInstaller staging               (not in git)
+```
+
+`results/` and `app/` are deliberately untracked: they are hundreds of megabytes of
+output and binaries, regenerated from the recordings and from the source respectively.
+The **recordings themselves stay where they are**, in OneDrive under `EBC/Video/<name>/` —
+they are the raw data, they are backed up there, and nothing here copies them.
+
+Building needs `pyinstaller` and `pywebview` on top of the packages below, `winget install
+JRSoftware.InnoSetup`, and an ffmpeg on PATH — that last one is the ffmpeg that gets
+packaged.
+
+**One thing to know if you change the pipeline.** Nothing here *imports* `ebc_eyes`;
+something *runs* it, as its own process, because three recordings decode at once. Inside
+an `.exe` there is no Python to hand a script to, so the app re-launches itself instead —
+`EBC Analyzer.exe --stage ebc_eyes.py <config> <tag>` — and `ebc_launch.py` runs the
+script from the copy carried inside the executable. So **a new stage script has to be
+added to `STAGES` in `packaging/ebc_analyzer.spec`**, or it will work from source and be
+missing from the app. Anything it imports that is not already there belongs in
+`hiddenimports` for the same reason: no import statement in the frozen graph points at it.
+
+**And one trap worth knowing.** Packaged, `import mediapipe` closes the process's stderr
+handle — `GetFileType` on it goes from *pipe* to *unknown* — after which any `Popen` that
+tries to hand that handle to a child dies with `[WinError 50] The request is not
+supported`. The eyelid stage imports mediapipe and then reads video, so it hit exactly
+that, in the packaged build only. `ebc_video.py` therefore gives every ffmpeg child its
+own stdio instead of inheriting ours. Anything else that spawns a process after mediapipe
+is loaded has to do the same.
+
+The version in `ebc_config.py` (`VERSION`) is stamped on the page, on the console banner
+and on every workbook cover. Raise it whenever the scoring changes, so a number in a paper
+can be traced back to what produced it.
 
 ## Run it
 
@@ -35,7 +106,9 @@ python ebc_run_all.py --config studies/thomas.json --force        # redo the vid
 ```
 
 Requires `ffmpeg` and `ffprobe` on PATH, and
-`opencv-python mediapipe numpy scipy matplotlib openpyxl pillow`.
+`opencv-python mediapipe numpy scipy matplotlib openpyxl pillow pywebview`.
+(`pywebview` is only needed for the app window; without it the pipeline still runs and the
+app falls back to a browser.)
 
 Two passes are made over each recording (a survey and a full-rate read of a small window),
 plus a short seek per trial for the eyelids. Intermediates are cached in `<out>/_work`, so
@@ -278,7 +351,10 @@ response there is by definition unconditioned.
 | `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me. |
 | `ebc_qc.py` | `leds` — the LED check page per recording. `trial <tag> <n>` — an eye filmstrip with the measured closure printed on each frame. |
 | `ebc_run_all.py` | The driver. |
-| `ebc_app.py`, `ebc_app_ui.html` | The browser front end. Writes a study file and runs the driver on it. |
+| `ebc_app.py`, `ebc_app_ui.html` | The window and what it shows. Writes a study file and runs the driver on it. |
+| `ebc_launch.py` | The one door in. Decides whether a launch is the app, the folder dialog or one pipeline stage — the only file that knows it might be running from an `.exe`. |
+| `assets/` | The lab mark, cut from the source logo: `logo_mark.png` (title bar), `logo_full.png` (colophon and workbook covers), `ebc.ico` (the app icon). |
+| `packaging/` | `make_assets.py` cuts those three from the source logo; `ebc_analyzer.spec` builds the app, `ebc_analyzer.iss` packs it into an installer, `build.bat` does all of it. |
 
 ## Known limits
 

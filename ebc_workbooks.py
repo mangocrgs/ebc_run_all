@@ -19,7 +19,7 @@ from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.drawing.image import Image as XLImage
 
 import ebc_config as C
-from ebc_paths import work_dir, out_dir
+from ebc_paths import BASE, work_dir, out_dir
 
 CFG = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
 WORK, OUT = work_dir(CFG), out_dir(CFG)
@@ -42,6 +42,9 @@ CR_LBL = "CR (100-%.0fms)" % NOM["us_onset_ms"]
 UR_LBL = "UR (>=%.0fms)" % NOM["us_onset_ms"]
 ALPHA_LBL = "alpha/startle <100ms"
 MOVING_LBL = "in-progress at stimulus"
+# what ebc_score.classify() emits for a recording anchored on the US instead of the CS
+UR_PUFF_LBL = "UR to the puff"
+ALPHA_US_LBL = "alpha/startle <20ms"
 
 
 def is_cr(r):
@@ -312,15 +315,29 @@ def write_table(ws, rows):
     ws.sheet_view.showGridLines = False
 
 
-def scatter_sheet(ws, rows, has_us, xlabel, title):
-    lbl_us = ("US onset = %.0f ms" % NOM["us_onset_ms"]) if has_us else (
-        "learned US onset = %.0f ms (none delivered)" % NOM["us_onset_ms"])
-    hd = ["#", "Block", "Session", CR_LBL, ALPHA_LBL, UR_LBL,
-          "lid moving at onset", "CS onset = 0 ms", lbl_us,
-          "CS / US offset = %.0f ms" % NOM["cs_ms"], "Block mean onset"]
+def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
+    # A US-only baseline is anchored on the puff, so its trials carry the US-anchored
+    # response labels and time zero is the US.  The CS reference lines mean nothing there
+    # and the CS-anchored labels never appear, so both are swapped out rather than left
+    # to mislead - and, before this, to raise a KeyError on the first US-only trial.
+    if us_anchored:
+        hd = ["#", "Block", "Session", UR_PUFF_LBL, ALPHA_US_LBL, "",
+              "lid moving at onset", "US onset = 0 ms", "", "", "Block mean latency"]
+        colmap = {UR_PUFF_LBL: 4, ALPHA_US_LBL: 5, MOVING_LBL: 7}
+        yaxis = "Blink latency (ms from blue LED / US onset)"
+        ymin, ymax = -120, 400
+    else:
+        lbl_us = ("US onset = %.0f ms" % NOM["us_onset_ms"]) if has_us else (
+            "learned US onset = %.0f ms (none delivered)" % NOM["us_onset_ms"])
+        hd = ["#", "Block", "Session", CR_LBL, ALPHA_LBL, UR_LBL,
+              "lid moving at onset", "CS onset = 0 ms", lbl_us,
+              "CS / US offset = %.0f ms" % NOM["cs_ms"], "Block mean onset"]
+        colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
+        yaxis = "Blink onset (ms from yellow LED / CS onset)"
+        ymin, ymax = -120, 520
     for j, x in enumerate(hd, 1):
-        ws.cell(row=1, column=j, value=x)
-    colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
+        if x:
+            ws.cell(row=1, column=j, value=x)
     bmean = {}
     for b in sorted({r["block"] for r in rows if r["block"]}):
         g = [r["scored_onset_ms"] for r in rows if r["block"] == b and r["scored_onset_ms"] is not None
@@ -331,11 +348,13 @@ def scatter_sheet(ws, rows, has_us, xlabel, title):
         ws.cell(row=i, column=1, value=r_["gidx"])
         ws.cell(row=i, column=2, value=r_["block"])
         ws.cell(row=i, column=3, value=r_["session_name"])
-        if r_["scored_onset_ms"] is not None and r_["scored_class"]:
-            ws.cell(row=i, column=colmap[r_["scored_class"]], value=r_["scored_onset_ms"]).number_format = "0.0"
+        col = colmap.get(r_["scored_class"])
+        if r_["scored_onset_ms"] is not None and col:
+            ws.cell(row=i, column=col, value=r_["scored_onset_ms"]).number_format = "0.0"
         ws.cell(row=i, column=8, value=0)
-        ws.cell(row=i, column=9, value=NOM["us_onset_ms"])
-        ws.cell(row=i, column=10, value=NOM["cs_ms"])
+        if not us_anchored:
+            ws.cell(row=i, column=9, value=NOM["us_onset_ms"])
+            ws.cell(row=i, column=10, value=NOM["cs_ms"])
         if r_["block"] in bmean:
             ws.cell(row=i, column=11, value=round(bmean[r_["block"]], 1)).number_format = "0.0"
     style_header(ws)
@@ -345,20 +364,25 @@ def scatter_sheet(ws, rows, has_us, xlabel, title):
     ch.style = 2
     ch.title = title
     ch.x_axis.title = xlabel
-    ch.y_axis.title = "Blink onset (ms from yellow LED / CS onset)"
+    ch.y_axis.title = yaxis
     ch.height, ch.width = 13, 30 if len(rows) > 14 else 20
     ch.x_axis.scaling.min, ch.x_axis.scaling.max = 0, len(rows) + 1
-    ch.y_axis.scaling.min, ch.y_axis.scaling.max = -120, 520
+    ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
     xref = Reference(ws, min_col=1, min_row=2, max_row=len(rows) + 1)
-    for k, colr, size in ((4, "FF2C4C86", 7), (5, "FFB8760F", 7), (6, "FFB03A32", 7), (7, "FF93A0AE", 6)):
+    marks = ((4, "FF3A67CF", 7), (5, "FFB8760F", 7), (7, "FF93A0AE", 6)) if us_anchored else (
+             (4, "FF2C4C86", 7), (5, "FFB8760F", 7), (6, "FFB03A32", 7), (7, "FF93A0AE", 6))
+    for k, colr, size in marks:
         s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
         s.marker = Marker(symbol="circle", size=size)
         s.marker.graphicalProperties = GraphicalProperties(solidFill=colr)
         s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
         s.graphicalProperties.line.noFill = True
         ch.series.append(s)
-    for k, colr, dash, wdt in ((8, "FFB8760F", "solid", 20000), (9, "FF3A67CF", "dash", 20000),
-                              (10, "FF3A67CF", "dash", 20000), (11, "FF141922", "solid", 28000)):
+    lines = ((8, "FF3A67CF" if us_anchored else "FFB8760F", "solid", 20000),
+             (11, "FF141922", "solid", 28000)) if us_anchored else (
+            (8, "FFB8760F", "solid", 20000), (9, "FF3A67CF", "dash", 20000),
+            (10, "FF3A67CF", "dash", 20000), (11, "FF141922", "solid", 28000))
+    for k, colr, dash, wdt in lines:
         s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
         s.marker = Marker(symbol="none")
         s.graphicalProperties.line = LineProperties(solidFill=colr, w=wdt, prstDash=dash)
@@ -366,12 +390,44 @@ def scatter_sheet(ws, rows, has_us, xlabel, title):
     ws.add_chart(ch, "M2")
 
 
+LOGO = os.path.join(BASE, "assets", "logo_full.png")
+LOGO_W = 300                                    # px; the tagline is still legible here
+
+
+def masthead(ws):
+    """Put the lab's mark at the top of a cover sheet.  Returns the first free row.
+
+    A workbook is the thing that actually leaves this folder, so it carries the mark and
+    the build that produced it.  If the logo file is not there the sheet is simply built
+    without it - a missing image is never a reason to lose a run's numbers.
+    """
+    r = 1
+    try:
+        im = XLImage(LOGO)
+        im.width, im.height = LOGO_W, round(im.height * LOGO_W / im.width)
+        ws.row_dimensions[1].height = im.height * 0.75 + 6      # px -> points, plus air
+        ws.add_image(im, "A1")
+        r = 2
+    except (OSError, ValueError):
+        pass
+    c = ws.cell(row=r, column=1, value="%s  -  EBC Analyzer %s" % (C.LAB, C.VERSION))
+    c.font = Font(size=9, color=MUT)
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+    return r + 2
+
+
 def build(block):
     cfg = BOOKS[block]
     rows = sorted([r for r in ALLROWS if cfg["sel"](r)], key=lambda r: (r["trial_type"] != "CS-US", r["gidx"]))
     paired = [r for r in rows if r["trial_type"] == "CS-US"]
     csonly = [r for r in rows if r["trial_type"] == "CS-only"]
-    main = paired if paired else csonly
+    # A US-only baseline holds neither paired nor CS-only trials: every row is "US-only",
+    # so it used to match neither list and the workbook came out with an empty trial table
+    # and an empty scatter, while the CSV and the figures had the trials all along.
+    # Whenever there are no paired trials, the single table is everything that is not one.
+    main = paired if paired else [r for r in rows if r["trial_type"] != "CS-US"]
+    main_type = "Paired" if paired else (main[0]["trial_type"] if main else "CS-only")
+    main_sheet = "Paired trials" if paired else "%s trials" % main_type
     sess = sorted({r["session"] for r in rows}, key=lambda t: TAG_ORDER.index(t))
     wb = Workbook()
 
@@ -389,12 +445,14 @@ def build(block):
         ws.row_dimensions[r].height = h
 
     # ---------------- Read me ----------------
+    # These sheets get mailed around and pasted into papers on their own, so the cover
+    # says whose tool made them and which build did it, next to what they contain.
     ws = wb.active
     ws.title = "Read me"
-    ws["A1"] = cfg["title"]
-    ws["A1"].font = Font(bold=True, size=14, color=INK)
-    ws.merge_cells("A1:B1")
-    r = 3
+    r = masthead(ws)
+    ws.cell(row=r, column=1, value=cfg["title"]).font = Font(bold=True, size=14, color=INK)
+    ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+    r += 2
     for hdr_, items in (("PROTOCOL", PROTOCOL), ("WHAT THIS WORKBOOK COVERS", cfg["what"]),
                         ("HOW THE NUMBERS WERE PRODUCED", METHOD), ("CAVEATS", CAVEATS)):
         blockhdr(ws, r, hdr_); r += 1
@@ -403,10 +461,11 @@ def build(block):
         r += 1
     blockhdr(ws, r, "SHEETS"); r += 1
     sheets = [("Session summary", "One row per recording, paired CS-US trials only."),
-              ("Block summary", "One row per block of 9 paired trials - the learning curve in numbers.")] if paired else []
+              ("Block summary", "One row per block of 9 paired trials - the learning curve in numbers.")] if paired else [
+              ("Trial summary", "Counts, and mean / SD / median of the scored onsets.")]
     sheets += ([("Paired trials", "One row per paired CS-US trial."),
                 ("CS-only trials", "The CS-only probes, scored and charted separately.")] if paired
-               else [("CS-only trials", "One row per CS-only trial.")])
+               else [(main_sheet, "One row per %s trial." % main_type.lower())])
     sheets += [
                ("Stimulus events", "Every accepted CS and US event with frame and time."),
                ("Onset scatter", "Data behind the scatter, with a live Excel chart."),
@@ -416,6 +475,71 @@ def build(block):
         kv(ws, r, k, v, 20); r += 1
     widths(ws, [30, 112])
     ws.sheet_view.showGridLines = False
+
+    # ---------------- Trial summary (books with no paired trials) ----------------
+    # Extinction and the two baselines have no blocks and no learning curve, so they got
+    # no summary at all and the mean and SD had to be worked out by hand from the trial
+    # table.  One row per recording, plus a pooled row, on the same measures.
+    if not paired and main:
+        ws = wb.create_sheet("Trial summary")
+        hd = ["Session", "Video file", "Duration (s)", "%s trials" % main_type,
+              "Clean (unflagged)", "Scoreable", "With a blink", "CR n", "CR % of scoreable",
+              "alpha <100 ms", "UR / late", "Mean scored onset (ms)", "SD (ms)", "SEM (ms)",
+              "Median scored onset (ms)", "Min (ms)", "Max (ms)",
+              "Mean peak closure (%)", "SD peak closure (%)",
+              "Mean closure at US %d ms (%%)" % NOM["us_onset_ms"]]
+        for j, x in enumerate(hd, 1):
+            ws.cell(row=1, column=j, value=x)
+        ri = 2
+        items = [(t, REC_FILE[t], [r for r in main if r["session"] == t]) for t in sess]
+        if len(sess) > 1:
+            items.append(("ALL", " + ".join(REC_FILE[t] for t in sess), main))
+        for tag, vid, rs in items:
+            if not rs:
+                continue
+            sc = scoreable(rs)
+            cr = [r for r in sc if is_cr(r)]
+            o = [r["scored_onset_ms"] for r in sc if r["scored_onset_ms"] is not None]
+            pk = [r["peak_closure_pct"] for r in sc if r["peak_closure_pct"]]
+            n = len(o)
+            sd = float(np.std(o, ddof=1)) if n > 1 else None
+            vals = [("All pooled" if tag == "ALL" else rs[0]["session_name"]), vid,
+                    round(sum(SESSMETA[t]["duration_s"] for t in sess), 1) if tag == "ALL"
+                    else round(SESSMETA[tag]["duration_s"], 1),
+                    len(rs),
+                    sum(1 for r in rs if r["quality"] == "clean"),
+                    len(sc),
+                    n,
+                    len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+                    sum(1 for r in sc if is_alpha(r)),
+                    sum(1 for r in sc if is_ur(r)),
+                    round(float(np.mean(o)), 1) if o else None,
+                    round(sd, 1) if sd is not None else None,
+                    round(sd / np.sqrt(n), 1) if sd is not None else None,
+                    round(float(np.median(o)), 1) if o else None,
+                    round(float(np.min(o)), 1) if o else None,
+                    round(float(np.max(o)), 1) if o else None,
+                    round(float(np.mean(pk)), 1) if pk else None,
+                    round(float(np.std(pk, ddof=1)), 1) if len(pk) > 1 else None,
+                    round(float(np.mean([r["closure_at_US_pct"] for r in sc])), 1) if sc else None]
+            for j, v in enumerate(vals, 1):
+                c = ws.cell(row=ri, column=j, value=v)
+                c.font = Font(size=10, bold=(tag == "ALL"), color=INK)
+                c.border = Border(bottom=thin,
+                                  top=Side(style="medium", color="FF1F2937") if tag == "ALL" else None)
+                c.alignment = Alignment(horizontal="left" if j <= 2 else "right")
+            ri += 1
+        # what the columns actually mean, next to the numbers rather than in the Read me
+        ws.cell(row=ri + 1, column=1, value=(
+            "Scoreable = a trial whose response could be classified; a lid already closing at "
+            "stimulus onset cannot be, and is excluded here but kept in the trial table. "
+            "Mean / SD / SEM are over the scored onsets of the scoreable trials. "
+            "n is small in a baseline recording - read the SD alongside it, not instead of it."
+        )).font = Font(size=9, color=MUT, italic=True)
+        style_header(ws)
+        widths(ws, [13, 26, 11] + [12] * (len(hd) - 3))
+        ws.freeze_panes = "C2"
+        ws.sheet_view.showGridLines = False
 
     # ---------------- Session summary (paired only) ----------------
     if paired:
@@ -507,7 +631,7 @@ def build(block):
         ws.add_chart(lc, "O2")
 
     # ---------------- trial tables ----------------
-    write_table(wb.create_sheet("Paired trials" if paired else "CS-only trials"), main)
+    write_table(wb.create_sheet(main_sheet), main)
     if paired and csonly:
         write_table(wb.create_sheet("CS-only trials"), csonly)
 
@@ -541,9 +665,11 @@ def build(block):
     ws.sheet_view.showGridLines = False
 
     # ---------------- Onset scatter ----------------
+    us_anchored = bool(main) and main[0]["trial_type"] == "US-only"
     scatter_sheet(wb.create_sheet("Onset scatter"), main, bool(paired),
-                  "Paired CS-US trial, in order" if paired else "CS-only trial",
-                  "Blink onset per trial, relative to CS and US")
+                  "Paired CS-US trial, in order" if paired else "%s trial" % main_type,
+                  "Blink latency per trial, from the puff" if us_anchored
+                  else "Blink onset per trial, relative to CS and US", us_anchored)
     if paired and csonly:
         scatter_sheet(wb.create_sheet("CS-only scatter"), csonly, False,
                       "CS-only probe (one per block)", "CS-only probes - blink onset")

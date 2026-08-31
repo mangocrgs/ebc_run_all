@@ -6,80 +6,176 @@
 <title>EBC Analyzer</title>
 <style>
 :root{
-  --cs:#B8760F; --us:#3A67CF; --alert:#B03A32; --ok:#2F7D5B;
+  --cs:#B8760F; --us:#3A67CF; --alert:#B03A32; --ok:#2F7D5B; --warn:#946200;
   --paper:#F3F4F7; --surface:#FFFFFF; --sunken:#EBEDF2;
   --ink:#141922; --muted:#59636F; --rule:#DCE1E9; --accent:#2C4C86;
+  --alert-bg:#FCEFEE; --ok-bg:#EDF7F1; --warn-bg:#FDF5E6; --info-bg:#EEF3FC;
 }
 @media (prefers-color-scheme:dark){:root{
-  --cs:#E0A63C; --us:#7B9CEC; --alert:#E2736A; --ok:#5FBF92;
+  --cs:#E0A63C; --us:#7B9CEC; --alert:#E2736A; --ok:#5FBF92; --warn:#E0B155;
   --paper:#0E1218; --surface:#161B23; --sunken:#1C222B;
   --ink:#E3E8EF; --muted:#8B95A2; --rule:#242C37; --accent:#8FB0E8;
+  --alert-bg:#2A1A19; --ok-bg:#132420; --warn-bg:#241E11; --info-bg:#151E2C;
 }}
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font-size:15px;line-height:1.55;
-  font-family:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif}
-.mono,.num{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;font-variant-numeric:tabular-nums}
-.wrap{max-width:1080px;margin:0 auto;padding:26px 24px 80px;display:flex;flex-direction:column;gap:20px}
-header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-bottom:4px}
-h1{font-size:26px;margin:0;letter-spacing:-.02em}
-.sub{color:var(--muted);font-size:14px;margin:0}
-.pill{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--rule);
-  background:var(--surface);color:var(--muted)}
+/* Century Gothic throughout, except anything that is code, a path or a number - those
+   stay monospaced, where column alignment and telling 0 from O is worth more than the
+   family matching.  Century Gothic is a wide geometric face with a small x-height, so it
+   is set a shade smaller and tighter than a UI font would be, or it reads oversized. */
+body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6;
+  letter-spacing:-.005em;
+  font-family:"Century Gothic",Questrial,Futura,"Segoe UI",system-ui,sans-serif}
+.mono,.num,code{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  font-variant-numeric:tabular-nums;letter-spacing:0}
+.wrap{max-width:940px;margin:0 auto;padding:0 24px 90px;display:flex;flex-direction:column;gap:18px}
+
+/* ---------------------------------------------------------------- top bar */
+.topbar{position:sticky;top:0;z-index:20;background:var(--paper);
+  border-bottom:1px solid var(--rule);margin-bottom:2px}
+.topbar .inner{max-width:940px;margin:0 auto;padding:14px 24px;
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;letter-spacing:-.02em;white-space:nowrap}
+h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
+  vertical-align:2px;margin-left:2px}
+.sub{color:var(--muted);font-size:13.5px;margin:0}
+.titles{flex:1;min-width:150px}
+/* The lab mark keeps its own black field - it is drawn on one, and the glyph's white
+   nodes disappear against anything lighter. */
+.mark{flex:none;border-radius:8px;background:#000;display:block;
+  box-shadow:0 0 0 1px var(--rule)}
+.pill{font-size:12px;padding:4px 11px;border-radius:99px;border:1px solid var(--rule);
+  background:var(--surface);color:var(--muted);white-space:nowrap}
 .pill.on{border-color:var(--accent);color:var(--accent)}
-.pill.err{border-color:var(--alert);color:var(--alert)}
-.pill.ok{border-color:var(--ok);color:var(--ok)}
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px 20px}
-.card h2{font-size:12px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);
-  margin:0 0 14px;display:flex;gap:10px;align-items:center}
-.card h2 .n{display:inline-flex;width:19px;height:19px;border-radius:99px;background:var(--accent);
-  color:var(--surface);align-items:center;justify-content:center;font-size:11px;letter-spacing:0}
+.pill.err{border-color:var(--alert);color:var(--alert);background:var(--alert-bg)}
+.pill.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.pill .dot{display:inline-block;width:7px;height:7px;border-radius:99px;margin-right:6px;
+  background:currentColor;vertical-align:middle}
+.pill.on .dot{animation:pulse 1.3s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ---------------------------------------------------------------- cards */
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:18px 20px}
+.card.lead{border-color:var(--accent)}
+/* Headings read as headings rather than as small-caps labels.  Century Gothic is wide
+   and open, and uppercase with letter-spacing on top of that turned every label into a
+   banner competing with the work underneath it. */
+.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--ink);
+  margin:0 0 6px;display:flex;gap:10px;align-items:center}
+.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--accent);
+  color:#fff;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+.card h2 .n.done{background:var(--ok)}
+.card h2 .n.wait{background:var(--rule);color:var(--muted)}
+/* the running instruction under each heading: what to do here, right now */
+.todo{font-size:13.5px;color:var(--ink);margin:0 0 14px;padding-left:30px}
+.todo b{color:var(--accent)}
+
 label{font-size:13px;color:var(--muted)}
 input[type=text],input[type=number],select{background:var(--paper);color:var(--ink);
-  border:1px solid var(--rule);border-radius:4px;padding:7px 9px;font:inherit;font-size:14px}
+  border:1px solid var(--rule);border-radius:5px;padding:8px 10px;font:inherit;font-size:14px}
+input[type=text]:focus,input[type=number]:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 input[type=text]{width:100%}
-button{font:inherit;font-size:14px;border-radius:5px;border:1px solid var(--rule);
-  background:var(--surface);color:var(--ink);padding:8px 15px;cursor:pointer}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+button{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--rule);
+  background:var(--surface);color:var(--ink);padding:8px 15px;cursor:pointer;white-space:nowrap}
 button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;padding:10px 22px}
-button.primary:hover:not(:disabled){filter:brightness(1.1);color:#fff}
+button.primary:hover:not(:disabled){filter:brightness(1.12);color:#fff}
 button.danger{border-color:var(--alert);color:var(--alert)}
 button:disabled{opacity:.45;cursor:not-allowed}
+button.busy{position:relative;color:transparent!important}
+button.busy:after{content:"";position:absolute;inset:0;margin:auto;width:14px;height:14px;
+  border:2px solid currentColor;border-top-color:transparent;border-radius:99px;
+  color:var(--ink);animation:spin .7s linear infinite}
+button.primary.busy:after{color:#fff}
+@keyframes spin{to{transform:rotate(360deg)}}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-.chip{font-size:12px;padding:4px 9px;border:1px solid var(--rule);border-radius:4px;background:var(--paper);
-  cursor:pointer;color:var(--muted)}
+
+/* ---------------------------------------------------------------- messages */
+.msg{border-radius:6px;padding:11px 14px;margin:12px 0;font-size:13.5px;line-height:1.55;
+  border-left:3px solid var(--muted);background:var(--sunken)}
+.msg.bad{border-left-color:var(--alert);background:var(--alert-bg)}
+.msg.warn{border-left-color:var(--warn);background:var(--warn-bg)}
+.msg.good{border-left-color:var(--ok);background:var(--ok-bg)}
+.msg.info{border-left-color:var(--accent);background:var(--info-bg)}
+.msg .what{font-weight:600;color:var(--ink);display:block}
+.msg .detail{color:var(--muted);font-size:12.5px;white-space:pre-wrap;word-break:break-word;
+  margin-top:4px;font-family:"Cascadia Mono",Consolas,monospace}
+.msg .todo2{margin-top:7px;color:var(--ink);white-space:pre-wrap}
+.msg .todo2:before{content:"What to do:  ";font-weight:600;color:var(--muted)}
+
+/* ---------------------------------------------------------------- folder browser */
+.picker{background:var(--sunken);border-radius:7px;padding:13px 14px;margin-bottom:14px}
+.crumbs{display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:9px;font-size:12.5px}
+.crumbs .sep{color:var(--muted);opacity:.6}
+.chip{font-size:12px;padding:4px 9px;border:1px solid var(--rule);border-radius:5px;background:var(--surface);
+  cursor:pointer;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip:hover{border-color:var(--accent);color:var(--accent)}
-.dirs{display:flex;flex-wrap:wrap;gap:6px;max-height:104px;overflow:auto;margin-bottom:14px}
+.chip.crumb{border-color:transparent;background:transparent;padding:2px 5px}
+.chip.crumb:hover{background:var(--surface);border-color:var(--rule)}
+.chip.crumb.last{color:var(--ink);font-weight:600}
+.chip.folder:before{content:"\1F4C1\00a0 "}
+.chip.has:after{content:"\00a0\25CF";color:var(--ok);font-size:9px;vertical-align:middle}
+.shelf{display:flex;flex-wrap:wrap;gap:6px;max-height:112px;overflow:auto;align-items:center}
+.shelf-label{font-size:12px;color:var(--muted);font-weight:600;margin:11px 0 5px}
+
+/* ---------------------------------------------------------------- video table */
 table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);
-  font-weight:700;padding:6px 8px;border-bottom:1px solid var(--rule)}
-td{padding:7px 8px;border-bottom:1px solid var(--rule)}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;
+  border-bottom:1px solid var(--rule)}
+td{padding:8px;border-bottom:1px solid var(--rule);vertical-align:middle}
 tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--sunken)}
+tbody tr.on{background:var(--info-bg)}
 td.r,th.r{text-align:right}
-.bar{height:7px;border-radius:99px;background:var(--sunken);overflow:hidden}
+.nm{font-size:13.5px;word-break:break-word}
+.cloud{font-size:11px;color:var(--warn);display:block}
+.empty{font-size:13.5px;color:var(--muted);text-align:center;padding:22px 10px;
+  border:1px dashed var(--rule);border-radius:7px}
+.summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:12px;
+  padding:10px 13px;background:var(--sunken);border-radius:6px;font-size:13px}
+.summary b{color:var(--ink)}
+.summary .k{color:var(--muted)}
+
+/* ---------------------------------------------------------------- env check */
+.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.settings label{display:flex;flex-direction:column;gap:4px}
+
+/* ---------------------------------------------------------------- progress */
+.bar{height:8px;border-radius:99px;background:var(--sunken);overflow:hidden;position:relative}
 .bar>i{display:block;height:100%;background:var(--accent);transition:width .35s ease}
 .bar.done>i{background:var(--ok)}
-.vid{display:grid;grid-template-columns:150px 1fr 190px;gap:12px;align-items:center;padding:8px 0}
-.vid .nm{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar.busy:after{content:"";position:absolute;inset:0;border-radius:99px;
+  background:repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.35) 9px 18px);
+  animation:slide 1s linear infinite}
+@keyframes slide{to{background-position:26px 0}}
+.vid{display:grid;grid-template-columns:minmax(110px,1.1fr) 2fr minmax(150px,1.4fr);gap:12px;
+  align-items:center;padding:9px 0;border-bottom:1px solid var(--rule)}
+.vid:last-child{border-bottom:none}
+.vid .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vid .st{font-size:12px;color:var(--muted);text-align:right}
-#log{background:var(--sunken);border-radius:5px;padding:10px 12px;height:190px;overflow:auto;
-  font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.vid .vw{grid-column:1/-1;font-size:12px;color:var(--warn);padding-left:2px}
+#log{background:var(--sunken);border-radius:6px;padding:10px 12px;height:210px;overflow:auto;
+  font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin-top:12px}
+
+/* ---------------------------------------------------------------- results */
 .files{display:flex;flex-direction:column;gap:5px}
-.files a{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border:1px solid var(--rule);
-  border-radius:4px;text-decoration:none;color:var(--ink);font-size:13.5px;background:var(--paper)}
+.files a{display:flex;justify-content:space-between;gap:12px;padding:8px 11px;border:1px solid var(--rule);
+  border-radius:5px;text-decoration:none;color:var(--ink);font-size:13.5px;background:var(--paper)}
 .files a:hover{border-color:var(--accent);color:var(--accent)}
-.files .sz{color:var(--muted);font-size:12px}
-.ord{font-size:12px;color:var(--muted);margin-right:6px}
-.mv{padding:1px 5px;font-size:10px;line-height:1.4}
+.files .sz{color:var(--muted);font-size:12px;white-space:nowrap}
 .files a.stale{opacity:.5}
 .files a.stale em{font-style:normal;font-size:11px;color:var(--muted)}
-.grp{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:12px 0 6px;font-weight:700}
+.grp{font-size:12px;color:var(--muted);margin:14px 0 6px;font-weight:600}
+.grp.first{color:var(--ok)}
+.ord{font-size:12px;color:var(--muted);margin-right:6px}
+.mv{padding:2px 6px;font-size:10px;line-height:1.4}
 .note{font-size:12.5px;color:var(--muted);margin:10px 0 0}
 .hide{display:none}
-.err{color:var(--alert);font-size:13.5px}
+
+/* ---------------------------------------------------------------- triage */
 .tri{border-left:3px solid var(--cs);background:var(--sunken);padding:11px 14px;
      margin:12px 0;border-radius:0 6px 6px 0;font-size:13px;line-height:1.5}
-.tri.stop{border-left-color:var(--alert)}
+.tri.stop{border-left-color:var(--alert);background:var(--alert-bg)}
 .tri.look{border-left-color:var(--muted)}
 .tri h4{margin:0 0 6px;font-size:13px;letter-spacing:.01em}
 .tri.stop h4{color:var(--alert)}
@@ -87,12 +183,14 @@ td.r,th.r{text-align:right}
 .tri li{margin:2px 0;color:var(--muted)}
 .tri .why{color:var(--ink);margin-top:6px}
 .tri .rec{font-weight:600;margin-top:9px}
-details.guide{margin-top:12px;border-top:1px solid var(--rule);padding-top:10px}
+
+/* ---------------------------------------------------------------- guides */
+details.guide{margin-top:14px;border-top:1px solid var(--rule);padding-top:11px}
 details.guide summary{cursor:pointer;font-size:13px;color:var(--accent);
                       list-style:none;user-select:none}
 details.guide summary::-webkit-details-marker{display:none}
-details.guide summary:before{content:"B8  ";display:inline-block;transition:transform .12s}
-details.guide[open] summary:before{content:"BE  "}
+details.guide summary:before{content:"\25B8\00a0\00a0";display:inline-block}
+details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 .guide .body{font-size:12.8px;line-height:1.6;color:var(--muted);margin-top:10px}
 .guide .body b{color:var(--ink)}
 .guide table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.4px}
@@ -101,32 +199,80 @@ details.guide[open] summary:before{content:"BE  "}
 .guide th{color:var(--ink);font-weight:600}
 .guide .good{color:var(--ok)}
 .guide .bad{color:var(--alert)}
-details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:10px}
-.settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-.settings label{display:flex;flex-direction:column;gap:4px}
+
+/* ---------------------------------------------------------------- colophon */
+/* What a methods section would need from this page: whose tool it is, what it did to
+   the video, which build did it. Set below the work, in smaller type, so it is there
+   to be read without ever competing with the run. */
+.colophon{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;
+  margin-top:12px;padding-top:22px;border-top:1px solid var(--rule)}
+.colophon .lockup{width:340px;max-width:100%;height:auto;flex:none;display:block;
+  border-radius:8px;background:#000;box-shadow:0 0 0 1px var(--rule)}
+.colophon .cols{flex:1;min-width:280px}
+.colophon .lede{margin:0 0 12px;font-size:13.5px;color:var(--ink)}
+.colophon .prov{display:grid;grid-template-columns:max-content 1fr;gap:5px 16px;
+  margin:0;font-size:12.5px;line-height:1.6}
+.colophon dt{color:var(--muted);font-weight:600;font-size:12px;padding-top:1px}
+.colophon dd{margin:0;color:var(--muted)}
+.colophon .quiet{margin:14px 0 0;font-size:12px;color:var(--muted);opacity:.85}
+.colophon .by{margin:12px 0 0;padding-top:11px;border-top:1px solid var(--rule);
+  font-size:12.5px;color:var(--ink)}
 </style>
 </head>
 <body>
+
+<div class="topbar">
+  <div class="inner">
+    <img class="mark" src="/assets/logo_mark.png" width="38" height="38" alt=""
+         title="Cerebral Dynamics, Plasticity &amp; Learning">
+    <div class="titles">
+      <h1>EBC Analyzer <span class="ver" id="ver"></span></h1>
+      <p class="sub">Eyeblink conditioning, scored from video</p>
+    </div>
+    <span class="mono" style="font-size:12.5px;color:var(--muted)" id="topelapsed"></span>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">starting up</span></span>
+  </div>
+</div>
+
 <div class="wrap">
 
-<header>
-  <h1>EBC Analyzer</h1>
-  <p class="sub">Eyeblink conditioning, scored from video</p>
-  <span class="pill" id="pill">idle</span>
-</header>
+<div id="offline"></div>
 
-<div class="card">
-  <h2><span class="n">1</span> Choose videos</h2>
-  <div class="row" style="margin-bottom:10px">
-    <input type="text" id="path" placeholder="folder path" style="flex:1;min-width:260px">
-    <button id="go">Open</button>
-    <button id="up">Up</button>
+<!-- =============================================================== step 1 -->
+<div class="card lead" id="card1">
+  <h2><span class="n" id="n1">1</span> Choose videos</h2>
+  <p class="todo" id="todo1">Press <b>Browse&hellip;</b> and pick the folder that holds this
+     participant&rsquo;s recordings.</p>
+
+  <div class="picker">
+    <div class="crumbs" id="crumbs"></div>
+    <div class="row">
+      <button class="primary" id="pick">Browse&hellip;</button>
+      <input type="text" id="path" placeholder="…or paste a folder path here and press Enter"
+             style="flex:1;min-width:220px" spellcheck="false">
+      <button id="go">Open</button>
+      <button id="up" title="go to the folder above this one">Up</button>
+      <button id="reload" title="re-read this folder from disk">Refresh</button>
+    </div>
+
+    <div id="recentwrap" class="hide">
+      <div class="shelf-label">Recently used</div>
+      <div class="shelf" id="recent"></div>
+    </div>
+    <div id="dirwrap" class="hide">
+      <div class="shelf-label">Folders here <span style="text-transform:none;letter-spacing:0;
+        font-weight:400">&mdash; a green dot means it has recordings in it</span></div>
+      <div class="shelf" id="dirs"></div>
+    </div>
+    <div id="drivewrap" class="hide">
+      <div class="shelf-label">Drives</div>
+      <div class="shelf" id="drives"></div>
+    </div>
   </div>
-  <div class="crumbs" id="drives"></div>
-  <div class="dirs" id="dirs"></div>
+
+  <div id="browsemsg"></div>
   <div id="vidwrap"></div>
-  <p class="note" id="pick">Tick the recordings to analyse. Videos are read where they sit — nothing is copied or uploaded, so a 4 GB file costs no extra disk.
-     Conditioning chapters are stitched into one timeline in the order shown; use ▲▼ if the recording order differs.</p>
+  <div id="selsummary"></div>
 
   <details class="guide">
     <summary>What each recording is for, and what makes one usable</summary>
@@ -153,18 +299,27 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
       <p>Nothing needs to be perfect &mdash; the app checks every LED itself and tells you what it
       found. Position of the face and of the LEDs is discovered per recording, so participants may
       sit differently and the box may be moved between sessions.</p>
+
+      <p><b>Nothing is uploaded and nothing is copied.</b> The recordings are read where they
+      sit, so a 4&nbsp;GB file costs no extra disk and never leaves this computer.</p>
     </div>
   </details>
 </div>
 
-<div class="card">
-  <h2><span class="n">2</span> Protocol</h2>
+<!-- =============================================================== step 2 -->
+<div class="card" id="card2">
+  <h2><span class="n wait" id="n2">2</span> Name it and check the protocol</h2>
+  <p class="todo" id="todo2">Finish step 1 first.</p>
+
   <div class="settings">
-    <label>Study name<input type="text" id="study" value="Marie"></label>
+    <label>Study name <span style="font-size:11px">(goes in every file name)</span>
+      <input type="text" id="study" value="" placeholder="participant name or code"></label>
     <label>CS duration (ms)<input type="number" id="cs" value="400" step="10"></label>
     <label>US onset (ms)<input type="number" id="uson" value="350" step="10"></label>
     <label>US duration (ms)<input type="number" id="usdur" value="50" step="10"></label>
   </div>
+  <div id="protomsg"></div>
+
   <details class="guide">
     <summary>These numbers should not normally be changed</summary>
     <div class="body">
@@ -179,55 +334,77 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
       A disagreement is a finding about the recording &mdash; almost always a CS LED that could
       not be read &mdash; and the app will tell you which recording and why. Change these only to
       record a genuine deviation in how the session was actually run.</p>
+      <p>CS and US co-terminate: US onset + US duration should equal CS duration. The block
+      structure is detected from the recording, not assumed.</p>
     </div>
   </details>
-  <p class="note">CS and US co-terminate: US onset + US duration should equal CS duration.
-     The block structure is detected from the recording, not assumed.</p>
-  <div class="row" style="margin-top:16px">
-    <button class="primary" id="run">Run analysis</button>
+
+  <!-- Everything the pipeline needs travels inside the app, so there is nothing here to
+       read when it is working - the old "what this computer needs" checklist only ever
+       confirmed what is now guaranteed.  It speaks up if something really is missing,
+       which now only happens when running from source. -->
+  <div id="envmsg"></div>
+
+  <div class="row" style="margin-top:18px">
+    <button class="primary" id="run" disabled>Run analysis</button>
     <button class="danger hide" id="stop">Stop</button>
-    <label class="row" style="gap:6px"><input type="checkbox" id="force"> re-process videos already done</label>
+    <label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="force">
+      re-process recordings that are already done</label>
   </div>
-  <p class="err hide" id="err"></p>
+  <div id="runmsg"></div>
+  <div id="runerr"></div>
 </div>
 
+<!-- =============================================================== step 3 -->
 <div class="card hide" id="progcard">
-  <h2><span class="n">3</span> Progress</h2>
-  <div class="bar" id="allbar" style="height:9px;margin-bottom:6px"><i style="width:0"></i></div>
-  <div class="row" style="justify-content:space-between;margin-bottom:14px">
-    <span class="mono" style="font-size:12.5px;color:var(--muted)" id="phase">—</span>
+  <h2><span class="n" id="n3">3</span> Progress</h2>
+  <p class="todo" id="todo3"></p>
+
+  <div class="bar" id="allbar" style="height:10px;margin-bottom:7px"><i style="width:0"></i></div>
+  <div class="row" style="justify-content:space-between;margin-bottom:6px">
+    <span class="mono" style="font-size:12.5px;color:var(--muted)" id="phase">&mdash;</span>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="elapsed"></span>
   </div>
+  <div id="statemsg"></div>
+  <div id="notes"></div>
   <div id="vids"></div>
+  <div id="triage"></div>
+
   <details class="guide">
     <summary>What is happening, and how long it takes</summary>
     <div class="body">
       <table>
-        <tr><th style="width:190px">Stage</th><th>What it does</th></tr>
+        <tr><th style="width:200px">Stage</th><th>What it does</th></tr>
+        <tr><td>checking this computer</td><td>ffmpeg, the Python packages, the files and the output folder &mdash; before anything long starts.</td></tr>
         <tr><td>finding the stimulator box</td><td>One quick survey pass per recording to locate the LEDs.</td></tr>
-        <tr><td>reading the LEDs</td><td>Full-rate read of a small window around the box. <b>The slow part</b> &mdash; about 12 min per 4 GB recording.</td></tr>
+        <tr><td>reading the LEDs</td><td>Full-rate read of a small window around the box. <b>The slow part</b> &mdash; roughly 3 min per GB.</td></tr>
         <tr><td>checking the LED signal quality</td><td>Judges each CS channel and decides where trials come from. Any warning appears below.</td></tr>
         <tr><td>building trials</td><td>Pulses become trials; blocks are recovered and checked.</td></tr>
         <tr><td>tracking eyelids</td><td>A short seek per trial, roughly 4 min per recording.</td></tr>
         <tr><td>scoring &rarr; workbooks</td><td>Seconds.</td></tr>
       </table>
-      <p>A full session of four 4 GB recordings takes <b>roughly an hour</b>. Finished work is
+      <p>A full session of four 4&nbsp;GB recordings takes <b>roughly an hour</b>. Finished work is
       cached, so re-running skips anything already done &mdash; only new or changed recordings cost
-      time. It is safe to leave this running and come back.</p>
+      time. It is safe to leave this running and come back; closing the black command window is
+      what stops it.</p>
     </div>
   </details>
-  <div id="triage"></div>
+
   <div id="log" class="mono"></div>
 </div>
 
+<!-- =============================================================== step 4 -->
 <div class="card hide" id="rescard">
-  <h2><span class="n">4</span> Results</h2>
+  <h2><span class="n" id="n4">4</span> Results</h2>
+  <p class="todo" id="todo4">Open every <b>qc_leds_&lt;name&gt;.png</b> before trusting any number
+     below it.</p>
   <div class="row" style="margin-bottom:12px">
     <button id="openf">Open output folder</button>
     <span class="mono" style="font-size:12px;color:var(--muted)" id="outpath"></span>
   </div>
+  <div id="resmsg"></div>
   <p class="note hide" id="stalenote" style="margin:0 0 10px">
-     Greyed entries are left over from a previous run — this run did not produce them.</p>
+     Greyed entries are left over from a previous run &mdash; this run did not produce them.</p>
   <div id="res"></div>
 
   <details class="guide" open>
@@ -264,31 +441,152 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
   </details>
 </div>
 
+<!-- ============================================================== colophon -->
+<footer class="colophon">
+  <img class="lockup" src="/assets/logo_full.png"
+       alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
+  <div class="cols">
+    <p class="lede"><b>EBC Analyzer</b> <span id="colver"></span> &mdash; delay eyeblink
+       conditioning, scored from video by the same pipeline every time.</p>
+    <dl class="prov">
+      <dt>Method</dt>
+      <dd>Both stimulus LEDs are read at full frame rate and every pulse detected;
+          eyelid aperture is tracked from MediaPipe FaceMesh and scored against one
+          pooled closure scale. Trials are recovered from what was measured, and the
+          protocol is used to check that recovery, never to assert it.</dd>
+      <dt>Provenance</dt>
+      <dd id="colenv">&mdash;</dd>
+      <dt>Privacy</dt>
+      <dd>Recordings are read where they sit. Nothing is uploaded, nothing is copied,
+          and the server answers only this computer.</dd>
+    </dl>
+    <p class="quiet">Report the version above with any figure this produces, and open
+       every <span class="mono">qc_leds_*.png</span> before trusting the numbers.</p>
+    <p class="by">C.&nbsp;Levenes and M.&nbsp;Courreges &middot; August&nbsp;2026</p>
+  </div>
+</footer>
+
 </div>
 
 <script>
+"use strict";
 const T = "__TOKEN__";
 const $ = s => document.querySelector(s);
-const api = (p, o = {}) => fetch(p, {...o, headers: {...(o.headers||{}), "X-Token": T,
-  ...(o.body ? {"Content-Type": "application/json"} : {})}}).then(r => r.json());
-const fmtSize = b => b > 1e9 ? (b/1e9).toFixed(2)+" GB" : b > 1e6 ? (b/1e6).toFixed(1)+" MB" : (b/1e3).toFixed(0)+" kB";
-let VIDS = [], CUR = "";
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-function browse(path){
-  api("/api/browse?path=" + encodeURIComponent(path || "")).then(d => {
-    if (d.error) { $("#err").textContent = d.error; $("#err").classList.remove("hide"); return; }
-    $("#err").classList.add("hide");
-    CUR = d.path; $("#path").value = d.path;
-    $("#drives").innerHTML = (d.drives||[]).map(x => `<span class="chip" data-p="${x}">${x}</span>`).join("");
-    $("#dirs").innerHTML = d.dirs.map(x =>
-      `<span class="chip" data-p="${x.path.replace(/"/g,"&quot;")}">${x.name}</span>`).join("")
-      || `<span style="font-size:12.5px;color:var(--muted)">no sub-folders</span>`;
-    document.querySelectorAll(".chip").forEach(c => c.onclick = () => browse(c.dataset.p));
-    // Nothing is ticked by default - a folder can hold a dozen multi-GB files and
-    // an accidental Run would be a multi-hour job.
-    VIDS = d.videos.map(v => ({...v, role: v.role || "conditioning", anchor: "auto", on: false}));
-    renderVids();
-  });
+let VIDS = [], CUR = "", ONLINE = true, RUNNING = false, LAST = null, ENV = null;
+
+/* ---------------------------------------------------------------- plumbing */
+/* Every call comes back as either {ok:true, data} or {ok:false, fail:{error,detail,hint}}.
+   Nothing in this page is allowed to fail silently - that is what left the old folder
+   browser looking like it simply did not work. */
+async function api(path, opts = {}){
+  let r;
+  try {
+    r = await fetch(path, {...opts, headers: {...(opts.headers || {}), "X-Token": T,
+      ...(opts.body ? {"Content-Type": "application/json"} : {})}});
+  } catch (e) {
+    setOffline(true);
+    return {ok:false, fail:{error:"The app is not answering.",
+      detail:String(e && e.message || e),
+      hint:"The black command window that started the app has probably been closed. "
+         + "Start EBC Analyzer again, then reload this page."}};
+  }
+  setOffline(false);
+  let d;
+  try { d = await r.json(); }
+  catch (e) {
+    return {ok:false, fail:{error:"The app sent back something this page could not read.",
+      detail:"HTTP " + r.status + " on " + path,
+      hint:"Reload the page. If it keeps happening, ebc_app.py and ebc_app_ui.html are "
+         + "from different versions - re-download both."}};
+  }
+  if (d && d.error) return {ok:false, fail:d};
+  return {ok:true, data:d};
+}
+
+function setOffline(off){
+  if (off === !ONLINE) return;
+  ONLINE = !off;
+  $("#offline").innerHTML = off ? msgHTML("bad", {
+    error:"Lost contact with the app.",
+    hint:"The black command window that started EBC Analyzer has closed, or the computer "
+       + "went to sleep. Start it again and reload this page. Nothing already finished is lost."
+  }) : "";
+}
+
+function msgHTML(kind, f){
+  return `<div class="msg ${kind}"><span class="what">${esc(f.error || f.text)}</span>`
+       + (f.detail ? `<div class="detail">${esc(f.detail)}</div>` : "")
+       + (f.hint ? `<div class="todo2">${esc(f.hint)}</div>` : "")
+       + `</div>`;
+}
+const show = (sel, kind, f) => { $(sel).innerHTML = f ? msgHTML(kind, f) : ""; };
+const clear = sel => { $(sel).innerHTML = ""; };
+
+const fmtSize = b => b >= 1e9 ? (b/1e9).toFixed(2)+" GB"
+                   : b >= 1e6 ? (b/1e6).toFixed(0)+" MB" : (b/1e3).toFixed(0)+" kB";
+function fmtMins(m){
+  if (m < 1) return "under a minute";
+  if (m < 90) return Math.round(m) + " min";
+  const h = Math.floor(m/60);
+  return h + " h " + Math.round(m - h*60) + " min";
+}
+function fmtSecs(s){ return `${Math.floor(s/60)}m ${String(Math.round(s%60)).padStart(2,"0")}s`; }
+
+/* ---------------------------------------------------------------- step 1 */
+async function browse(path, quiet){
+  if (!quiet) { $("#go").classList.add("busy"); }
+  const r = await api("/api/browse?path=" + encodeURIComponent(path || ""));
+  $("#go").classList.remove("busy");
+  if (!r.ok){
+    show("#browsemsg", "bad", r.fail);
+    $("#vidwrap").innerHTML = "";
+    clear("#selsummary");
+    VIDS = [];
+    refreshGuide();
+    return;
+  }
+  const d = r.data;
+  clear("#browsemsg");
+  CUR = d.path;
+  $("#path").value = d.path;
+  LAST = d;
+
+  $("#crumbs").innerHTML = (d.crumbs || []).map((c, i, a) =>
+      `<span class="chip crumb${i === a.length-1 ? " last" : ""}" data-p="${esc(c.path)}">${esc(c.name)}</span>`
+      + (i < a.length-1 ? `<span class="sep">&rsaquo;</span>` : "")).join("");
+
+  const recent = (d.recent || []).filter(p => p !== d.path);
+  $("#recentwrap").classList.toggle("hide", !recent.length);
+  $("#recent").innerHTML = recent.map(p =>
+      `<span class="chip folder" data-p="${esc(p)}" title="${esc(p)}">${esc(p)}</span>`).join("");
+
+  $("#dirwrap").classList.toggle("hide", !(d.dirs || []).length);
+  $("#dirs").innerHTML = (d.dirs || []).map(x =>
+      `<span class="chip folder${x.has ? " has" : ""}" data-p="${esc(x.path)}"
+             title="${esc(x.path)}${x.has ? "  —  has recordings in it" : ""}">${esc(x.name)}</span>`).join("");
+
+  $("#drivewrap").classList.toggle("hide", !(d.drives || []).length);
+  $("#drives").innerHTML = (d.drives || []).map(x =>
+      `<span class="chip" data-p="${esc(x)}">${esc(x)}</span>`).join("");
+
+  document.querySelectorAll("#crumbs .chip, #recent .chip, #dirs .chip, #drives .chip")
+    .forEach(c => c.onclick = () => browse(c.dataset.p));
+
+  if (d.warn) show("#browsemsg", "warn", {error:d.warn,
+    detail:(d.skipped || []).join(", "),
+    hint:"Usually a file still being written, or one this account may not read. Everything "
+       + "else in the folder is listed normally."});
+
+  // Nothing is ticked by default - a folder can hold a dozen multi-GB files and an
+  // accidental Run would be a multi-hour job.
+  VIDS = (d.videos || []).map(v => ({...v, role: v.role || "conditioning",
+                                     anchor: "auto", on: false}));
+  if (!$("#study").value.trim() && d.suggest) $("#study").value = d.suggest;
+  renderVids(d);
+  refreshGuide();
 }
 
 function chapterOf(i){
@@ -297,18 +595,25 @@ function chapterOf(i){
   return VIDS[i].on ? "chapter " + n : "—";
 }
 
-function renderVids(){
+function renderVids(d){
+  const wrap = $("#vidwrap");
   if (!VIDS.length){
-    $("#vidwrap").innerHTML = `<p style="font-size:13.5px;color:var(--muted)">No videos in this folder.</p>`;
+    wrap.innerHTML = `<div class="empty"><b>No recordings in this folder.</b><br>`
+      + esc((d && d.empty_hint) || "The app looks for .mp4, .mov, .mkv, .avi, .m4v, .mts and .webm files.")
+      + `<br><br>Press <b>Browse&hellip;</b> to pick a different folder, or click one of the folder
+         chips above &mdash; the ones with a green dot have recordings in them.</div>`;
+    clear("#selsummary");
     return;
   }
-  $("#vidwrap").innerHTML = `<table><thead><tr>
-      <th style="width:34px"><input type="checkbox" id="all" title="select all"></th><th>File</th><th class="r" style="width:90px">Size</th>
+  wrap.innerHTML = `<table><thead><tr>
+      <th style="width:36px"><input type="checkbox" id="all" title="tick every recording"></th>
+      <th>File</th><th class="r" style="width:90px">Size</th>
       <th style="width:190px">Role</th><th style="width:150px">Trials from</th>
-      <th style="width:96px">Order</th></tr></thead><tbody>` +
-    VIDS.map((v,i) => `<tr>
+      <th style="width:110px">Order</th></tr></thead><tbody>` +
+    VIDS.map((v,i) => `<tr class="${v.on?"on":""}">
       <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
-      <td><span class="nm">${v.name}</span></td>
+      <td><span class="nm">${esc(v.name)}</span>${v.cloud
+          ? `<span class="cloud">stored online only — will download before it can be read</span>` : ""}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
       <td><select data-i="${i}" class="rl">
         <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
@@ -326,46 +631,199 @@ function renderVids(){
           <button class="mv" data-i="${i}" data-d="-1" title="move earlier">&#9650;</button>
           <button class="mv" data-i="${i}" data-d="1" title="move later">&#9660;</button></td>
       </tr>`).join("") + `</tbody></table>`;
+
   const all = $("#all");
-  if (all) { all.checked = VIDS.length > 0 && VIDS.every(v => v.on);
-             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked); renderVids(); }; }
+  all.checked = VIDS.every(v => v.on);
+  all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked); renderVids(d); refreshGuide(); };
   document.querySelectorAll(".ck").forEach(c => c.onchange = e => {
-    VIDS[e.target.dataset.i].on = e.target.checked; renderVids(); });
+    VIDS[+e.target.dataset.i].on = e.target.checked; renderVids(d); refreshGuide(); });
   document.querySelectorAll(".rl").forEach(c => c.onchange = e => {
-    const v = VIDS[e.target.dataset.i];
+    const v = VIDS[+e.target.dataset.i];
     v.role = e.target.value;
     // extinction and CS-only deliver no US, so there is nothing to anchor on
     if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "auto";
-    renderVids(); });
+    renderVids(d); refreshGuide(); });
   document.querySelectorAll(".an").forEach(c => c.onchange = e => {
-    VIDS[e.target.dataset.i].anchor = e.target.value; renderVids(); });
+    VIDS[+e.target.dataset.i].anchor = e.target.value; renderVids(d); });
   document.querySelectorAll(".mv").forEach(c => c.onclick = e => {
-    const i = +e.currentTarget.dataset.i, d = +e.currentTarget.dataset.d, j = i + d;
+    const i = +e.currentTarget.dataset.i, j = i + (+e.currentTarget.dataset.d);
     if (j < 0 || j >= VIDS.length) return;
     [VIDS[i], VIDS[j]] = [VIDS[j], VIDS[i]];
-    renderVids();
+    renderVids(d); refreshGuide();
   });
+  renderSummary();
 }
 
-$("#go").onclick = () => browse($("#path").value);
-$("#up").onclick = () => api("/api/browse?path=" + encodeURIComponent(CUR)).then(d => d.up && browse(d.up));
-$("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
-$("#openf").onclick = () => api("/api/open_folder");
+function picked(){ return VIDS.filter(v => v.on); }
 
-$("#run").onclick = () => {
-  const items = VIDS.filter(v => v.on).map(v => ({path: v.path, tag: v.tag, label: v.label,
-                                                  role: v.role, anchor: v.anchor || "auto"}));
-  if (!items.length) { $("#err").textContent = "Tick at least one video."; $("#err").classList.remove("hide"); return; }
-  $("#err").classList.add("hide");
-  api("/api/run", {method:"POST", body: JSON.stringify({
-      items, study: $("#study").value.trim() || "study", force: $("#force").checked,
-      nominal: {cs_ms: +$("#cs").value, us_onset_ms: +$("#uson").value, us_dur_ms: +$("#usdur").value}
-    })}).then(r => { if (r.error){ $("#err").textContent = r.error; $("#err").classList.remove("hide"); } poll(); });
+function renderSummary(){
+  const on = picked();
+  if (!on.length){
+    $("#selsummary").innerHTML = `<div class="summary"><span class="k">Nothing ticked yet
+      &mdash; tick the recordings that belong to this participant.</span></div>`;
+    return;
+  }
+  const bytes = on.reduce((a,v) => a + (v.size||0), 0);
+  const mins = 3 * bytes/1e9 + 4 * on.length;
+  const roles = {};
+  on.forEach(v => roles[v.role] = (roles[v.role]||0) + 1);
+  const rn = {conditioning:"conditioning", extinction:"extinction",
+              baseline_cs:"CS-only baseline", baseline_us:"US-only baseline"};
+  $("#selsummary").innerHTML = `<div class="summary">
+     <span><b>${on.length}</b> <span class="k">of ${VIDS.length} ticked</span></span>
+     <span><b>${fmtSize(bytes)}</b> <span class="k">to read</span></span>
+     <span><span class="k">roughly</span> <b>${fmtMins(mins)}</b>
+       <span class="k">if none of it is cached</span></span>
+     <span class="k">${Object.entries(roles).map(([k,n]) => n + " " + rn[k]).join(" · ")}</span>
+   </div>`;
+}
+
+/* ---------------------------------------------------------------- guidance */
+/* One sentence per card saying what to do next. It is recomputed on every change,
+   so the page always has an answer to "and now what?". */
+function refreshGuide(){
+  const on = picked();
+  const step1done = on.length > 0;
+  $("#n1").className = "n" + (step1done ? " done" : "");
+  $("#n2").className = "n" + (step1done ? "" : " wait");
+  $("#card1").classList.toggle("lead", !step1done && !RUNNING);
+  $("#card2").classList.toggle("lead", step1done && !RUNNING);
+
+  if (!VIDS.length)
+    $("#todo1").innerHTML = `Press <b>Browse&hellip;</b> and pick the folder that holds this
+      participant&rsquo;s recordings.`;
+  else if (!step1done)
+    $("#todo1").innerHTML = `<b>Tick</b> the recordings to analyse, then set what each one is
+      in the <b>Role</b> column. Conditioning chapters are stitched into one timeline in the
+      order shown &mdash; use &#9650;&#9660; if the recording order differs.`;
+  else
+    $("#todo1").innerHTML = `${on.length} ticked. Check the <b>Role</b> of each one, and the
+      chapter order, then move on to step 2.`;
+
+  const study = $("#study").value.trim();
+  if (!step1done) $("#todo2").innerHTML = `Finish step 1 first.`;
+  else if (!study) $("#todo2").innerHTML = `Type a <b>study name</b> &mdash; it goes into every
+      output file name, so use the participant&rsquo;s name or code.`;
+  else if (ENV && !ENV.ok) $("#todo2").innerHTML = `This computer is missing something the
+      analysis needs &mdash; open <b>What this computer needs</b> below.`;
+  else $("#todo2").innerHTML = `Leave the protocol numbers alone unless the session really was
+      run differently, then press <b>Run analysis</b>.`;
+
+  const why = !step1done ? "Tick at least one recording in step 1."
+            : !study ? "Give the study a name first."
+            : RUNNING ? "A run is already going."
+            : ENV && !ENV.ok ? "Install what is missing first (see below)."
+            : "";
+  $("#run").disabled = !!why;
+  $("#run").title = why || "Start the analysis";
+  // Why the button is locked, said in the page rather than only in a tooltip.
+  // #runerr is separate and is never cleared here, so a failed Run stays readable.
+  if (step1done && !study && !RUNNING)
+    show("#runmsg", "info", {error:"Give the study a name before running.",
+      hint:"It becomes part of every workbook and figure file name, so the "
+         + "participant's name or code is the usual choice."});
+  else clear("#runmsg");
+
+  const cs = +$("#cs").value, uson = +$("#uson").value, usdur = +$("#usdur").value;
+  if (cs && uson && usdur && Math.abs(uson + usdur - cs) > 0.5)
+    show("#protomsg", "warn", {error:"US onset + US duration does not equal CS duration.",
+      detail:`${uson} + ${usdur} = ${uson+usdur}, but CS is ${cs} ms`,
+      hint:"In this protocol the CS and US co-terminate, so these should add up. Change them "
+         + "only if the session really was run this way - the analysis will use what you type."});
+  else clear("#protomsg");
+  renderSummary();
+}
+
+/* ---------------------------------------------------------------- colophon */
+/* The version goes in two places on purpose: beside the title, where it is seen, and in
+   the colophon next to the runtime that produced the numbers, where it can be copied
+   into a methods section. */
+function setColophon(){
+  if (!ENV) return;
+  const v = ENV.version ? "v" + ENV.version : "";
+  $("#ver").textContent = v;
+  $("#colver").textContent = v;
+  const runtime = ENV.frozen ? "packaged app, Python " + ENV.python_version + " inside"
+                             : "Python " + ENV.python_version;
+  const ff = !ENV.ffmpeg ? "ffmpeg not found"
+           : ENV.ffmpeg_bundled ? "ffmpeg bundled" : "ffmpeg on PATH";
+  $("#colenv").textContent = ["EBC Analyzer " + (v || "—"), runtime, ff].join("  ·  ");
+}
+
+/* ---------------------------------------------------------------- env check */
+/* The check still runs on every start - it is the thing that stops a four-hour run
+   failing at the last stage - but it is only ever *shown* when it fails.  In the
+   packaged app it cannot: everything it looks for travels inside the executable.  It
+   can still fail when running from source, and then it says so, loudly, in place. */
+async function checkEnv(){
+  const r = await api("/api/check_env");
+  if (!r.ok){ show("#envmsg", "bad", r.fail); return; }
+  ENV = r.data;
+  setColophon();
+  const bad = ENV.items.filter(i => !i.ok);
+  if (ENV.ok) clear("#envmsg");
+  else show("#envmsg", "bad", {
+    error:"The analysis cannot run until these are installed: "
+        + bad.map(i => i.name).join(", "),
+    detail:ENV.pip, hint:ENV.hint});
+  refreshGuide();
+}
+
+/* ---------------------------------------------------------------- buttons */
+$("#pick").onclick = async () => {
+  $("#pick").classList.add("busy");
+  show("#browsemsg", "info", {error:"A folder dialog is opening…",
+    hint:"If you cannot see it, it may be behind this browser window - check the taskbar."});
+  const r = await api("/api/pick_folder", {method:"POST",
+    body: JSON.stringify({initial: CUR})});
+  $("#pick").classList.remove("busy");
+  if (!r.ok){ show("#browsemsg", "bad", r.fail); return; }
+  clear("#browsemsg");
+  if (r.data.cancelled) return;
+  browse(r.data.path);
 };
-$("#stop").onclick = () => api("/api/stop", {method:"POST", body:"{}"});
+$("#go").onclick = () => browse($("#path").value);
+$("#reload").onclick = () => browse(CUR || $("#path").value);
+$("#up").onclick = () => {
+  if (LAST && LAST.up) return browse(LAST.up);
+  show("#browsemsg", "info", {error:"This is already the top of the drive.",
+    hint:"Use the Drives row below to move to another disk."});
+};
+$("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
+$("#study").addEventListener("input", refreshGuide);
+["#cs","#uson","#usdur"].forEach(s => $(s).addEventListener("input", refreshGuide));
+$("#openf").onclick = async () => {
+  const r = await api("/api/open_folder");
+  if (!r.ok) show("#resmsg", "bad", r.fail); else clear("#resmsg");
+};
 
-// Fallback labels only - the server sends phase_label. Keys match ebc_run_all's stages.
-const PHASES = {starting:"starting", locate:"finding the stimulator box",
+$("#run").onclick = async () => {
+  const on = picked();
+  if (!on.length) return refreshGuide();
+  clear("#runerr");
+  $("#run").classList.add("busy");
+  const r = await api("/api/run", {method:"POST", body: JSON.stringify({
+      items: on.map(v => ({path: v.path, tag: v.tag, label: v.label, role: v.role,
+                           size: v.size, anchor: v.anchor || "auto"})),
+      study: $("#study").value.trim(),
+      force: $("#force").checked,
+      nominal: {cs_ms: +$("#cs").value, us_onset_ms: +$("#uson").value,
+                us_dur_ms: +$("#usdur").value}
+    })});
+  $("#run").classList.remove("busy");
+  if (!r.ok){ show("#runerr", "bad", r.fail); return; }
+  $("#progcard").classList.remove("hide");
+  $("#progcard").scrollIntoView({behavior:"smooth", block:"start"});
+  poll();
+};
+$("#stop").onclick = async () => {
+  const r = await api("/api/stop", {method:"POST", body:"{}"});
+  if (!r.ok) show("#runerr", "bad", r.fail);
+};
+
+/* ---------------------------------------------------------------- progress */
+const PHASES = {checking:"checking this computer", starting:"starting",
+                locate:"finding the stimulator box",
                 stimulus:"reading the LEDs", triage:"checking the LED signal quality",
                 protocol:"building trials", eyes:"tracking eyelids", score:"scoring",
                 figures:"drawing figures", export_csv:"writing tables",
@@ -374,10 +832,11 @@ const PHASES = {starting:"starting", locate:"finding the stimulator box",
 
 // Where each stage sits along the whole run. Reading the LEDs and tracking eyelids are
 // the long ones and carry per-recording progress; the rest are seconds.
-const WEIGHT = {starting:0, locate:.02, stimulus:.05, triage:.60, protocol:.62, eyes:.64,
-                score:.92, figures:.94, export_csv:.96, workbooks:.98, qc:.99, done:1};
+const WEIGHT = {checking:0, starting:.01, locate:.02, stimulus:.05, triage:.60,
+                protocol:.62, eyes:.64, score:.92, figures:.94, export_csv:.96,
+                workbooks:.98, qc:.99, done:1};
 
-function phaseName(s){ return s.phase_label || PHASES[s.phase] || s.phase; }
+const phaseName = s => s.phase_label || PHASES[s.phase] || s.phase;
 
 function renderTriage(t){
   const box = $("#triage");
@@ -388,8 +847,8 @@ function renderTriage(t){
     h += `<div class="tri"><h4>&#9888; The CS LED could not be read in
           ${t.notes.length} recording${t.notes.length>1?"s":""} &mdash; trials taken from the US LED</h4>`;
     t.notes.forEach(e => {
-      h += `<div class="rec">${e.label}</div><ul>` +
-           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") + `</ul>`;
+      h += `<div class="rec">${esc(e.label)}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${esc(r)}</li>`).join("") + `</ul>`;
     });
     h += `<div class="why">Trial times come from the US LED, which is clean here. The CS onset is
           <b>inferred</b> as US onset minus the protocol interval, not measured &mdash; accurate to
@@ -403,8 +862,8 @@ function renderTriage(t){
     h += `<div class="tri look"><h4>&#9432; ${t.suspect.length}
           recording${t.suspect.length>1?"s":""} passed, but not comfortably</h4>`;
     t.suspect.forEach(e => {
-      h += `<div class="rec">${e.label}</div><ul>` +
-           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") + `</ul>`;
+      h += `<div class="rec">${esc(e.label)}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${esc(r)}</li>`).join("") + `</ul>`;
     });
     h += `<div class="why">Scored normally from the CS LED &mdash; only one of the three checks
           failed, which is not enough to overrule the channel. But a healthy CS channel usually
@@ -415,9 +874,9 @@ function renderTriage(t){
     h += `<div class="tri stop"><h4>&#10006; ${t.excluded.length}
           recording${t.excluded.length>1?"s":""} could not be processed &mdash; score by hand</h4>`;
     t.excluded.forEach(e => {
-      h += `<div class="rec">${e.label} &middot; ${e.role}</div><ul>` +
-           (e.reasons||[]).map(r => `<li>${r}</li>`).join("") +
-           `</ul><div class="why">${e.message}</div>`;
+      h += `<div class="rec">${esc(e.label)} &middot; ${esc(e.role)}</div><ul>` +
+           (e.reasons||[]).map(r => `<li>${esc(r)}</li>`).join("") +
+           `</ul><div class="why">${esc(e.message)}</div>`;
     });
     h += `<div class="why">This is not a setting that can be tuned. A CS-only or extinction
           recording delivers no US, so when its CS LED is unreadable there is no second channel
@@ -428,55 +887,94 @@ function renderTriage(t){
   box.innerHTML = h;
 }
 
-function poll(){
-  api("/api/status").then(s => {
-    const run = s.running;
-    $("#pill").textContent = s.error ? "error" : (run ? phaseName(s) : (s.phase==="done"?"done":"idle"));
-    $("#pill").className = "pill" + (s.error ? " err" : run ? " on" : s.phase==="done" ? " ok" : "");
-    $("#run").disabled = run; $("#stop").classList.toggle("hide", !run);
-    if (s.order.length) $("#progcard").classList.remove("hide");
-    $("#phase").textContent = phaseName(s) + (s.error ? " — " + s.error : "");
-    if (s.started) {
-      const secs = Math.round((s.finished||Date.now()/1000) - s.started);
-      $("#elapsed").textContent = `${Math.floor(secs/60)}m ${String(secs%60).padStart(2,"0")}s`;
-    }
-    const done = s.order.filter(t => s.videos[t]?.done).length;
-    const frac = s.order.length ? s.order.reduce((a,t)=>a+(s.videos[t]?.pct||0),0)/s.order.length : 0;
-    // the two long stages advance with the recordings themselves; the rest step by stage
-    const overall = s.phase==="done" ? 1
-      : (s.phase==="stimulus" || s.phase==="eyes") ? 0.05 + frac*0.85
-      : (WEIGHT[s.phase] || 0);
-    $("#allbar").firstElementChild.style.width = (overall*100).toFixed(1)+"%";
-    $("#allbar").classList.toggle("done", s.phase==="done");
-    $("#vids").innerHTML = s.order.map(t => {
-      const v = s.videos[t] || {};
-      return `<div class="vid"><span class="nm">${v.label||t}</span>
-        <span class="bar${v.done?" done":""}"><i style="width:${((v.pct||0)*100).toFixed(1)}%"></i></span>
-        <span class="st">${v.stage||""}${v.detail?" · "+v.detail:""}</span></div>`;
-    }).join("");
-    const lg = $("#log"); const stick = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
-    lg.textContent = (s.log||[]).join("\n"); if (stick) lg.scrollTop = lg.scrollHeight;
-    renderTriage(s.triage);
-    const groups = s.results||{}; const any = Object.values(groups).some(a=>a.length);
-    $("#rescard").classList.toggle("hide", !any);
-    $("#outpath").textContent = s.out||"";
-    // Files older than this run are left over from a previous one. Saying so stops an
-    // extinction workbook from a 4-video run being read as output of a 3-video run.
-    const t0 = (s.started||0) - 5;
-    let stale = 0;
-    $("#res").innerHTML = Object.entries(groups).filter(([,a])=>a.length).map(([g,a]) =>
-      `<div class="grp">${g}</div><div class="files">` + a.map(f => {
-        const old = t0 > 0 && f.mtime < t0; if (old) stale++;
-        return `<a class="${old?"stale":""}" href="/api/download?f=${encodeURIComponent(f.name)}&t=${T}" download>
-           <span>${f.name}${old?' <em>from an earlier run</em>':''}</span>
-           <span class="sz">${fmtSize(f.size)}</span></a>`; }).join("") + `</div>`).join("");
-    $("#stalenote").classList.toggle("hide", stale === 0);
-    if (run) setTimeout(poll, 900);
-  }).catch(() => setTimeout(poll, 2000));
+let pollTimer = null;
+async function poll(){
+  clearTimeout(pollTimer);
+  const r = await api("/api/status");
+  if (!r.ok){
+    $("#pilltext").textContent = "not answering";
+    $("#pill").className = "pill err";
+    pollTimer = setTimeout(poll, 2500);
+    return;
+  }
+  const s = r.data;
+  RUNNING = s.running;
+
+  const state = s.error ? "error" : s.running ? "on" : s.phase === "done" ? "ok" : "";
+  $("#pill").className = "pill " + state;
+  $("#pilltext").textContent = s.error ? "stopped"
+      : s.running ? phaseName(s) : s.phase === "done" ? "done" : "ready";
+  $("#run").classList.toggle("hide", false);
+  $("#stop").classList.toggle("hide", !s.running);
+
+  if ((s.order || []).length) $("#progcard").classList.remove("hide");
+  $("#phase").textContent = phaseName(s);
+  $("#todo3").textContent = s.advice || "";
+  $("#n3").className = "n" + (s.phase === "done" ? " done" : s.error ? "" : "");
+
+  if (s.started){
+    const secs = (s.finished || Date.now()/1000) - s.started;
+    $("#elapsed").textContent = fmtSecs(secs);
+    $("#topelapsed").textContent = s.running ? fmtSecs(secs) : "";
+  }
+
+  show("#statemsg", "bad", s.error || null);
+  $("#notes").innerHTML = (s.notes || [])
+      .map(n => msgHTML(n.kind === "warn" ? "warn" : "info",
+                        {error:n.text, hint:n.hint})).join("");
+
+  const frac = (s.order || []).length
+    ? s.order.reduce((a,t) => a + ((s.videos[t]||{}).pct || 0), 0) / s.order.length : 0;
+  // the two long stages advance with the recordings themselves; the rest step by stage
+  const overall = s.phase === "done" ? 1
+    : (s.phase === "stimulus" || s.phase === "eyes") ? 0.05 + frac*0.85
+    : (WEIGHT[s.phase] || 0);
+  $("#allbar").firstElementChild.style.width = (overall*100).toFixed(1)+"%";
+  $("#allbar").className = "bar" + (s.phase === "done" ? " done" : s.running ? " busy" : "");
+
+  $("#vids").innerHTML = (s.order || []).map(t => {
+    const v = s.videos[t] || {};
+    const pct = ((v.pct||0)*100).toFixed(1);
+    return `<div class="vid"><span class="nm" title="${esc(v.label||t)}">${esc(v.label||t)}</span>
+      <span class="bar${v.done?" done":""}${v.busy?" busy":""}"><i style="width:${pct}%"></i></span>
+      <span class="st">${esc(v.stage||"")}${v.detail?" · "+esc(v.detail):""}</span>
+      ${v.warn?`<span class="vw">&#9888; ${esc(v.warn)}</span>`:""}</div>`;
+  }).join("");
+
+  const lg = $("#log");
+  const stick = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 40;
+  lg.textContent = (s.log || []).join("\n");
+  if (stick) lg.scrollTop = lg.scrollHeight;
+
+  renderTriage(s.triage);
+
+  const groups = s.results || {};
+  const any = Object.values(groups).some(a => a.length);
+  $("#rescard").classList.toggle("hide", !any);
+  $("#outpath").textContent = s.out || "";
+  // Files older than this run are left over from a previous one. Saying so stops an
+  // extinction workbook from a 4-video run being read as output of a 3-video run.
+  const t0 = (s.started || 0) - 5;
+  let stale = 0;
+  $("#res").innerHTML = Object.entries(groups).filter(([,a]) => a.length).map(([g,a],gi) =>
+    `<div class="grp${gi===0?" first":""}">${esc(g)}</div><div class="files">` + a.map(f => {
+      const old = t0 > 0 && f.mtime < t0; if (old) stale++;
+      return `<a class="${old?"stale":""}" href="/api/download?f=${encodeURIComponent(f.name)}&t=${T}" download>
+         <span>${esc(f.name)}${old?' <em>from an earlier run</em>':''}</span>
+         <span class="sz">${fmtSize(f.size)}</span></a>`; }).join("") + `</div>`).join("");
+  $("#stalenote").classList.toggle("hide", stale === 0);
+
+  refreshGuide();
+  pollTimer = setTimeout(poll, s.running ? 900 : 4000);
 }
 
-browse("");
-poll();
+/* ---------------------------------------------------------------- start */
+(async function start(){
+  $("#pilltext").textContent = "starting up";
+  await checkEnv();
+  await browse("");
+  poll();
+})();
 </script>
 </body>
 </html>

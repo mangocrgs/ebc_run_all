@@ -12,6 +12,12 @@ import json
 import os
 import re
 
+# Stamped on the page, on the console banner and on every workbook cover, because a
+# number that reaches a paper has to be traceable to the thing that produced it.  Raise
+# it whenever the scoring changes.
+VERSION = "1.0"
+LAB = "Cerebral Dynamics, Plasticity & Learning"
+
 # Roles a recording can play.  The role decides what is expected of it and how it is
 # scored - not the file name, and not a hard-coded tag.
 #
