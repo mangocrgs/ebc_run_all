@@ -27,6 +27,13 @@ Edge and is on every current Windows machine; the interface it shows is served b
 bound to 127.0.0.1 that only this computer can reach.  If WebView2 is somehow absent the
 app falls back to opening a browser rather than failing.
 
+**Where the results end up.** The output folder is set per study and is often nowhere
+near the recordings, so when a run finishes the readable results - the workbooks, the
+figures, the LED check pages and the CSVs - are **copied back into an `EBC results`
+folder beside the recordings**. Copied, not moved: `<out>/` stays the authoritative copy
+and keeps the caches. Nobody should have to go hunting under `C:\Users` for their own
+session.
+
 It is only a front end - it writes a study file from what you ticked and hands it to
 `ebc_run_all.py`.  The study file is left in the output folder as `<study>.json`, so
 anything done in the window can be repeated, tweaked or scripted from the command line.

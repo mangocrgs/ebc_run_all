@@ -22,6 +22,7 @@ import os
 import sys
 import time
 import argparse
+import shutil
 import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,6 +68,55 @@ def run_parallel(script, cfg_path, tags, jobs, log_dir):
                     print("    " + line, flush=True)
             if p.returncode != 0:
                 sys.exit("!! %s %s failed (exit %d) - see %s" % (script, tag, p.returncode, path))
+
+
+DELIVER_DIR = "EBC results"
+DELIVER_EXT = (".xlsx", ".png", ".csv")
+
+
+def deliver(cfg, odir):
+    """Put a copy of the readable results back beside the recordings.
+
+    The output folder is set per study and is often nowhere near the videos, which
+    leaves the person who recorded the session hunting under C:\\Users for their own
+    results.  So the things a person actually opens - the workbooks, the figures, the
+    LED check pages and the CSVs - are copied back into the folder the recordings came
+    from, into one clearly named subfolder rather than loose among the videos.
+
+    Copied, never moved: <out>/ stays the authoritative copy, and the caches and
+    intermediate JSON stay with it.  Nothing here is allowed to fail a run - the
+    results already exist by this point, and a file locked open in Excel is not a
+    reason to end four hours of work on an error.
+    """
+    vdir = cfg.get("video_dir")
+    if not vdir or not os.path.isdir(vdir):
+        return
+    src = os.path.abspath(odir)
+    dst = os.path.join(os.path.abspath(vdir), DELIVER_DIR)
+    if dst == src:
+        return                                   # already exactly where it would go
+
+    names = [n for n in sorted(os.listdir(src))
+             if n.lower().endswith(DELIVER_EXT) and os.path.isfile(os.path.join(src, n))]
+    if not names:
+        return
+    copied, failed = 0, []
+    try:
+        os.makedirs(dst, exist_ok=True)
+    except OSError as e:
+        print("\n   could not write %s: %s" % (dst, e), flush=True)
+        return
+    for n in names:
+        try:
+            shutil.copy2(os.path.join(src, n), os.path.join(dst, n))
+            copied += 1
+        except OSError as e:
+            failed.append("%s (%s)" % (n, e))
+    print("\n   %d result file(s) copied next to the recordings:\n     %s"
+          % (copied, dst), flush=True)
+    if failed:
+        print("   could not copy, still in the output folder: " + ", ".join(failed),
+              flush=True)
 
 
 def main():
@@ -149,6 +199,9 @@ def main():
         run("ebc_export_csv.py", cfg_path)
         run("ebc_workbooks.py", cfg_path)
         run("ebc_qc.py", cfg_path, "leds")
+
+    if "report" in todo:
+        deliver(cfg, odir)
 
     print("\nDone. Workbooks, figures, CSVs and the LED check pages are in:\n  %s" % odir)
 

@@ -5,18 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>EBC Analyzer</title>
 <style>
+/* ------------------------------------------------------------------ colour
+   One blue anchors the whole page: 210 degrees, measured off the glyph in the lab
+   mark rather than picked by eye.  Each step then takes a neighbour of it on the
+   wheel - the complement at 30, and the two thirds of the triad at 90 and 330 - so
+   the four sections read as four distinct places without any of them shouting.
+
+   The tints are the same hues at 96% lightness.  They are what actually does the
+   work here: a page of identical white cards gives the eye nothing to hold on to,
+   and a very slight wash of colour separates "where you choose" from "where it
+   runs" from "where the results are" before a single word is read.
+
+   Light only, deliberately.  This followed the operating system before, which on a
+   machine set to dark meant a near-black page. */
 :root{
-  --cs:#B8760F; --us:#3A67CF; --alert:#B03A32; --ok:#2F7D5B; --warn:#946200;
-  --paper:#F3F4F7; --surface:#FFFFFF; --sunken:#EBEDF2;
-  --ink:#141922; --muted:#59636F; --rule:#DCE1E9; --accent:#2C4C86;
-  --alert-bg:#FCEFEE; --ok-bg:#EDF7F1; --warn-bg:#FDF5E6; --info-bg:#EEF3FC;
+  --brand:#3785D2;                 /* the glyph blue, unmodified */
+  --accent:#2E6BA8;                /* the same hue, dark enough to read as text */
+  --cs:#9B6530; --us:#30669B;      /* the two LEDs: warm 30, cool 210 */
+  --alert:#A6332F; --ok:#33795A; --warn:#8A6100;
+
+  --paper:#E9ECF1; --surface:#FFFFFF; --sunken:#F1F4F8;
+  --ink:#161B23; --muted:#59636F; --rule:#D7DDE6;
+  --alert-bg:#FBECEC; --ok-bg:#EAF6F0; --warn-bg:#FBF5E8; --info-bg:#ECF3FA;
+
+  /* the default tone, for cards that are not one of the four steps */
+  --tone:#2E6BA8; --tone-bg:#FFFFFF; --tone-rule:#D7DDE6;
 }
-@media (prefers-color-scheme:dark){:root{
-  --cs:#E0A63C; --us:#7B9CEC; --alert:#E2736A; --ok:#5FBF92; --warn:#E0B155;
-  --paper:#0E1218; --surface:#161B23; --sunken:#1C222B;
-  --ink:#E3E8EF; --muted:#8B95A2; --rule:#242C37; --accent:#8FB0E8;
-  --alert-bg:#2A1A19; --ok-bg:#132420; --warn-bg:#241E11; --info-bg:#151E2C;
-}}
+/* one per step, in the order they are worked through */
+.card.t1{--tone:#2E6BA8;--tone-bg:#F5F9FD;--tone-rule:#CCDFF1}   /* blue    210 */
+.card.t2{--tone:#8F6130;--tone-bg:#FDF9F4;--tone-rule:#EDDFC9}   /* amber    30 */
+.card.t3{--tone:#7E4570;--tone-bg:#FCF5FA;--tone-rule:#E9D4E2}   /* rose    330 */
+.card.t4{--tone:#4A7733;--tone-bg:#F6FAF2;--tone-rule:#D5E7C8}   /* green    90 */
 *{box-sizing:border-box}
 /* Century Gothic throughout, except anything that is code, a path or a number - those
    stay monospaced, where column alignment and telling 0 from O is worth more than the
@@ -54,30 +73,34 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
 /* ---------------------------------------------------------------- cards */
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:18px 20px}
-.card.lead{border-color:var(--accent)}
+.card{background:var(--tone-bg);border:1px solid var(--tone-rule);border-radius:8px;
+  padding:18px 20px}
+/* the step being worked on right now, lifted off the page rather than outlined louder */
+.card.lead{box-shadow:0 1px 2px rgba(22,27,35,.05),0 6px 18px rgba(22,27,35,.07)}
 /* Headings read as headings rather than as small-caps labels.  Century Gothic is wide
    and open, and uppercase with letter-spacing on top of that turned every label into a
    banner competing with the work underneath it. */
-.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--ink);
+.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--tone);
   margin:0 0 6px;display:flex;gap:10px;align-items:center}
-.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--accent);
+.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--tone);
   color:#fff;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
 .card h2 .n.done{background:var(--ok)}
 .card h2 .n.wait{background:var(--rule);color:var(--muted)}
 /* the running instruction under each heading: what to do here, right now */
 .todo{font-size:13.5px;color:var(--ink);margin:0 0 14px;padding-left:30px}
-.todo b{color:var(--accent)}
+.todo b{color:var(--tone)}
 
 label{font-size:13px;color:var(--muted)}
-input[type=text],input[type=number],select{background:var(--paper);color:var(--ink);
+input[type=text],input[type=number],select{background:var(--surface);color:var(--ink);
   border:1px solid var(--rule);border-radius:5px;padding:8px 10px;font:inherit;font-size:14px}
 input[type=text]:focus,input[type=number]:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 input[type=text]{width:100%}
 input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 button{font:inherit;font-size:14px;border-radius:6px;border:1px solid var(--rule);
   background:var(--surface);color:var(--ink);padding:8px 15px;cursor:pointer;white-space:nowrap}
-button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:hover:not(:disabled){border-color:var(--tone);color:var(--tone)}
+/* Tone is for wayfinding, not for actions: the button you press stays the one brand
+   blue everywhere, so "the blue button" means the same thing on every step. */
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;padding:10px 22px}
 button.primary:hover:not(:disabled){filter:brightness(1.12);color:#fff}
 button.danger{border-color:var(--alert);color:var(--alert)}
@@ -104,7 +127,7 @@ button.primary.busy:after{color:#fff}
 .msg .todo2:before{content:"What to do:  ";font-weight:600;color:var(--muted)}
 
 /* ---------------------------------------------------------------- folder browser */
-.picker{background:var(--sunken);border-radius:7px;padding:13px 14px;margin-bottom:14px}
+.picker{background:rgba(255,255,255,.72);border-radius:7px;padding:13px 14px;margin-bottom:14px}
 .crumbs{display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:9px;font-size:12.5px}
 .crumbs .sep{color:var(--muted);opacity:.6}
 .chip{font-size:12px;padding:4px 9px;border:1px solid var(--rule);border-radius:5px;background:var(--surface);
@@ -142,7 +165,7 @@ td.r,th.r{text-align:right}
 
 /* ---------------------------------------------------------------- progress */
 .bar{height:8px;border-radius:99px;background:var(--sunken);overflow:hidden;position:relative}
-.bar>i{display:block;height:100%;background:var(--accent);transition:width .35s ease}
+.bar>i{display:block;height:100%;background:var(--tone);transition:width .35s ease}
 .bar.done>i{background:var(--ok)}
 .bar.busy:after{content:"";position:absolute;inset:0;border-radius:99px;
   background:repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.35) 9px 18px);
@@ -239,7 +262,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 <div id="offline"></div>
 
 <!-- =============================================================== step 1 -->
-<div class="card lead" id="card1">
+<div class="card t1 lead" id="card1">
   <h2><span class="n" id="n1">1</span> Choose videos</h2>
   <p class="todo" id="todo1">Press <b>Browse&hellip;</b> and pick the folder that holds this
      participant&rsquo;s recordings.</p>
@@ -255,19 +278,6 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <button id="reload" title="re-read this folder from disk">Refresh</button>
     </div>
 
-    <div id="recentwrap" class="hide">
-      <div class="shelf-label">Recently used</div>
-      <div class="shelf" id="recent"></div>
-    </div>
-    <div id="dirwrap" class="hide">
-      <div class="shelf-label">Folders here <span style="text-transform:none;letter-spacing:0;
-        font-weight:400">&mdash; a green dot means it has recordings in it</span></div>
-      <div class="shelf" id="dirs"></div>
-    </div>
-    <div id="drivewrap" class="hide">
-      <div class="shelf-label">Drives</div>
-      <div class="shelf" id="drives"></div>
-    </div>
   </div>
 
   <div id="browsemsg"></div>
@@ -307,7 +317,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 2 -->
-<div class="card" id="card2">
+<div class="card t2" id="card2">
   <h2><span class="n wait" id="n2">2</span> Name it and check the protocol</h2>
   <p class="todo" id="todo2">Finish step 1 first.</p>
 
@@ -356,7 +366,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 3 -->
-<div class="card hide" id="progcard">
+<div class="card t3 hide" id="progcard">
   <h2><span class="n" id="n3">3</span> Progress</h2>
   <p class="todo" id="todo3"></p>
 
@@ -394,7 +404,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </div>
 
 <!-- =============================================================== step 4 -->
-<div class="card hide" id="rescard">
+<div class="card t4 hide" id="rescard">
   <h2><span class="n" id="n4">4</span> Results</h2>
   <p class="todo" id="todo4">Open every <b>qc_leds_&lt;name&gt;.png</b> before trusting any number
      below it.</p>
@@ -558,21 +568,10 @@ async function browse(path, quiet){
       `<span class="chip crumb${i === a.length-1 ? " last" : ""}" data-p="${esc(c.path)}">${esc(c.name)}</span>`
       + (i < a.length-1 ? `<span class="sep">&rsaquo;</span>` : "")).join("");
 
-  const recent = (d.recent || []).filter(p => p !== d.path);
-  $("#recentwrap").classList.toggle("hide", !recent.length);
-  $("#recent").innerHTML = recent.map(p =>
-      `<span class="chip folder" data-p="${esc(p)}" title="${esc(p)}">${esc(p)}</span>`).join("");
-
-  $("#dirwrap").classList.toggle("hide", !(d.dirs || []).length);
-  $("#dirs").innerHTML = (d.dirs || []).map(x =>
-      `<span class="chip folder${x.has ? " has" : ""}" data-p="${esc(x.path)}"
-             title="${esc(x.path)}${x.has ? "  —  has recordings in it" : ""}">${esc(x.name)}</span>`).join("");
-
-  $("#drivewrap").classList.toggle("hide", !(d.drives || []).length);
-  $("#drives").innerHTML = (d.drives || []).map(x =>
-      `<span class="chip" data-p="${esc(x)}">${esc(x)}</span>`).join("");
-
-  document.querySelectorAll("#crumbs .chip, #recent .chip, #dirs .chip, #drives .chip")
+  // Browse... and the path box are the two ways in.  The shelves of recent folders,
+  // sub-folders and drives that used to sit here offered a third and a fourth, which
+  // read as more choices to understand rather than fewer.
+  document.querySelectorAll("#crumbs .chip")
     .forEach(c => c.onclick = () => browse(c.dataset.p));
 
   if (d.warn) show("#browsemsg", "warn", {error:d.warn,
