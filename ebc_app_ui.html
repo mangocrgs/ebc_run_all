@@ -69,6 +69,18 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
    nodes disappear against anything lighter. */
 .mark{flex:none;border-radius:8px;background:#000;display:block;
   box-shadow:0 0 0 1px var(--rule)}
+/* The two institutions the lab answers to, at the end of the bar.  Both in their dark
+   positive form, because the bar is light: the Universite Paris Cite lockup is the
+   official black artwork, and CNRS is its own #00294B with the lettering knocked out of
+   it.  Neither is redrawn - drop a replacement into assets/ under the same name and
+   nothing else changes.  They are set small and separated by a hairline rule, so they
+   read as the affiliation on the letterhead rather than as part of the app's own name. */
+.crests{display:flex;align-items:center;gap:14px;flex:none;
+  padding-left:16px;border-left:1px solid var(--rule)}
+.crests img{display:block;width:auto;opacity:.9}
+.crests .upc{height:25px}
+.crests .cnrs{height:30px}
+@media (max-width:620px){ .crests{padding-left:0;border-left:none} }
 .pill{font-size:12px;padding:4px 11px;border-radius:99px;border:1px solid var(--rule);
   background:var(--surface);color:var(--muted);white-space:nowrap}
 .pill.on{border-color:var(--accent);color:var(--accent)}
@@ -454,33 +466,14 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 /* ---------------------------------------------------------------- credits */
 /* Full width, edge to edge, and black - which is the field the lab mark is already
    drawn on, so the mark sits in it without a plaque and the page ends on the lab.
-   Three things across it, in the order they answer "whose work is this": the university
-   on the left, the lab and the two names in the middle, the research body on the right.
-   The institutions are set at half the height of the lab lockup and dimmed slightly,
-   because they are the affiliation and not the author.
-   Both are the white versions of their marks: the CNRS field knocked out of white, the
-   Universite Paris Cite lockup with its black artwork reversed. Neither logo is redrawn
-   or recoloured beyond that - if the comms office issues its own dark-ground files, drop
-   them into assets/ under these two names and nothing else has to change. */
-.credits{background:#000;color:#E8ECF2;padding:24px}
-.credits .inner{max-width:940px;margin:0 auto;display:flex;gap:26px;align-items:center;
-  justify-content:space-between;flex-wrap:wrap}
-.credits .lab{flex:1 1 320px;display:flex;gap:26px;align-items:center;flex-wrap:wrap;
-  justify-content:center}
-.credits .lockup{width:270px;max-width:100%;height:auto;display:block;flex:none}
-.credits .who{min-width:170px}
+   The lab and the two names, and nothing else: the two institutions moved up to the
+   top bar, where they belong to the header rather than competing with the byline. */
+.credits{background:#000;color:#E8ECF2;padding:26px 24px;
+  display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap}
+.credits .lockup{width:300px;max-width:100%;height:auto;display:block;flex:none}
+.credits .who{min-width:180px}
 .credits .names{margin:0;font-size:14.5px;color:#FFFFFF}
 .credits .when{margin:3px 0 0;font-size:12.5px;color:#96A0AE}
-/* The two institutional marks are set in boxes of equal width, one aligned to the outer
-   edge of each - a square mark and a wide lockup would otherwise pull the lab off the
-   middle of the bar by the difference between their widths. */
-.credits .inst{flex:0 0 158px;max-width:158px;height:46px;width:auto;display:block;
-  object-fit:contain;object-position:left center;opacity:.88}
-.credits .inst.cnrs{height:54px;object-position:right center}
-@media (max-width:700px){
-  .credits .inner{justify-content:center}
-  .credits .lab{flex-basis:100%;order:-1}
-}
 </style>
 </head>
 <body>
@@ -497,6 +490,12 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
     </div>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="topelapsed"></span>
     <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">starting up</span></span>
+    <div class="crests">
+      <img class="upc" src="/assets/logo_upcite.png" width="86" height="25"
+           alt="Universit&eacute; Paris Cit&eacute;" title="Universit&eacute; Paris Cit&eacute;">
+      <img class="cnrs" src="/assets/logo_cnrs.svg" width="30" height="30"
+           alt="CNRS" title="Centre national de la recherche scientifique">
+    </div>
   </div>
 </div>
 
@@ -805,21 +804,13 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
 <!-- The credits sit on black, which is also the field the lab mark is drawn on, so the
      mark stops needing a plaque of its own and the page ends on the lab rather than on
-     a caveat.  The two institutions the lab answers to sit either side of it. -->
+     a caveat. -->
 <footer class="credits">
-  <div class="inner">
-    <img class="inst upc" src="/assets/logo_upcite.png" width="158" height="46"
-         alt="Universit&eacute; Paris Cit&eacute;" title="Universit&eacute; Paris Cit&eacute;">
-    <div class="lab">
-      <img class="lockup" src="/assets/logo_full.png"
-           alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
-      <div class="who">
-        <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
-        <p class="when">August&nbsp;2026</p>
-      </div>
-    </div>
-    <img class="inst cnrs" src="/assets/logo_cnrs.svg" width="54" height="54"
-         alt="CNRS" title="Centre national de la recherche scientifique">
+  <img class="lockup" src="/assets/logo_full.png"
+       alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
+  <div class="who">
+    <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
+    <p class="when">August&nbsp;2026</p>
   </div>
 </footer>
 

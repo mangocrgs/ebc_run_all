@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- CNRS logo, white version for dark grounds: the official mark with the field in
-     white and the lettering knocked out, so it reads on the black credits bar. -->
+<!-- CNRS logo, the official positive mark: the field in its own dark blue with the
+     lettering knocked out of it.  Used on the light top bar, where the white
+     dark-ground version it replaced would have been invisible. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 55.3 55.3" role="img" aria-label="CNRS">
 <mask id="cnrs" maskUnits="userSpaceOnUse" x="0" y="0" width="55.3" height="55.3">
   <path fill="#FFFFFF" d="M26.5,0.1C26,0,25.5,0,25,0C18.2,0,12,2.9,6.6,8.7C1.6,13.9,0,18.2,0,23.3C0,26,0.5,29,1.2,32.5 c1.3,6.6,5.3,13,10.8,17.6c4.2,3.5,8.9,5.2,13.9,5.3c2.6,0,5.2-0.4,7.9-1.4c8.6-3,16.9-11.5,20.1-20.7c1-2.9,1.5-5.8,1.5-8.5 c0-6.6-3-12.4-8.8-16.5C39.5,3.2,32.8,0.4,26.5,0.1z"/>
@@ -9,5 +10,5 @@
   <path fill="#000000" d="M30,20.6c0-2.8-2.3-5.2-5.2-5.2c-1.3,0-2.6,0.5-3.5,1.3v-1h-1.7c-0.5,0-0.7,0.3-0.7,0.7V33 c0,0.5,0.3,0.7,0.7,0.7h1.7V20.7c0-1.7,1.4-3.1,3.1-3.1c1.7,0,3.1,1.4,3.1,3.1v13.1h1.7c0.5,0,0.7-0.3,0.7-0.7 C30,33,30,20.6,30,20.6z"/>
   <path fill="#000000" d="M39.8,16.5c0.1-0.1,0.1-0.2,0.1-0.4c0-0.3-0.2-0.5-0.4-0.6c-0.5-0.2-1-0.2-1.6-0.2c-1.3,0-2.6,0.5-3.5,1.3v-1 h-1.7c-0.5,0-0.7,0.3-0.7,0.7V33c0,0.5,0.3,0.7,0.7,0.7h1.7V20.6c0-1.7,1.4-3.1,3.1-3.1c0.4,0,0.9,0.1,1.3,0.3L39.8,16.5 L39.8,16.5z"/>
 </mask>
-<rect width="55.3" height="55.3" fill="#FFFFFF" mask="url(#cnrs)"/>
+<rect width="55.3" height="55.3" fill="#00294B" mask="url(#cnrs)"/>
 </svg>
