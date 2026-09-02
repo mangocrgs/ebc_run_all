@@ -2,9 +2,10 @@
 
     python ebc_export_csv.py <config.json>
 
-    trials_<role>_<type>.csv   one row per trial
-    stimulus_events.csv        every CS and US pulse read from the LEDs, accepted or not
-    closure_traces_all.csv     full eyelid traces, long format
+    trials_<role>_<type>.csv        one row per trial
+    trials_to_score_by_hand.csv    the trials the scorer will not stand behind
+    stimulus_events.csv            every CS and US pulse read from the LEDs, accepted or not
+    closure_traces_all.csv         full eyelid traces, long format
 """
 import os
 import sys
@@ -37,6 +38,20 @@ def main():
             w.writeheader()
             w.writerows(rs)
         print("%-40s %4d trials" % (name, len(rs)))
+
+    # The worklist for whoever scores the doubtful trials by hand: where each one is in
+    # its own recording, and what the scorer could not see past.  Written even when it is
+    # empty, so "no file" never has to be told apart from "not run yet".
+    MR = (M.get("manual_review") or {}).get("trials", [])
+    name = "trials_to_score_by_hand.csv"
+    cols = ["session_name", "role", "trial_type", "session_trial", "block",
+            "global_trial", "at", "at_s", "session_clock_s", "scored_class",
+            "scored_onset_ms", "because"]
+    with open(os.path.join(odir, name), "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(MR)
+    print("%-40s %4d trials" % (name, len(MR)))
 
     n = 0
     with open(os.path.join(odir, "stimulus_events.csv"), "w", newline="", encoding="utf-8") as f:

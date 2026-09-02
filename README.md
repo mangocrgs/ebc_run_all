@@ -1,8 +1,9 @@
 # Eyeblink-conditioning video scoring
 
-Scores delay eyeblink conditioning directly from high-speed video: it finds both stimulus
-LEDs in the pixels, aligns every trial to the CS to within one frame, and measures eyelid
-aperture with facial landmarks.
+Scores eyeblink conditioning directly from high-speed video: it finds both stimulus LEDs
+in the pixels, aligns every trial to the CS to within one frame, and measures eyelid
+aperture with facial landmarks. Delay and trace designs are both handled — where the US
+sits relative to the CS is a number in the study file, not an assumption in the code.
 
 Nothing about the timing is assumed — the CS duration, the CS–US interval, the trial
 structure and the block boundaries are all recovered from the recording and then *checked*
@@ -44,7 +45,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.0.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.1.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
@@ -124,7 +125,7 @@ changing a scoring rule or a figure. `--jobs N` sets how many recordings decode 
 
 ## What changes from one participant to the next
 
-**The protocol never does.**  Every session is the same experiment:
+**The protocol usually does not.**  This lab's standard session is:
 
 | | | |
 |---|---|---|
@@ -134,9 +135,35 @@ changing a scoring rule or a figure. `--jobs N` sets how many recordings decode 
 | Structure | 9 paired + 1 CS-only probe, x 10 blocks | 100 trials |
 
 Those are the defaults in `ebc_config.DEFAULT_PROTOCOL`, so **a study file does not need a
-`protocol` block at all**.  Write one only to record a genuine deviation, and if you find
-yourself editing the numbers to make the trial count come out right, stop: the protocol is
-the test, and a disagreement is a finding about the recording, not a parameter to tune.
+`protocol` block at all**, and the app opens on them.  If you find yourself editing the
+numbers to make the trial count come out right, stop: the protocol is the test, and a
+disagreement is a finding about the recording, not a parameter to tune.
+
+### A different protocol
+
+Change the numbers when the session really was run differently — the app is not built
+around one design.  Nothing requires the US to fall inside the CS.  Put `us_onset_ms` at
+or beyond `cs_ms` and the study is a **trace** protocol, with a silent interval between CS
+offset and US onset, and the whole pipeline follows:
+
+| what follows the protocol | how |
+|---|---|
+| pairing a US to its CS | the window runs to the end of the stimulus pair, not to the end of the CS, capped at half the minimum ITI so it can never reach the next trial |
+| the trial window | `ebc_config.window()` — a trace design tracks further past CS onset, so the US and the response to it are inside the window |
+| the CR window | both of its edges sit one measured reflex latency after their own stimulus, so a trace protocol's window moves with the US wherever the protocol puts it |
+| block recovery | `paired_per_block`, `cs_only_per_block` (0 is allowed — then the count closes each block) and `n_blocks` |
+| figures | the US band is drawn where the US is; a trace interval is shaded and labelled, and the CS offset gets its own marker |
+| workbooks | the read-me names the design and states the interval; a trace study gains a *closure mid-gap* column |
+
+`ebc_config.design()` is the one place that decides what a set of numbers means, and
+`check_protocol()` the one place that decides whether it can be analysed at all.  A
+protocol that is merely unusual is described and left alone; one that is arithmetically
+impossible — a trial longer than half the gap between trials, a startle cut-off past the
+US — is refused before a run starts, in words, with the numbers named.
+
+The app's step 2 shows the protocol drawn on a time axis as you type it, offers the delay
+and trace presets from `ebc_config.PRESETS`, and remembers the last protocol actually run
+so a lab that has moved to a different design does not retype it for every participant.
 
 **What does change is where things are in the frame** - the participant sits differently,
 the camera is re-aimed, the stimulator box moves, and the room light is not the same on a
@@ -196,7 +223,8 @@ detector will fire on noise long before it fails outright.
   "protocol": {
     "cs_ms": 400.0, "us_onset_ms": 350.0, "us_dur_ms": 50.0,
     "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10,
-    "min_iti_s": 5.0, "cs_tol": 0.35, "us_tol": 0.60
+    "min_iti_s": 5.0, "cs_tol": 0.35, "us_tol": 0.60,
+    "alpha_ms": 100.0, "pre_ms": 300.0, "post_ms": 0.0
   },
   "recordings": [
     {"tag": "csus1", "file": "CSUS 1.MP4", "label": "CSUS 1", "role": "conditioning", "order": 1},
@@ -327,17 +355,62 @@ accepted or rejected. If that page is right, the numbers are right.
 4. **Blink criterion.** Five robust SDs above the trial's own pre-CS baseline, floor 15%
    closure, then walked back along the rising edge to the true onset. A separate blink must
    re-reach 40% closure after first returning below 20%.
-5. **Second look.** If the first event is an alpha blink (<100 ms) or the lid was already
-   moving at onset, the window is searched for a *later* blink — a real CR or UR may sit
-   behind the artefact. Where one is found it becomes the scored response.
+5. **The CR window, measured.** Neither the eye nor the brainstem responds instantly, so
+   the window a CR is counted in is not the bare interval between the two stimuli. The
+   **US-only baseline is scored first**, and the reflex latency is measured from it: the
+   mean of the unconditioned blink onsets minus 1.5 SD is the soonest a stimulus can have
+   caused a blink. Both edges of the CR window then sit that far after *their own*
+   stimulus:
+
+   ```
+   CR window  =  [ CS onset + reflex ,  US onset + reflex ]
+   ```
+
+   A blink before the lower edge began too soon after the CS for the CS to have caused it;
+   one after the upper edge began late enough that the puff could have. In between, the
+   blink was already under way before the puff could have driven it — which is what a
+   conditioned response is. `ebc_config.cr_window()` is the one place this is decided, and
+   it writes the class labels every other module matches on.
+
+   Only trials the scorer stands behind feed the measurement, and a mean and an SD have no
+   defence against one bad trial. Two filters, both of which name what they set aside:
+
+   - a US-only trial with the lid already moving at the puff, or whose response was
+     recovered behind an artefact, is left out — its "onset" is not the reflex;
+   - of what is left, onsets more than **3 robust SDs** from the median of that baseline
+     are set aside before the mean and the SD are taken (median and MAD, which an outlier
+     cannot move; applied only once there are 5 or more onsets).
+
+   Both matter in practice. In Thomas's 35-trial US-only baseline a single onset of 826 ms
+   — a spontaneous blink scored long after the reflex had been missed — took the SD from
+   11 ms to 152 and drove `mean − 1.5 SD` to −129 ms, i.e. no window at all. With the
+   outlier set aside the same baseline gives 70 ± 11 ms over 21 trials and a 54 ms reflex.
+
+   With **no US-only recording** in the study there is nothing to measure, and the window
+   falls back to the protocol's `alpha_ms` startle cut-off and the bare US onset — which is
+   how this app scored before, so nothing already analysed moves. The fallback is also what
+   happens if the measurement comes out impossible (`mean − 1.5 SD` at or before the puff),
+   and the reason is printed, put on the results card and written into every read-me.
+6. **Second look.** If the first event began too soon to be a response to anything — before
+   the CR window's lower edge — or the lid was already moving at onset, the window is
+   searched for a *later* blink, because a real CR or UR may sit behind the artefact. Where
+   one is found it becomes the scored response.
 
 **Analyse the `scored_onset_ms` / `scored_class` columns.** They already apply the
 second-look rule; `blink_onset_ms` keeps the unmodified first event for transparency.
 
-Classes: `alpha/startle` <100 ms · `CR` 100 ms–US onset (began before the puff) ·
-`UR` at or after US onset · `in-progress at stimulus` (untimeable, excluded from summaries).
+Classes, with `reflex` the measured latency and `us` the US onset: `alpha/startle`
+< reflex · `CR` reflex–(us + reflex) · `UR` at or after us + reflex ·
+`in-progress at stimulus` (untimeable, excluded from summaries). The class *names* carry
+their own boundaries — `CR (43-393ms)` — so a column always says which window produced it.
 US-only trials are anchored on the puff, so their latencies are measured from it and every
-response there is by definition unconditioned.
+response there is by definition unconditioned; they are never classified against the window
+they are used to build.
+
+The window this run used, the trials that measured it and the ones left out are written to
+`merged.json`, printed on the console, reported on the app's results card, drawn on the
+figures, and stated on every workbook's read-me — the US-only workbook additionally lists
+the individual onsets that went into it.
 
 ## Files
 
@@ -391,13 +464,23 @@ Two participants, both on the same protocol and the same rig, to calibrate expec
 | Paired CS-US | 77 | 90 / 90 |
 | CS-only probes | 8 | 3 (two recordings US-anchored) |
 | CS LED readable | all recordings | CSUS 1 only |
-| **CR rate** | **10%** | **48%** |
-| CR onset | 198 ms | 303 ms |
+| US-only trials measuring the reflex | 21 of 35 | 4 of 5 |
+| Reflex latency | 70 ± 11 ms → **54 ms** | 75 ± 22 ms → **43 ms** |
+| CR window | 54–404 ms | 43–393 ms |
+| **CR rate** | **29%** | **61%** |
+| CR onset | 328 ms | 312 ms |
 
-The spread in CR rate between two people on an identical protocol is the point: 10% and 48%
+The spread in CR rate between two people on an identical protocol is the point: 29% and 61%
 are both real results, and a pipeline that quietly discarded two thirds of Carole's trials
-would have reported 36% for her instead of 48% and hidden the acquisition curve
-(32% - 57% - 56% across her three sessions) entirely.
+would have hidden her acquisition curve entirely.
+
+Both rates are higher than the 10% and 48% an earlier build reported, and the reason is the
+measured window rather than any change to how a blink is found. Carole's reflex is 43 ms, so
+eleven blinks that began between 350 and 393 ms — after the puff, but sooner than the puff
+could have caused anything — are conditioned responses, not reactions to it. Thomas's reflex
+is 54 ms and the same correction moves fourteen of his trials. The two participants also
+arrive at nearly the same reflex latency (43 and 54 ms) from independent baselines recorded
+months apart, which is the sanity check the measurement had to pass.
 
 Practical expectations: face tracking runs at 100% on a cooperative, frontally seated
 participant; alignment error is 0.0 ms when a clean LED marks the trial; a 4 GB / 531 s
@@ -411,4 +494,37 @@ Everything lands in `<video_dir>/analysis_EBC/`:
 - `qc_leds_<tag>.png` — the stimulus-detection check, one per recording
 - `cond_*`, `ext_*`, `baseline_*` PNG figures
 - `trials_*.csv`, `stimulus_events.csv`, `closure_traces_all.csv`
+- `trials_to_score_by_hand.csv` — the trials the scorer will not stand behind
 - `_work/` — cache, safe to delete (costs a full re-run)
+
+The app cannot open any of these itself: it draws its window with WebView2, which has no
+downloads and no file viewer. The results list says so, and a click on any entry opens the
+output folder with that file selected, which is the one thing the app *can* do.
+
+### Trials to score by hand
+
+A trial is flagged when something measured in that trial defeats the scorer, not when the
+recording as a whole is doubtful — triage already reports the latter, separately. The
+rules, all in `ebc_score.manual_reasons()`:
+
+| flagged when | why it cannot be left to the scorer |
+|---|---|
+| the lid was already closing at CS onset, and no later blink was found | there is no onset to time |
+| the only movement in the window began before the CR window opens, with nothing behind it | the response, if there was one, is under the artefact |
+| the trial window runs past the end of the recording | the response may be cut off |
+| the face was tracked in under 80% of the window | the trace has holes where the blink would be |
+| the CS onset re-found inside the window is more than 25 ms from the seek | time zero is uncertain |
+
+Each one is listed with **where it is in its own recording**, as `m:ss.mmm`, so it can be
+scrubbed to directly. The paired CS–US conditioning trials are called out first, because
+those are the measurement; probes and baselines follow.
+
+Every workbook carries a **Score by hand** sheet — the first sheet after the cover — with
+one row per flagged trial: the recording, the time to open it at, what the scorer put down,
+and what it could not see past. The count also appears on the cover, on the session, block
+and trial summaries, and against the trial itself in the trial table, so "which ones do I
+have to look at?" is answered by opening the workbook rather than by filtering it.
+
+Nothing is dropped: every flagged trial stays in the workbooks and the CSVs with **Score
+by hand** set and the reason beside it. They are excluded from the CR percentages for the
+same reason they are flagged — a trial that cannot be timed cannot be counted either way.

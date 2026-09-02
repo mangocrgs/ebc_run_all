@@ -19,13 +19,20 @@
 
    The boxes themselves are all one colour on purpose.  Tinting each step separately
    made four backgrounds compete for attention when the thing that actually needs
-   attention is the one button you have not pressed yet. */
+   attention is the one button you have not pressed yet.
+
+   These are the same values as ebc_config.PALETTE, which the figures and the workbooks
+   read.  A CR is this blue in a PNG, in an Excel chart and here.  Change one, change
+   both. */
 :root{
   --brand:#3785D2;                 /* the glyph blue, unmodified */
   --accent:#2E6BA8;                /* the same hue, dark enough to read as text */
   --action:#A85408;                /* the complement at 30 deg: press this, read this */
   --action-soft:#FBF1E6;           /* the same, as a background you can put text on */
   --cs:#9B6530; --us:#30669B;      /* the two LEDs: warm 30, cool 210 */
+  --cr:#24466F;                    /* a conditioned response: the US hue, driven darker */
+  --ur:#A6332F;                    /* the reflex to the puff */
+  --faint:#93A0AE;                 /* a trial with nothing in it */
   --alert:#A6332F; --ok:#33795A; --warn:#8A6100;
 
   --paper:#E9ECF1; --surface:#FFFFFF; --sunken:#F2F5F9;
@@ -33,13 +40,13 @@
   --alert-bg:#FBECEC; --ok-bg:#EAF6F0; --warn-bg:#FBF5E8; --info-bg:#ECF3FA;
 }
 *{box-sizing:border-box}
-/* Century Gothic throughout, except anything that is code, a path or a number - those
-   stay monospaced, where column alignment and telling 0 from O is worth more than the
-   family matching.  Century Gothic is a wide geometric face with a small x-height, so it
-   is set a shade smaller and tighter than a UI font would be, or it reads oversized. */
+/* Segoe UI throughout, except anything that is code, a path or a number - those stay
+   monospaced, where column alignment and telling 0 from O is worth more than the family
+   matching.  It is the face this machine draws its own windows in, it has a large
+   x-height so a 12px caption is still readable, and unlike the geometric face this page
+   used before it needs no negative tracking to stop looking oversized. */
 body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6;
-  letter-spacing:-.005em;
-  font-family:"Century Gothic",Questrial,Futura,"Segoe UI",system-ui,sans-serif}
+  font-family:"Segoe UI","Segoe UI Variable Text",system-ui,-apple-system,Tahoma,Arial,sans-serif}
 .mono,.num,code{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
   font-variant-numeric:tabular-nums;letter-spacing:0}
 .wrap{max-width:940px;margin:0 auto;padding:0 24px 42px;display:flex;flex-direction:column;gap:18px}
@@ -49,11 +56,12 @@ body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-heigh
   border-bottom:1px solid var(--rule);margin-bottom:2px}
 .topbar .inner{max-width:940px;margin:0 auto;padding:14px 24px;
   display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-h1{font-size:22px;margin:0;letter-spacing:-.02em;white-space:nowrap}
+h1{font-size:29px;font-weight:600;margin:0;letter-spacing:-.025em;white-space:nowrap;
+  line-height:1.15}
 h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
-  vertical-align:2px;margin-left:2px}
+  vertical-align:6px;margin-left:4px}
 .sub{color:var(--muted);font-size:13.5px;margin:0}
-.titles{flex:1;min-width:150px}
+.titles{flex:1;min-width:210px}
 /* The lab mark keeps its own black field - it is drawn on one, and the glyph's white
    nodes disappear against anything lighter. */
 .mark{flex:none;border-radius:8px;background:#000;display:block;
@@ -70,25 +78,32 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
 
 /* ---------------------------------------------------------------- cards */
 .card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;
-  padding:18px 20px}
+  padding:20px 20px 18px}
 /* the step being worked on right now, lifted off the page rather than outlined louder */
 .card.lead{box-shadow:0 1px 2px rgba(22,27,35,.05),0 6px 18px rgba(22,27,35,.07)}
-/* Headings read as headings rather than as small-caps labels.  Century Gothic is wide
-   and open, and uppercase with letter-spacing on top of that turned every label into a
-   banner competing with the work underneath it. */
-.card h2{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--accent);
-  margin:0 0 6px;display:flex;gap:10px;align-items:center}
-.card h2 .n{display:inline-flex;width:22px;height:22px;border-radius:99px;background:var(--accent);
-  color:#fff;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none}
+/* The step number hangs off the left edge of its own card, half in and half out.  Four
+   white boxes down a page are hard to count at a glance; four numbers standing outside
+   them are not, and the overhang is what makes the number read as a marker on the step
+   rather than as a bullet inside it.  The 20px it hangs past the border sits inside the
+   24px the page keeps clear at its edges, so nothing is ever cut off.
+   The headings themselves are set large: a heading that has to compete with a 46px
+   number cannot be 16px. */
+.card h2{font-size:23px;font-weight:600;letter-spacing:-.022em;color:var(--accent);
+  margin:0 0 12px;display:flex;gap:12px;align-items:center;line-height:1.2}
+.card h2 .n{display:inline-flex;width:44px;height:44px;border-radius:99px;
+  background:var(--accent);color:#fff;align-items:center;justify-content:center;
+  font-size:21px;font-weight:600;flex:none;margin-left:-40px;
+  border:2px solid var(--surface);box-shadow:0 2px 9px rgba(22,27,35,.16)}
 .card h2 .n.done{background:var(--ok)}
-.card h2 .n.wait{background:var(--rule);color:var(--muted)}
-/* the running instruction under each heading: what to do here, right now */
-.todo{font-size:13.5px;color:var(--ink);margin:0 0 14px;padding-left:30px}
+.card h2 .n.wait{background:var(--rule);color:var(--muted);box-shadow:none}
+/* the running instruction under each heading: what to do here, right now, set to start
+   where the heading's own text starts rather than where the number does */
+.todo{font-size:13.5px;color:var(--ink);margin:0 0 14px;padding-left:16px}
 .todo b{color:var(--action)}
 /* The one instruction on the page that must not be skipped, set apart rather than
    left to look like the other three. */
 .todo.must{background:var(--action-soft);border-left:3px solid var(--action);
-  border-radius:0 6px 6px 0;margin-left:30px;padding:10px 13px;font-size:13px}
+  border-radius:0 6px 6px 0;margin-left:16px;padding:10px 13px;font-size:13px}
 
 label{font-size:13px;color:var(--muted)}
 input[type=text],input[type=number],select{background:var(--surface);color:var(--ink);
@@ -162,6 +177,144 @@ td.r,th.r{text-align:right}
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .settings label{display:flex;flex-direction:column;gap:4px}
 
+/* ---------------------------------------------------------------- protocol
+   The protocol used to be three loose number boxes with a warning under them that
+   fired whenever they did not add up to a delay design.  That was the app telling the
+   user their trace protocol was a mistake.  It is now a panel: pick a ready-made
+   protocol or type your own, see it drawn, and read back what it is.  The page
+   describes the protocol; it no longer has an opinion about which one is correct. */
+.proto{border:1px solid var(--rule);border-radius:7px;background:var(--sunken);
+  padding:14px 15px;margin-top:14px}
+.proto-top{display:flex;gap:12px;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;margin-bottom:13px}
+/* a segmented control, because picking one of a few named things is what it is */
+.segs{display:inline-flex;background:var(--surface);border:1px solid var(--rule);
+  border-radius:7px;padding:3px;gap:3px;flex-wrap:wrap}
+.segs button{border:1px solid transparent;background:transparent;color:var(--muted);
+  font-size:13px;padding:6px 13px;border-radius:5px;
+  transition:background .16s ease,color .16s ease}
+.segs button:hover:not(.on){background:var(--sunken);color:var(--ink);border-color:transparent}
+.segs button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.segs button.on:hover{color:#fff}
+.link{border:none;background:transparent;color:var(--accent);padding:4px 2px;
+  font-size:12.5px;text-decoration:underline;text-underline-offset:3px;white-space:normal}
+.link:hover:not(:disabled){color:var(--action);border-color:transparent}
+.link:disabled{opacity:.38;text-decoration:none;cursor:default}
+/* the protocol, drawn.  Two numbers that do not co-terminate are obvious here in a way
+   no sentence makes them, which is the whole reason it is on the page. */
+.timeline{display:block;width:100%;height:auto;background:var(--surface);
+  border:1px solid var(--rule);border-radius:6px}
+.tl-note{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+.pfields{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:11px}
+.pfields label{display:flex;flex-direction:column;gap:4px}
+.pfields .u{position:relative;display:flex;align-items:center}
+.pfields .u input{width:100%;padding-right:42px}
+.pfields .u .unit{position:absolute;right:11px;font-size:11.5px;color:var(--muted);
+  pointer-events:none}
+.psub{font-size:12px;color:var(--muted);font-weight:600;margin:16px 0 8px;
+  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.psub .rhs{font-weight:400;color:var(--muted)}
+.psub .rhs b{color:var(--ink);font-weight:600}
+/* what this protocol is, said back in one line - a status, not a warning */
+.chip-design{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;
+  border:1px solid var(--rule);background:var(--surface);border-radius:99px;
+  padding:6px 14px;color:var(--muted);margin-top:12px}
+.chip-design b{color:var(--accent);font-weight:600}
+.chip-design .sw{width:9px;height:9px;border-radius:2px;flex:none;background:var(--cs)}
+/* one block, drawn as its trials: filled = paired, hollow = CS-only probe */
+.blockstrip{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:9px}
+.blockstrip i{width:9px;height:9px;border-radius:99px;background:var(--cs);display:block}
+.blockstrip i.probe{background:transparent;box-shadow:inset 0 0 0 1.7px var(--us)}
+.blockstrip .x{font-size:12px;color:var(--muted);margin-left:7px}
+
+/* ---------------------------------------------------------------- motion
+   Six effects, each attached to something it explains rather than decorates:
+
+     spotlight   follows the pointer across the step you are on, so the card being
+                 worked in is lit and the others are not
+     fisheye     the block strip and the preset segments magnify under the pointer, which
+                 is what makes ten identical dots individually readable
+     magnetic    the buttons worth pressing lean towards the pointer as it approaches
+     tilt        the protocol drawing takes a little perspective, so it reads as a thing
+                 rather than a diagram
+     follower    a ring that lags the pointer and swells over what is clickable
+     marquee     a ticker of what every recording is doing, while a run is going
+
+   All of it is transform and opacity only - never layout - and all of it is off when the
+   pointer is coarse or the machine has asked for reduced motion.  The rules live behind
+   .fx on <body>, which the script adds only when both are true, so a machine that has
+   asked for stillness never even parses a moving state. */
+
+/* --- the pointer's own ring ------------------------------------------------------- */
+#cursor{position:fixed;left:0;top:0;z-index:60;pointer-events:none;opacity:0;
+  transition:opacity .25s ease}
+body.fx.fx-live #cursor{opacity:1}
+#cursor .ring{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;
+  border:1.5px solid var(--accent);border-radius:99px;opacity:.42;
+  transition:width .18s ease,height .18s ease,margin .18s ease,opacity .18s ease,
+             border-color .18s ease}
+#cursor .dot{position:absolute;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
+  border-radius:99px;background:var(--action);opacity:.85}
+body.fx-hot #cursor .ring{width:46px;height:46px;margin:-23px 0 0 -23px;opacity:.75;
+  border-color:var(--action)}
+
+/* --- the lit card ----------------------------------------------------------------- */
+/* A wash that follows the pointer, painted under the content rather than over it, so
+   nothing it touches loses contrast. */
+body.fx .card, body.fx .proto{position:relative;isolation:isolate}
+body.fx .card.lead::before, body.fx .proto::before{content:"";position:absolute;inset:0;
+  border-radius:inherit;z-index:-1;pointer-events:none;opacity:0;
+  transition:opacity .3s ease;
+  background:radial-gradient(320px circle at var(--mx,50%) var(--my,50%),
+             rgba(55,133,210,.10), transparent 68%)}
+body.fx .card.lead.fx-in::before, body.fx .proto.fx-in::before{opacity:1}
+
+/* --- dock magnification ----------------------------------------------------------- */
+body.fx [data-fisheye]>*{transition:transform .22s cubic-bezier(.22,1,.36,1)}
+body.fx [data-fisheye].fx-in>*{transition:transform .05s linear}
+body.fx #blockstrip[data-fisheye]>i{transform-origin:center bottom}
+body.fx .segs[data-fisheye]>button{transform-origin:center}
+
+/* --- leaning buttons and the tilted drawing --------------------------------------- */
+body.fx [data-magnet]{transition:transform .3s cubic-bezier(.22,1,.36,1)}
+body.fx [data-magnet].fx-in{transition:transform .06s linear}
+body.fx [data-tilt]{transform-style:preserve-3d;
+  transition:transform .4s cubic-bezier(.22,1,.36,1)}
+body.fx [data-tilt].fx-in{transition:transform .08s linear}
+body.fx .files .f{transition:transform .18s cubic-bezier(.22,1,.36,1),
+                             border-color .18s ease,background .18s ease}
+body.fx .files button.f:hover{transform:scale(1.014)}
+
+/* --- the ticker ------------------------------------------------------------------- */
+.ticker{overflow:hidden;position:relative;margin:2px 0 10px;height:19px;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 5%,#000 95%,transparent)}
+.ticker .track{display:inline-flex;gap:0;white-space:nowrap;will-change:transform}
+.ticker .run{display:inline-flex;gap:26px;padding-right:26px;font-size:12.5px;
+  color:var(--muted);align-items:center}
+.ticker b{color:var(--ink);font-weight:600}
+.ticker .sep{color:var(--rule)}
+body.fx .ticker .track{animation:tick 26s linear infinite}
+.ticker:hover .track{animation-play-state:paused}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ---------------------------------------------------------------- focus & motion */
+/* One visible focus ring for everything reachable by keyboard, and an honest answer to
+   a machine that has been told not to animate. */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important}
+  /* and the six effects above stop being effects: no ring, no lean, no tilt, no
+     magnification, no travelling ticker - the information each carried is still on the
+     page, standing still */
+  #cursor{display:none!important}
+  [data-magnet],[data-tilt],[data-fisheye]>*{transform:none!important}
+  .card.lead::before,.proto::before{opacity:0!important}
+  .ticker .track{animation:none!important;transform:none!important}
+  .ticker{-webkit-mask-image:none;mask-image:none}
+}
+
 /* ---------------------------------------------------------------- progress */
 .bar{height:8px;border-radius:99px;background:var(--sunken);overflow:hidden;position:relative}
 .bar>i{display:block;height:100%;background:var(--accent);transition:width .35s ease}
@@ -180,13 +333,21 @@ td.r,th.r{text-align:right}
   font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin-top:12px}
 
 /* ---------------------------------------------------------------- results */
+/* These used to be download links.  The app draws its window with WebView2, which has no
+   downloads and no file viewer, so every one of them did nothing - the page was offering
+   an action it could not perform.  They are rows now, and the only thing a click does is
+   what the app can actually do: open the output folder with that file selected. */
 .files{display:flex;flex-direction:column;gap:5px}
-.files a{display:flex;justify-content:space-between;gap:12px;padding:8px 11px;border:1px solid var(--rule);
-  border-radius:5px;text-decoration:none;color:var(--ink);font-size:13.5px;background:var(--paper)}
-.files a:hover{border-color:var(--accent);color:var(--accent)}
+.files .f{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:8px 11px;border:1px solid var(--rule);border-radius:5px;color:var(--ink);
+  font-size:13.5px;background:var(--paper);width:100%;text-align:left;font-family:inherit}
+.files button.f{cursor:pointer}
+.files button.f:hover{border-color:var(--accent);color:var(--accent);background:var(--surface)}
 .files .sz{color:var(--muted);font-size:12px;white-space:nowrap}
-.files a.stale{opacity:.5}
-.files a.stale em{font-style:normal;font-size:11px;color:var(--muted)}
+.files .f.stale{opacity:.5}
+.files .f.stale em{font-style:normal;font-size:11px;color:var(--muted)}
+.reveal{font-size:11.5px;color:var(--muted);white-space:nowrap;opacity:0}
+.files button.f:hover .reveal{opacity:1;color:var(--accent)}
 .grp{font-size:12px;color:var(--muted);margin:14px 0 6px;font-weight:600}
 .grp.first{color:var(--ok)}
 .ord{font-size:12px;color:var(--muted);margin-right:6px}
@@ -205,6 +366,29 @@ td.r,th.r{text-align:right}
 .tri li{margin:2px 0;color:var(--muted)}
 .tri .why{color:var(--ink);margin-top:6px}
 .tri .rec{font-weight:600;margin-top:9px}
+/* how the run decided what a CR was: the one thing on the results card that is a
+   statement about the numbers rather than a list of files */
+.crwin{border:1px solid var(--rule);border-radius:7px;background:var(--sunken);
+  padding:12px 14px;margin:0 0 12px;font-size:13px;line-height:1.55}
+.crwin .hd{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;color:var(--ink)}
+.crwin .win{font-size:19px;font-weight:600;color:var(--cr);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
+.crwin .tag{font-size:11.5px;padding:2px 9px;border-radius:99px;border:1px solid var(--rule);
+  background:var(--surface);color:var(--muted)}
+.crwin .tag.measured{border-color:var(--ok);color:var(--ok)}
+.crwin .tag.fallback{border-color:var(--warn);color:var(--warn);background:var(--warn-bg)}
+.crwin p{margin:7px 0 0;color:var(--muted)}
+/* the hand-scoring worklist: one line per trial, times in the mono face because they are
+   read off and typed into a video player */
+.tri table.hand{width:100%;border-collapse:collapse;margin:8px 0 4px;font-size:12.4px}
+.tri table.hand th{color:var(--ink);font-weight:600;text-align:left;padding:3px 10px 3px 0;
+  border-bottom:1px solid var(--rule);font-size:11.5px}
+.tri table.hand td{padding:4px 10px 4px 0;border-bottom:1px solid var(--rule);
+  vertical-align:top;color:var(--muted)}
+.tri table.hand td.t{font-family:"Cascadia Mono",Consolas,monospace;color:var(--ink);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.tri table.hand td.w{color:var(--ink)}
+.tri .more{font-size:12px;color:var(--muted);margin-top:6px}
 
 /* ---------------------------------------------------------------- guides */
 details.guide{margin-top:14px;border-top:1px solid var(--rule);padding-top:11px}
@@ -250,6 +434,8 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 </head>
 <body>
 
+<div id="cursor" aria-hidden="true"><div class="ring"></div><div class="dot"></div></div>
+
 <div class="topbar">
   <div class="inner">
     <img class="mark" src="/assets/logo_mark.png" width="38" height="38" alt=""
@@ -276,7 +462,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   <div class="picker">
     <div class="crumbs" id="crumbs"></div>
     <div class="row">
-      <button class="primary" id="pick">Browse&hellip;</button>
+      <button class="primary" id="pick" data-magnet>Browse&hellip;</button>
       <input type="text" id="path" placeholder="…or paste a folder path here and press Enter"
              style="flex:1;min-width:220px" spellcheck="false">
     </div>
@@ -321,34 +507,111 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
 <!-- =============================================================== step 2 -->
 <div class="card" id="card2">
-  <h2><span class="n wait" id="n2">2</span> Name it and check the protocol</h2>
+  <h2><span class="n wait" id="n2">2</span> Name it and set the protocol</h2>
   <p class="todo" id="todo2">Finish step 1 first.</p>
 
   <div class="settings">
     <label>Study name <span style="font-size:11px">(goes in every file name)</span>
       <input type="text" id="study" value="" placeholder="participant name or code"></label>
-    <label>CS duration (ms)<input type="number" id="cs" value="400" step="10"></label>
-    <label>US onset (ms)<input type="number" id="uson" value="350" step="10"></label>
-    <label>US duration (ms)<input type="number" id="usdur" value="50" step="10"></label>
+  </div>
+
+  <div class="proto">
+    <div class="proto-top">
+      <div class="segs" id="presets" data-fisheye role="group"
+           aria-label="Ready-made protocols"></div>
+      <button type="button" class="link" id="protoreset" data-magnet
+              title="Put every number back to this lab&rsquo;s standard delay protocol">
+        Back to this lab&rsquo;s standard</button>
+    </div>
+
+    <div id="ptlwrap" data-tilt></div>
+    <p class="tl-note" id="ptltitle"></p>
+
+    <div class="psub">Stimuli <span class="rhs" id="stimsum"></span></div>
+    <div class="pfields">
+      <label for="cs">CS duration
+        <span class="u"><input type="number" id="cs" value="400" step="10" min="1"
+              aria-describedby="ptltitle"><span class="unit">ms</span></span></label>
+      <label for="uson">US onset, from CS onset
+        <span class="u"><input type="number" id="uson" value="350" step="10" min="1"
+              aria-describedby="ptltitle"><span class="unit">ms</span></span></label>
+      <label for="usdur">US duration
+        <span class="u"><input type="number" id="usdur" value="50" step="10" min="1"
+              aria-describedby="ptltitle"><span class="unit">ms</span></span></label>
+    </div>
+
+    <div class="psub">Block structure <span class="rhs" id="blocksum"></span></div>
+    <div class="pfields">
+      <label for="npaired">Paired CS&ndash;US per block
+        <input type="number" id="npaired" value="9" step="1" min="0"></label>
+      <label for="nprobe">CS-only probes per block
+        <input type="number" id="nprobe" value="1" step="1" min="0"></label>
+      <label for="nblocks">Blocks
+        <input type="number" id="nblocks" value="10" step="1" min="1"></label>
+    </div>
+    <div class="blockstrip" id="blockstrip" data-fisheye></div>
+
+    <div id="designchip"></div>
+
+    <details class="guide" style="border-top-color:var(--rule)">
+      <summary>Detection tolerances and the trial window</summary>
+      <div class="body">
+        <p>These decide which LED pulses count as stimuli and how much of each trial is
+        tracked. The defaults suit almost every session; the trial window in particular
+        follows the protocol on its own, and only needs setting by hand if you want more
+        of the trial than the stimuli themselves call for.</p>
+        <div class="pfields" style="margin:12px 0">
+          <label for="miniti">Minimum gap between trials
+            <span class="u"><input type="number" id="miniti" value="5" step="0.5" min="0.1">
+            <span class="unit">s</span></span></label>
+          <label for="alpha" title="Only used when the study has no US-only recording to
+                                     measure the reflex latency from">Startle cut-off
+                                     <span style="color:var(--muted)">(fallback)</span>
+            <span class="u"><input type="number" id="alpha" value="100" step="10" min="0">
+            <span class="unit">ms</span></span></label>
+          <label for="cstol">CS duration tolerance
+            <span class="u"><input type="number" id="cstol" value="35" step="5" min="1" max="99">
+            <span class="unit">%</span></span></label>
+          <label for="ustol">US duration tolerance
+            <span class="u"><input type="number" id="ustol" value="60" step="5" min="1" max="99">
+            <span class="unit">%</span></span></label>
+          <label for="prems">Window before CS onset
+            <span class="u"><input type="number" id="prems" value="300" step="50" min="50">
+            <span class="unit">ms</span></span></label>
+          <label for="postms">Window after CS onset
+            <span class="u"><input type="number" id="postms" placeholder="from protocol"
+                  step="50" min="100"><span class="unit">ms</span></span></label>
+        </div>
+        <table>
+          <tr><th style="width:210px">Setting</th><th>What it does</th></tr>
+          <tr><td>Minimum gap between trials</td><td>Two CS onsets closer together than this cannot both be trials, so a flickering LED does not become a trial of its own.</td></tr>
+          <tr><td>Startle cut-off <span style="color:var(--muted)">(fallback)</span></td><td>Only used when the study has <b>no US-only recording</b>. With one, the reflex latency is measured from it instead &mdash; the mean of the unconditioned blink onsets minus 1.5 SD &mdash; and a blink counts as a CR from that long after the CS to that long after the US, because nothing can react to a stimulus sooner than the reflex itself takes. Without one, this number is the lower edge and the US onset is the upper one.</td></tr>
+          <tr><td>Duration tolerances</td><td>How far a measured pulse may sit from the nominal duration and still be accepted. Every rejected pulse is still listed in <b>stimulus_events.csv</b>.</td></tr>
+          <tr><td>Trial window</td><td>How much video is tracked around each trial. Left blank, the window after CS onset is worked out from the protocol &mdash; a trace design gets a longer one automatically, so the US and the response to it are inside it.</td></tr>
+        </table>
+      </div>
+    </details>
   </div>
   <div id="protomsg"></div>
 
   <details class="guide">
-    <summary>These numbers should not normally be changed</summary>
+    <summary>What the protocol is for, and when to change it</summary>
     <div class="body">
-      <p>Every session runs the same experiment, and these are already it:
-      <b>CS 400 ms</b>, <b>US 50 ms co-terminating</b> with it, so the US begins at
-      <b>350 ms</b> &mdash; and <b>9 paired trials + 1 CS-only probe, ten times over</b>
-      (100 trials).</p>
       <p>The protocol is used as a <b>test</b>, never as an instruction. Trials are recovered
       from what the LEDs actually did, and the result is then compared against the structure
-      above. Nothing is renumbered to make it fit.</p>
+      set above. Nothing is renumbered to make it fit.</p>
       <p><b>So if the trial count comes out wrong, do not adjust these numbers to match.</b>
       A disagreement is a finding about the recording &mdash; almost always a CS LED that could
-      not be read &mdash; and the app will tell you which recording and why. Change these only to
-      record a genuine deviation in how the session was actually run.</p>
-      <p>CS and US co-terminate: US onset + US duration should equal CS duration. The block
-      structure is detected from the recording, not assumed.</p>
+      not be read &mdash; and the app will tell you which recording and why.</p>
+      <p><b>Do change them when the session really was run differently.</b> The app does not
+      require the US to fall inside the CS. Put the US onset at or after the CS duration and
+      the study becomes a <b>trace</b> protocol: the diagram shows the gap, trials are paired
+      across it, the trial window and the CR window stretch to cover it, and the figures and
+      workbooks describe it as a trace design rather than a delay one.</p>
+      <p>Whatever is set here is written into the study file beside the results, so a number
+      that reaches a paper can be traced back to the run that produced it. The last protocol
+      actually used is remembered, so a lab that has moved to a different design does not
+      retype it for every participant.</p>
     </div>
   </details>
 
@@ -359,8 +622,8 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   <div id="envmsg"></div>
 
   <div class="row" style="margin-top:18px">
-    <button class="primary" id="run" disabled>Run analysis</button>
-    <button class="danger hide" id="stop">Stop</button>
+    <button class="primary" id="run" data-magnet disabled>Run analysis</button>
+    <button class="danger hide" id="stop" data-magnet>Stop</button>
     <label class="row" style="gap:6px;cursor:pointer"><input type="checkbox" id="force">
       re-process recordings that are already done</label>
   </div>
@@ -378,6 +641,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="phase">&mdash;</span>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="elapsed"></span>
   </div>
+  <div class="ticker hide" id="ticker" aria-hidden="true"><div class="track"></div></div>
   <div id="statemsg"></div>
   <div id="notes"></div>
   <div id="vids"></div>
@@ -412,10 +676,16 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   <p class="todo must" id="todo4">Open every <b>qc_leds_&lt;name&gt;.png</b> before trusting any number
      below it.</p>
   <div class="row" style="margin-bottom:12px">
-    <button id="openf">Open output folder</button>
+    <button class="primary" id="openf" data-magnet>Open output folder</button>
     <span class="mono" style="font-size:12px;color:var(--muted)" id="outpath"></span>
   </div>
   <div id="resmsg"></div>
+  <div id="crwin"></div>
+  <div id="handscore"></div>
+  <p class="note" id="filesnote" style="margin:0 0 10px">
+     Everything the run produced, listed below. <b>The app cannot open these itself</b>
+     &mdash; click one and the output folder opens with it selected, ready for Excel or a
+     picture viewer.</p>
   <p class="note hide" id="stalenote" style="margin:0 0 10px">
      Greyed entries are left over from a previous run &mdash; this run did not produce them.</p>
   <div id="res"></div>
@@ -457,8 +727,9 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 <!-- ============================================================== colophon -->
 <footer class="colophon">
   <div class="cols">
-    <p class="lede"><b>EBC Analyzer</b> <span id="colver"></span> &mdash; delay eyeblink
-       conditioning, scored from video by the same pipeline every time.</p>
+    <p class="lede"><b>EBC Analyzer</b> <span id="colver"></span> &mdash; eyeblink
+       conditioning, <span id="coldesign">delay or trace</span>, scored from video by the
+       same pipeline every time.</p>
     <dl class="prov">
       <dt>Method</dt>
       <dd>Both stimulus LEDs are read at full frame rate and every pulse detected;
@@ -500,6 +771,7 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let VIDS = [], CUR = "", ONLINE = true, RUNNING = false, LAST = null, ENV = null;
+let PROTO_DEFAULT = null, PRESETS = [], PROTO_BAD = [];
 
 /* ---------------------------------------------------------------- plumbing */
 /* Every call comes back as either {ok:true, data} or {ok:false, fail:{error,detail,hint}}.
@@ -689,6 +961,275 @@ function renderSummary(){
    </div>`;
 }
 
+/* ---------------------------------------------------------------- protocol */
+/* ebc_config.py is the authority on what a protocol means - design(), window() and
+   check_protocol() there decide what a run actually does, and the server re-reads every
+   number before one starts.  What follows is the same arithmetic done in the page, so
+   the drawing and the sentence under it can answer while you are still typing.  Keep the
+   two in step: if the rules there change, they change here. */
+
+/* input id -> protocol key.  The two tolerances are stored as fractions and shown as
+   percentages, because "35%" is what a person means and 0.35 is what the detector wants. */
+const PFIELDS = {
+  cs:"cs_ms", uson:"us_onset_ms", usdur:"us_dur_ms",
+  npaired:"paired_per_block", nprobe:"cs_only_per_block", nblocks:"n_blocks",
+  miniti:"min_iti_s", alpha:"alpha_ms", prems:"pre_ms", postms:"post_ms",
+  cstol:"cs_tol", ustol:"us_tol"};
+const PCT_FIELDS = {cstol:1, ustol:1};
+
+function protoRead(){
+  const p = Object.assign({}, PROTO_DEFAULT || {});
+  for (const [id, key] of Object.entries(PFIELDS)){
+    const el = $("#" + id);
+    if (!el) continue;
+    const raw = el.value.trim();
+    if (raw === ""){ if (key === "post_ms") p[key] = 0; continue; }
+    const v = Number(raw);
+    if (!isFinite(v)) continue;
+    p[key] = PCT_FIELDS[id] ? v / 100 : v;
+  }
+  return p;
+}
+
+function protoWrite(p){
+  for (const [id, key] of Object.entries(PFIELDS)){
+    const el = $("#" + id);
+    if (!el || p[key] === undefined || p[key] === null) continue;
+    // post_ms = 0 means "work it out from the protocol", which the box says by being empty
+    if (key === "post_ms" && !p[key]){ el.value = ""; continue; }
+    el.value = PCT_FIELDS[id] ? Math.round(p[key] * 100) : p[key];
+  }
+}
+
+/* what these numbers describe - the same four cases as ebc_config.design() */
+function designOf(p){
+  const cs = +p.cs_ms, on = +p.us_onset_ms, dur = +p.us_dur_ms;
+  const usOff = on + dur, gap = on - cs, cot = Math.abs(usOff - cs) <= 0.5;
+  let kind = "delay", label = "Delay conditioning", short = "";
+  if (gap > 0.5){
+    kind = "trace"; label = "Trace conditioning";
+    short = `${Math.round(gap)} ms gap between CS offset and US onset`;
+  } else if (cot){
+    label = "Delay conditioning, co-terminating";
+    short = "US co-terminates with the CS";
+  } else if (usOff < cs){
+    short = `US ends ${Math.round(cs - usOff)} ms before the CS does`;
+  } else {
+    label = "Delay conditioning, overlapping";
+    short = `US outlasts the CS by ${Math.round(usOff - cs)} ms`;
+  }
+  return {kind, label, short, csOff:cs, usOn:on, usOff, gap, span:Math.max(cs, usOff)};
+}
+
+function windowOf(p){
+  const end = designOf(p).span;
+  const pre = +p.pre_ms || 300;
+  const post = +p.post_ms || Math.max(1150, end + 450);
+  return {pre, post, search:Math.max(200, Math.min(post - 150, Math.max(1000, end + 300)))};
+}
+
+/* Only arithmetic that cannot describe a real session.  A protocol that is merely
+   unusual is not a problem and is not listed - that judgement is the researcher's. */
+function protoProblems(p){
+  const bad = [], d = designOf(p);
+  for (const [k, name] of [["cs_ms","CS duration"], ["us_onset_ms","US onset"],
+                           ["us_dur_ms","US duration"],
+                           ["min_iti_s","Minimum gap between trials"]])
+    if (!(+p[k] > 0)) bad.push(`${name} must be greater than zero.`);
+  for (const [k, name] of [["paired_per_block","Paired CS-US per block"],
+                           ["cs_only_per_block","CS-only probes per block"],
+                           ["n_blocks","Blocks"]])
+    if (!Number.isInteger(+p[k]) || +p[k] < 0) bad.push(`${name} must be a whole number.`);
+  if (bad.length) return bad;
+  if (+p.paired_per_block + +p.cs_only_per_block <= 0)
+    bad.push("A block needs at least one trial: paired and CS-only cannot both be 0.");
+  if (+p.n_blocks < 1) bad.push("A conditioning session needs at least one block.");
+  if (d.span > +p.min_iti_s * 1000 * 0.5)
+    bad.push(`One trial spans ${Math.round(d.span)} ms but trials are only ${p.min_iti_s} s `
+           + `apart, so a US could belong to either of two CS presentations. Raise the `
+           + `minimum gap between trials, or shorten the trial.`);
+  for (const [k, name] of [["cs_tol","CS"], ["us_tol","US"]])
+    if (!(+p[k] > 0 && +p[k] < 1)) bad.push(`${name} duration tolerance must be between 1 and 99%.`);
+  if (+p.alpha_ms >= +p.us_onset_ms)
+    bad.push(`The startle cut-off (${Math.round(p.alpha_ms)} ms) is at or after the US `
+           + `(${Math.round(p.us_onset_ms)} ms), which leaves no window in which a CR `
+           + `could be counted.`);
+  const w = windowOf(p);
+  if (w.post < d.span + 100)
+    bad.push(`The trial window ends ${Math.round(w.post)} ms after CS onset, before the `
+           + `stimuli are over at ${Math.round(d.span)} ms.`);
+  return bad;
+}
+
+/* ---- the protocol, drawn ---------------------------------------------------------
+   Two bars on one time axis.  Whether the US sits inside the CS or half a second after
+   it is then a fact you can see, which is worth more than a sentence saying so. */
+function drawTimeline(p){
+  const d = designOf(p);
+  const W = 900, H = 132, L = 62, R = 26, TOP = 34, AX = 108;
+  const open = `<svg class="timeline" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="${esc(d.label)}. ${esc(d.short)}.">`;
+  if (!isFinite(d.span) || d.span <= 0)
+    return open + `<text x="20" y="70" font-size="13" fill="var(--muted)">Fill in the CS
+      and US durations to see the protocol drawn here.</text></svg>`;
+
+  const t1 = d.span * 1.12, t0 = -t1 * 0.05;
+  const x = ms => L + (ms - t0) * (W - L - R) / (t1 - t0);
+  const bar = (y, a, b, fill) =>
+    `<rect x="${x(a).toFixed(1)}" y="${y}" width="${Math.max(x(b) - x(a), 3).toFixed(1)}"
+       height="20" rx="3" fill="${fill}"></rect>`;
+
+  let g = "";
+  // the trace interval: neither stimulus on, and the thing the participant has to bridge
+  if (d.kind === "trace")
+    g += `<rect x="${x(d.csOff).toFixed(1)}" y="${TOP - 8}"
+            width="${(x(d.usOn) - x(d.csOff)).toFixed(1)}" height="${AX - TOP + 8}"
+            fill="var(--sunken)"></rect>
+          <text x="${((x(d.csOff) + x(d.usOn)) / 2).toFixed(1)}" y="${TOP + 34}"
+            text-anchor="middle" font-size="11.5" fill="var(--muted)"
+            font-style="italic">trace ${Math.round(d.gap)} ms</text>`;
+
+  g += `<text x="${L - 10}" y="${TOP + 15}" text-anchor="end" font-size="12"
+          fill="var(--cs)" font-weight="600">CS</text>` + bar(TOP, 0, d.csOff, "var(--cs)")
+     + `<text x="${L - 10}" y="${TOP + 53}" text-anchor="end" font-size="12"
+          fill="var(--us)" font-weight="600">US</text>`
+     + bar(TOP + 38, d.usOn, d.usOff, "var(--us)");
+
+  // the interval that is actually being conditioned, called out above the bars
+  g += `<line x1="${x(0).toFixed(1)}" y1="20" x2="${x(d.usOn).toFixed(1)}" y2="20"
+          stroke="var(--rule)" stroke-width="1.4"></line>
+        <line x1="${x(0).toFixed(1)}" y1="15" x2="${x(0).toFixed(1)}" y2="25"
+          stroke="var(--rule)" stroke-width="1.4"></line>
+        <line x1="${x(d.usOn).toFixed(1)}" y1="15" x2="${x(d.usOn).toFixed(1)}" y2="25"
+          stroke="var(--rule)" stroke-width="1.4"></line>
+        <text x="${((x(0) + x(d.usOn)) / 2).toFixed(1)}" y="11" text-anchor="middle"
+          font-size="11.5" fill="var(--muted)">CS&#8594;US interval ${Math.round(d.usOn)} ms</text>`;
+
+  // the axis, ticked at the moments that exist rather than at round numbers
+  g += `<line x1="${L}" y1="${AX}" x2="${W - R}" y2="${AX}" stroke="var(--rule)"></line>`;
+  let lastX = -99;
+  for (const [ms, lbl] of [[0, "0"], [d.csOff, Math.round(d.csOff)],
+                           [d.usOn, Math.round(d.usOn)], [d.usOff, Math.round(d.usOff)]]
+                          .sort((a, b) => a[0] - b[0])){
+    const px = x(ms);
+    if (px - lastX < 40) continue;          // two ticks this close would overprint
+    lastX = px;
+    g += `<line x1="${px.toFixed(1)}" y1="${AX}" x2="${px.toFixed(1)}" y2="${AX + 5}"
+            stroke="var(--rule)"></line>
+          <text x="${px.toFixed(1)}" y="${AX + 19}" text-anchor="middle" font-size="11"
+            fill="var(--muted)">${lbl}</text>`;
+  }
+  // the unit goes in the row-label column with CS and US: the last tick can sit hard
+  // against the right edge, and a caption there would print over it
+  g += `<text x="${L - 10}" y="${AX + 19}" text-anchor="end" font-size="10.5"
+          fill="var(--muted)">ms</text>`;
+  return open + g + "</svg>";
+}
+
+/* ---- everything the panel says, recomputed on every keystroke -------------------- */
+function refreshProtocol(){
+  const p = protoRead();
+  const d = designOf(p), w = windowOf(p);
+  PROTO_BAD = protoProblems(p);
+
+  $("#ptlwrap").innerHTML = drawTimeline(p);
+  $("#ptltitle").textContent =
+    `${d.label}. CS ${Math.round(d.csOff)} ms, US ${Math.round(p.us_dur_ms)} ms starting `
+  + `at ${Math.round(d.usOn)} ms \u2014 ${d.short}.`;
+
+  // Where the CR window will end up is not known from these numbers alone.  Neither the
+  // eye nor the brainstem responds instantly, so both edges of the window sit one reflex
+  // latency after their own stimulus - and that latency is measured from the US-only
+  // recording, once the run has read it.  What the panel can say now is which of the two
+  // things will happen, and what the fallback window would be.
+  const hasUS = (typeof picked === "function"
+                 && picked().some(v => v.role === "baseline_us"));
+  const crWindow = !(+p.alpha_ms < +p.us_onset_ms)
+    ? `<b>no fallback CR window</b> \u2014 the startle cut-off is at or after the US`
+    : hasUS
+      ? `the CR window is <b>measured</b> from your US-only recording: mean \u2212 1.5 SD of `
+        + `the unconditioned blink onsets gives the reflex latency, and a blink counts as `
+        + `a CR from that long after the CS to that long after the US`
+      : `no US-only recording selected, so the reflex cannot be measured and the fallback `
+        + `window is used: a blink between <b>${Math.round(p.alpha_ms)}</b> and `
+        + `<b>${Math.round(d.usOn)} ms</b> counts as a CR`;
+  $("#stimsum").innerHTML = crWindow
+    + ` \u00b7 each trial tracked from <b>\u2212${Math.round(w.pre)}</b> to `
+    + `<b>+${Math.round(w.post)} ms</b>`;
+
+  const per = (+p.paired_per_block) + (+p.cs_only_per_block);
+  const total = per * (+p.n_blocks);
+  $("#blocksum").innerHTML = isFinite(total) && total > 0
+    ? `<b>${per}</b> trials a block, <b>${total}</b> conditioning trials expected`
+    : "";
+
+  // one block, drawn as its trials - filled for paired, hollow for a CS-only probe
+  const np = Math.max(0, Math.min(60, Math.round(+p.paired_per_block) || 0));
+  const nq = Math.max(0, Math.min(20, Math.round(+p.cs_only_per_block) || 0));
+  $("#blockstrip").innerHTML = (np + nq)
+    ? Array(np).fill('<i title="paired CS-US trial"></i>').join("")
+      + Array(nq).fill('<i class="probe" title="CS-only probe"></i>').join("")
+      + `<span class="x">one block${nq ? ", closed by its probe" + (nq > 1 ? "s" : "") : ""}`
+      + `&nbsp;&times;&nbsp;${Math.round(+p.n_blocks) || 0}</span>`
+    : "";
+
+  const cd = $("#coldesign");
+  if (cd) cd.textContent = d.label.replace(/^Delay|^Trace/, m => m.toLowerCase());
+
+  $("#designchip").innerHTML =
+    `<span class="chip-design"><span class="sw"></span><b>${esc(d.label)}</b>
+     &middot; ${esc(d.short)}</span>`;
+
+  // A protocol the app cannot analyse is a real error and says so.  An unusual one is
+  // not: it is described, and left alone.
+  if (PROTO_BAD.length) show("#protomsg", "bad", {
+    error:"These numbers do not describe a session that can be analysed.",
+    detail:PROTO_BAD.join("\n"),
+    hint:"Change them here, or press \u2018Back to this lab\u2019s standard\u2019 to "
+       + "start again from the usual delay protocol. Nothing is lost - the run has not "
+       + "started, and everything else on the page is untouched."});
+  else clear("#protomsg");
+
+  // a preset lights up when every number it names matches; typing over one leaves none lit
+  document.querySelectorAll("#presets button").forEach(b => {
+    const pre = PRESETS[+b.dataset.i];
+    const on = !!pre && Object.entries(pre.protocol)
+      .every(([k, v]) => Math.abs(+p[k] - +v) < 1e-6);
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const std = PROTO_DEFAULT && Object.values(PFIELDS)
+    .every(k => Math.abs((+p[k] || 0) - (+PROTO_DEFAULT[k] || 0)) < 1e-6);
+  $("#protoreset").disabled = !!std;
+  return PROTO_BAD;
+}
+
+function initProtocol(hello){
+  PROTO_DEFAULT = hello.protocol || {};
+  PRESETS = hello.presets || [];
+  $("#presets").innerHTML = PRESETS.map((pre, i) =>
+    `<button type="button" data-i="${i}" aria-pressed="false"
+       title="${esc(pre.note)}">${esc(pre.name)}</button>`).join("");
+  document.querySelectorAll("#presets button").forEach(b => b.onclick = () => {
+    protoWrite(Object.assign({}, PROTO_DEFAULT, PRESETS[+b.dataset.i].protocol));
+    refreshProtocol(); refreshGuide();
+  });
+  $("#protoreset").onclick = () => {
+    protoWrite(PROTO_DEFAULT); refreshProtocol(); refreshGuide();
+  };
+  // The last protocol that was actually run comes back, so a lab that has moved to a
+  // trace design does not retype it for every participant.
+  protoWrite(Object.assign({}, PROTO_DEFAULT, hello.protocol_last || {}));
+  Object.keys(PFIELDS).forEach(id => {
+    const el = $("#" + id);
+    if (!el) return;
+    el.addEventListener("input", () => { refreshProtocol(); refreshGuide(); });
+    // Enter in a number box means "I have finished typing", not "reload the page"
+    el.addEventListener("keydown", e => { if (e.key === "Enter") e.preventDefault(); });
+  });
+  refreshProtocol();
+}
+
 /* ---------------------------------------------------------------- guidance */
 /* One sentence per card saying what to do next. It is recomputed on every change,
    so the page always has an answer to "and now what?". */
@@ -717,11 +1258,15 @@ function refreshGuide(){
       output file name, so use the participant&rsquo;s name or code.`;
   else if (ENV && !ENV.ok) $("#todo2").innerHTML = `This computer is missing something the
       analysis needs &mdash; open <b>What this computer needs</b> below.`;
-  else $("#todo2").innerHTML = `Leave the protocol numbers alone unless the session really was
-      run differently, then press <b>Run analysis</b>.`;
+  else if (PROTO_BAD.length) $("#todo2").innerHTML = `The protocol below cannot be analysed
+      as it stands &mdash; <b>fix the numbers</b>, or press <b>Back to this lab&rsquo;s
+      standard</b>.`;
+  else $("#todo2").innerHTML = `Check that the <b>protocol</b> matches how this session was
+      actually run, then press <b>Run analysis</b>.`;
 
   const why = !step1done ? "Tick at least one recording in step 1."
             : !study ? "Give the study a name first."
+            : PROTO_BAD.length ? "The protocol in step 2 cannot be analysed."
             : RUNNING ? "A run is already going."
             : ENV && !ENV.ok ? "Install what is missing first (see below)."
             : "";
@@ -735,14 +1280,189 @@ function refreshGuide(){
          + "participant's name or code is the usual choice."});
   else clear("#runmsg");
 
-  const cs = +$("#cs").value, uson = +$("#uson").value, usdur = +$("#usdur").value;
-  if (cs && uson && usdur && Math.abs(uson + usdur - cs) > 0.5)
-    show("#protomsg", "warn", {error:"US onset + US duration does not equal CS duration.",
-      detail:`${uson} + ${usdur} = ${uson+usdur}, but CS is ${cs} ms`,
-      hint:"In this protocol the CS and US co-terminate, so these should add up. Change them "
-         + "only if the session really was run this way - the analysis will use what you type."});
-  else clear("#protomsg");
   renderSummary();
+}
+
+/* ---------------------------------------------------------------- motion */
+/* One pointer listener and one animation frame drive all of it.  Every frame reads the
+   geometry it needs first and writes transforms afterwards, so the browser is never asked
+   to lay out twice in a frame, and the loop stops itself the moment nothing is moving. */
+const FX = (() => {
+  const fine = matchMedia("(hover:hover) and (pointer:fine)");
+  const still = matchMedia("(prefers-reduced-motion:reduce)");
+  const S = {on:false, x:-999, y:-999, seen:false,
+             rx:-999, ry:-999,            // the ring, lagging behind
+             raf:0, idle:0,
+             hot:null, spot:null, dock:null, tilt:null};
+
+  const MAGNET = "[data-magnet]";
+  const HOT = "button, a, input, select, summary, .chip, .files .f";
+  // how hard it leans, how far outside itself it starts to, and how far it may travel -
+  // capped, because a button that follows the pointer all the way collides with whatever
+  // sits beside it
+  const PULL = 0.22, REACH = 34, TRAVEL = 10;
+
+  function decide(){
+    const on = fine.matches && !still.matches;
+    if (on === S.on) return;
+    S.on = on;
+    document.body.classList.toggle("fx", on);
+    if (!on){
+      document.body.classList.remove("fx-live", "fx-hot");
+      document.querySelectorAll("[data-magnet],[data-tilt],[data-fisheye]>*")
+        .forEach(el => el.style.transform = "");
+      document.querySelectorAll(".fx-in").forEach(el => el.classList.remove("fx-in"));
+      cancelAnimationFrame(S.raf); S.raf = 0;
+    }
+  }
+
+  /* what the pointer is over, decided once per move rather than per frame */
+  function onMove(e){
+    if (!S.on) return;
+    S.x = e.clientX; S.y = e.clientY;
+    if (!S.seen){ S.seen = true; S.rx = S.x; S.ry = S.y;
+                  document.body.classList.add("fx-live"); }
+    const t = e.target instanceof Element ? e.target : null;
+    document.body.classList.toggle("fx-hot", !!(t && t.closest(HOT)));
+    const spot = t && t.closest(".card.lead, .proto");
+    if (spot !== S.spot){
+      if (S.spot) S.spot.classList.remove("fx-in");
+      S.spot = spot;
+      if (spot) spot.classList.add("fx-in");
+    }
+    const dock = t && t.closest("[data-fisheye]");
+    if (dock !== S.dock){
+      if (S.dock){ S.dock.classList.remove("fx-in");
+                   [...S.dock.children].forEach(c => c.style.transform = ""); }
+      S.dock = dock;
+      if (dock) dock.classList.add("fx-in");
+    }
+    const tilt = t && t.closest("[data-tilt]");
+    if (tilt !== S.tilt){
+      if (S.tilt){ S.tilt.classList.remove("fx-in"); S.tilt.style.transform = ""; }
+      S.tilt = tilt;
+      if (tilt) tilt.classList.add("fx-in");
+    }
+    S.idle = 0;
+    if (!S.raf) S.raf = requestAnimationFrame(frame);
+  }
+
+  function onLeave(){
+    document.body.classList.remove("fx-live", "fx-hot");
+    S.seen = false; S.x = S.y = -999;
+    [["spot", null], ["dock", null], ["tilt", null]].forEach(([k]) => {
+      if (S[k]) S[k].classList.remove("fx-in");
+      if (k === "tilt" && S[k]) S[k].style.transform = "";
+      if (k === "dock" && S[k]) [...S[k].children].forEach(c => c.style.transform = "");
+      S[k] = null;
+    });
+  }
+
+  function frame(){
+    S.raf = 0;
+    if (!S.on) return;
+
+    /* ---- read ---------------------------------------------------------------- */
+    const magnets = [];
+    document.querySelectorAll(MAGNET).forEach(el => {
+      if (el.offsetParent === null) return;            // hidden: nothing to pull
+      const r = el.getBoundingClientRect();
+      magnets.push([el, r]);
+    });
+    const dockRects = S.dock
+      ? [...S.dock.children].map(c => [c, c.getBoundingClientRect()]) : [];
+    const tiltRect = S.tilt ? S.tilt.getBoundingClientRect() : null;
+    const spotRect = S.spot ? S.spot.getBoundingClientRect() : null;
+
+    /* ---- write --------------------------------------------------------------- */
+    // the ring, easing towards the pointer; a plain exponential, frame-rate be damned
+    S.rx += (S.x - S.rx) * 0.19;
+    S.ry += (S.y - S.ry) * 0.19;
+    const cur = document.getElementById("cursor");
+    if (cur) cur.style.transform = `translate3d(${S.rx.toFixed(1)}px,${S.ry.toFixed(1)}px,0)`;
+
+    let moving = Math.abs(S.x - S.rx) > 0.4 || Math.abs(S.y - S.ry) > 0.4;
+
+    for (const [el, r] of magnets){
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const dx = S.x - cx, dy = S.y - cy;
+      const inx = Math.abs(dx) - r.width / 2, iny = Math.abs(dy) - r.height / 2;
+      const near = inx < REACH && iny < REACH;
+      if (near){
+        el.classList.add("fx-in");
+        const clamp = (v, lim) => Math.max(-lim, Math.min(lim, v));
+        el.style.transform =
+          `translate3d(${clamp(dx * PULL, TRAVEL).toFixed(2)}px,` +
+          `${clamp(dy * PULL * .7, TRAVEL * .6).toFixed(2)}px,0)`;
+        moving = true;
+      } else if (el.style.transform){
+        el.classList.remove("fx-in");
+        el.style.transform = "";
+      }
+    }
+
+    // dock magnification: scale falls off with distance along the row
+    if (dockRects.length){
+      const SPREAD = 78, MAX = 0.55;
+      for (const [c, r] of dockRects){
+        const d = Math.abs(S.x - (r.left + r.width / 2));
+        const k = Math.max(0, 1 - d / SPREAD);
+        const g = 1 + MAX * k * k;
+        c.style.transform = `scale(${g.toFixed(3)}) translateY(${(-4 * k * k).toFixed(2)}px)`;
+      }
+      moving = true;
+    }
+
+    if (tiltRect && tiltRect.width){
+      const px = (S.x - tiltRect.left) / tiltRect.width - 0.5;
+      const py = (S.y - tiltRect.top) / tiltRect.height - 0.5;
+      S.tilt.style.transform =
+        `perspective(900px) rotateX(${(-py * 5).toFixed(2)}deg) ` +
+        `rotateY(${(px * 7).toFixed(2)}deg) translateZ(6px)`;
+      moving = true;
+    }
+
+    if (spotRect && spotRect.width){
+      S.spot.style.setProperty("--mx", (S.x - spotRect.left).toFixed(0) + "px");
+      S.spot.style.setProperty("--my", (S.y - spotRect.top).toFixed(0) + "px");
+    }
+
+    // keep going while anything is still settling, then stop until the pointer moves
+    S.idle = moving ? 0 : S.idle + 1;
+    if (S.idle < 12) S.raf = requestAnimationFrame(frame);
+  }
+
+  decide();
+  fine.addEventListener("change", decide);
+  still.addEventListener("change", decide);
+  addEventListener("pointermove", onMove, {passive:true});
+  addEventListener("pointerdown", onMove, {passive:true});
+  document.addEventListener("pointerleave", onLeave);
+  addEventListener("blur", onLeave);
+  // a list that has just been re-rendered has new children; drop the stale references
+  return {reset(){ S.dock = S.tilt = S.spot = null; }};
+})();
+
+/* ---------------------------------------------------------------- ticker */
+/* While a run is going, one line saying what every recording is doing, travelling slowly
+   enough to read.  Doubled end to end so the loop has no seam, paused on hover, and
+   replaced by a still line when the machine has asked for no motion. */
+function renderTicker(s){
+  const t = $("#ticker");
+  const order = s.order || [];
+  if (!s.running || !order.length){ t.classList.add("hide"); return; }
+  const bits = order.map(tag => {
+    const v = s.videos[tag] || {};
+    const pct = v.done ? "done" : ((v.pct || 0) * 100).toFixed(0) + "%";
+    return `<span><b>${esc(v.label || tag)}</b> &middot; ${esc(v.stage || "waiting")}
+            &middot; ${pct}</span>`;
+  });
+  bits.push(`<span>${esc(s.phase_label || "")}</span>`);
+  const run = `<div class="run">` + bits.join(`<span class="sep">|</span>`) + `</div>`;
+  const track = t.firstElementChild;
+  const next = run + run;                 // two copies: -50% lands exactly on the seam
+  if (track.dataset.sig !== next){ track.innerHTML = next; track.dataset.sig = next; }
+  t.classList.remove("hide");
 }
 
 /* ---------------------------------------------------------------- colophon */
@@ -795,11 +1515,90 @@ $("#pick").onclick = async () => {
 };
 $("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
 $("#study").addEventListener("input", refreshGuide);
-["#cs","#uson","#usdur"].forEach(s => $(s).addEventListener("input", refreshGuide));
 $("#openf").onclick = async () => {
   const r = await api("/api/open_folder");
   if (!r.ok) show("#resmsg", "bad", r.fail); else clear("#resmsg");
 };
+
+/* The one thing a click on a result can do.  There is no in-app viewer and no download,
+   so rather than a link that silently does nothing, the folder opens with the file
+   selected and the operating system takes it from there. */
+async function revealFile(name){
+  const r = await api("/api/open_folder?show=" + encodeURIComponent(name));
+  if (!r.ok) show("#resmsg", "bad", r.fail); else clear("#resmsg");
+}
+
+/* ---------------------------------------------------------------- the CR window */
+/* What this run counted as a conditioned response, and where that came from.  It is read
+   back from the run rather than recomputed here, because when there is a US-only
+   recording the window is measured from it and no arithmetic on the protocol could
+   reproduce it. */
+function renderCrWindow(sc){
+  const box = $("#crwin");
+  if (!sc || !sc.window){ box.innerHTML = ""; return; }
+  const w = sc.window, r = sc.reflex || {};
+  const tag = w.measured
+    ? `<span class="tag measured">measured from the US-only baseline</span>`
+    : `<span class="tag fallback">not measured &mdash; protocol fallback</span>`;
+  const detail = w.measured
+    ? `${r.n} unconditioned blink${r.n === 1 ? "" : "s"} began
+       <b>${Math.round(r.mean_ms)} &plusmn; ${Math.round(r.sd_ms)} ms</b> after the puff, so
+       mean &minus; ${r.k} SD = <b>${Math.round(r.onset_ms)} ms</b> is the soonest a stimulus
+       can have caused a blink. Both edges of the window sit that far after their own
+       stimulus &mdash; ${Math.round(w.lo_ms)} ms after the CS, and ${Math.round(w.hi_ms)} ms
+       after CS onset, which is ${Math.round(r.onset_ms)} ms after the puff.`
+    : esc(w.why || "");
+  box.innerHTML = `<div class="crwin"><div class="hd">
+      <span class="win">${Math.round(w.lo_ms)}&ndash;${Math.round(w.hi_ms)} ms</span>
+      <span>counted as a conditioned response</span> ${tag}</div>
+      <p>${detail}</p></div>`;
+}
+
+/* ---------------------------------------------------------------- score by hand */
+/* Trials the scorer will not stand behind.  Named, timed and reasoned, because the whole
+   point is that somebody now has to open the recording at that moment and look. */
+const HAND_SHOWN = 12;
+function renderHandScore(m){
+  const box = $("#handscore");
+  const all = (m && m.trials) || [];
+  if (!all.length){ box.innerHTML = ""; return; }
+  const paired = all.filter(t => t.role === "conditioning" && t.trial_type === "CS-US");
+  const rest = all.filter(t => !(t.role === "conditioning" && t.trial_type === "CS-US"));
+
+  const table = list => `<table class="hand">
+      <tr><th style="width:110px">Recording</th><th style="width:52px">Trial</th>
+          <th style="width:92px">At</th><th style="width:58px">Block</th>
+          <th>What the scorer could not see past</th></tr>` +
+    list.slice(0, HAND_SHOWN).map(t => `<tr>
+        <td>${esc(t.session_name)}</td>
+        <td class="t">${t.session_trial}</td>
+        <td class="t">${esc(t.at)}</td>
+        <td class="t">${t.block == null ? "&mdash;" : t.block}</td>
+        <td class="w">${esc(t.because)}</td></tr>`).join("") + `</table>` +
+    (list.length > HAND_SHOWN
+      ? `<div class="more">&hellip; and ${list.length - HAND_SHOWN} more &mdash; the full
+         list is <b>trials_to_score_by_hand.csv</b> below.</div>` : "");
+
+  let h = `<div class="tri"><h4>&#9998; ${paired.length
+      ? paired.length + " paired conditioning trial" + (paired.length>1?"s":"")
+      : all.length + " trial" + (all.length>1?"s":"")} could not be scored with
+      confidence &mdash; score ${(paired.length||all.length)>1?"them":"it"} by hand</h4>`;
+  if (paired.length){
+    h += `<div class="why">These are paired CS&ndash;US trials, so they are the measurement
+          itself. <b>Open each recording at the time shown and read the blink onset off the
+          video.</b> The times are from the start of that recording.</div>` + table(paired);
+  }
+  if (rest.length){
+    h += `<div class="rec">${rest.length} more, outside the paired conditioning
+          trials</div>` + table(rest);
+  }
+  h += `<div class="why">Every one of these is still in the workbooks and the CSVs, with
+        <i>Score by hand</i> set and the reason beside it &mdash; nothing has been dropped.
+        They are left out of the CR percentages, because a trial that cannot be timed
+        cannot be counted either way. <b>trials_to_score_by_hand.csv</b> is the same list
+        as a spreadsheet.</div></div>`;
+  box.innerHTML = h;
+}
 
 $("#run").onclick = async () => {
   const on = picked();
@@ -811,8 +1610,9 @@ $("#run").onclick = async () => {
                            size: v.size, anchor: v.anchor || "auto"})),
       study: $("#study").value.trim(),
       force: $("#force").checked,
-      nominal: {cs_ms: +$("#cs").value, us_onset_ms: +$("#uson").value,
-                us_dur_ms: +$("#usdur").value}
+      // the whole protocol, not only the three timings - the server takes the keys it
+      // knows and refuses the set if it cannot describe a real session
+      nominal: protoRead()
     })});
   $("#run").classList.remove("busy");
   if (!r.ok){ show("#runerr", "bad", r.fail); return; }
@@ -950,6 +1750,7 @@ async function poll(){
   lg.textContent = (s.log || []).join("\n");
   if (stick) lg.scrollTop = lg.scrollHeight;
 
+  renderTicker(s);
   renderTriage(s.triage);
 
   const groups = s.results || {};
@@ -963,10 +1764,18 @@ async function poll(){
   $("#res").innerHTML = Object.entries(groups).filter(([,a]) => a.length).map(([g,a],gi) =>
     `<div class="grp${gi===0?" first":""}">${esc(g)}</div><div class="files">` + a.map(f => {
       const old = t0 > 0 && f.mtime < t0; if (old) stale++;
-      return `<a class="${old?"stale":""}" href="/api/download?f=${encodeURIComponent(f.name)}&t=${T}" download>
+      return `<button type="button" class="f${old?" stale":""}" data-f="${esc(f.name)}"
+           title="Open the output folder with this file selected">
          <span>${esc(f.name)}${old?' <em>from an earlier run</em>':''}</span>
-         <span class="sz">${fmtSize(f.size)}</span></a>`; }).join("") + `</div>`).join("");
+         <span class="row" style="gap:10px"><span class="reveal">show in folder &rarr;</span>
+           <span class="sz">${fmtSize(f.size)}</span></span></button>`;
+      }).join("") + `</div>`).join("");
+  document.querySelectorAll("#res button.f").forEach(b =>
+    b.onclick = () => revealFile(b.dataset.f));
+  FX.reset();
   $("#stalenote").classList.toggle("hide", stale === 0);
+  renderCrWindow(s.scoring);
+  renderHandScore(s.manual);
 
   refreshGuide();
   pollTimer = setTimeout(poll, s.running ? 900 : 4000);
@@ -975,6 +1784,8 @@ async function poll(){
 /* ---------------------------------------------------------------- start */
 (async function start(){
   $("#pilltext").textContent = "starting up";
+  const h = await api("/api/hello");
+  if (h.ok) initProtocol(h.data);
   await checkEnv();
   await browse("");
   poll();

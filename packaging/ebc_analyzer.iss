@@ -4,7 +4,7 @@
 ;
 ; Turns the built app folder into one file to send someone.  What comes out is
 ;
-;     packaging\Setup EBC Analyzer 1.0.exe
+;     packaging\Setup EBC Analyzer 1.1.exe
 ;
 ; which installs to the user's own AppData - no administrator, no UAC prompt, nothing
 ; to approve for a researcher installing on a lab machine they do not own.  It carries
@@ -15,7 +15,7 @@
 ; does not create it.
 
 #define AppName    "EBC Analyzer"
-#define AppVersion "1.0"
+#define AppVersion "1.1"
 #define Publisher  "Cerebral Dynamics, Plasticity & Learning"
 #define ExeName    "EBC Analyzer.exe"
 

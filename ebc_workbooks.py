@@ -25,7 +25,7 @@ CFG = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
 WORK, OUT = work_dir(CFG), out_dir(CFG)
 M = json.load(open(os.path.join(WORK, "merged.json"), encoding="utf-8"))
 ALLROWS = json.load(open(os.path.join(WORK, "merged_rows.json"), encoding="utf-8"))
-NOM = M["protocol"]
+NOM = C.fill(M["protocol"])
 CHECKS = M.get("checks", {})
 TAG_ORDER = [r["tag"] for r in CFG["recordings"]]
 SESSMETA = {s["tag"]: s for s in M["sessions"]}
@@ -38,13 +38,42 @@ for _r in ALLROWS:
     _r["cs_onset_block_s"] = _r.get("session_clock_s")
     _r["cs_duration_measured_ms"] = _r.get("cs_duration_ms")
 
-CR_LBL = "CR (100-%.0fms)" % NOM["us_onset_ms"]
-UR_LBL = "UR (>=%.0fms)" % NOM["us_onset_ms"]
-ALPHA_LBL = "alpha/startle <100ms"
-MOVING_LBL = "in-progress at stimulus"
+DES = C.design(NOM)
+# Which latencies were counted as a conditioned response, read back from the run rather
+# than recomputed here: when the study has a US-only baseline the window is measured from
+# it, so no arithmetic on the protocol alone could reproduce it.  A merged.json written
+# before the window was measured falls back to the protocol, which is how it was scored.
+WIN = M.get("cr_window") or C.cr_window(NOM)
+CR_LO, CR_HI = float(WIN["lo_ms"]), float(WIN["hi_ms"])
+ALPHA = CR_LO
+# The response labels have to be the exact strings ebc_score.classify() wrote into the
+# rows, so every one of them comes out of the same window rather than being spelled out.
+CR_LBL, UR_LBL, ALPHA_LBL = WIN["cr_label"], WIN["ur_label"], WIN["alpha_label"]
+MOVING_LBL = WIN["moving_label"]
 # what ebc_score.classify() emits for a recording anchored on the US instead of the CS
-UR_PUFF_LBL = "UR to the puff"
-ALPHA_US_LBL = "alpha/startle <20ms"
+UR_PUFF_LBL, ALPHA_US_LBL = WIN["ur_puff_label"], WIN["alpha_us_label"]
+
+# Where every trial sits in its own recording, for the worklist of trials somebody now
+# has to look at.  merged.json already worked these out for the app and the CSV; reading
+# them back means the three lists can never disagree.
+MANUAL = {(t["session"], t["session_trial"]): t
+          for t in (M.get("manual_review") or {}).get("trials", [])}
+
+
+def clock(seconds):
+    """A position in its own recording, in the form a video player shows."""
+    if seconds is None:
+        return ""
+    mm, sec = divmod(float(seconds), 60.0)
+    return "%d:%06.3f" % (int(mm), sec)
+
+
+def at_in_video(r):
+    t = MANUAL.get((r["session"], r["session_trial"]))
+    if t and t.get("at"):
+        return t["at"]
+    return clock(r["cs_onset_video_s"] if r["cs_onset_video_s"] is not None
+                 else r["us_onset_video_s"])
 
 
 def is_cr(r):
@@ -73,16 +102,30 @@ def stim_events(tag):
     return out
 
 
-INK, MUT, HDR = "FF141922", "FF59636F", "FF1F2937"
-thin = Side(style="thin", color="FFDCE1E9")
+# ---------------------------------------------------------------- house style
+# The palette and the face come from ebc_config, so a CR is the same blue in a workbook
+# chart as in the PNG figures and on the app page.
+def F(**kw):
+    """A cell font in the house face.  Every Font in this file goes through here."""
+    return Font(name=C.FONT, **kw)
+
+
+INK, MUT, HDR = C.xl("ink"), C.xl("muted"), C.xl("accent")
+ACTION, FLAG = C.xl("action"), C.xl("flag_soft")
+WHITE = "FFFFFFFF"
+thin = Side(style="thin", color=C.xl("rule"))
 OUTDIR = OUT
 
 PROTOCOL = [
-    ("Design", "Delay eyeblink conditioning. A block is %d paired CS-US trials followed by %d CS-only "
-               "trial(s); %d blocks of conditioning, then CS-only trials as extinction."
-               % (NOM["paired_per_block"], NOM["cs_only_per_block"], NOM["n_blocks"])),
-    ("Stimuli", f"CS = yellow LED, {NOM['cs_ms']:.0f} ms. US = blue LED, {NOM['us_dur_ms']:.0f} ms. "
-                f"They overlap and co-terminate, so US onset is at {NOM['us_onset_ms']:.0f} ms after CS onset."),
+    ("Design", "%s. A block is %d paired CS-US trials followed by %d CS-only trial(s); "
+               "%d blocks of conditioning, then CS-only trials as extinction."
+               % (DES["label"], NOM["paired_per_block"], NOM["cs_only_per_block"],
+                  NOM["n_blocks"])),
+    ("Stimuli", f"CS = yellow LED, {NOM['cs_ms']:.0f} ms. US = blue LED, {NOM['us_dur_ms']:.0f} ms, "
+                f"beginning {NOM['us_onset_ms']:.0f} ms after CS onset. {DES['sentence']}"),
+    ("CR window", "A blink counted as a conditioned response if it began between "
+                   "%.0f and %.0f ms after CS onset. %s"
+                   % (CR_LO, CR_HI, WIN["why"])),
     ("Structure recovered", "The trial structure was recovered from the video, not imposed on it: the "
                             "LEDs were read frame by frame and the sequence that came out was then "
                             "compared with the protocol. Recovered %d paired CS-US and %d CS-only trials "
@@ -115,16 +158,33 @@ METHOD = [
     ("Blink criterion", "Five robust SDs above the trial's own pre-CS baseline, floor 15% closure, walked "
                         "back along the falling edge to the true onset. A separate blink must re-reach 40% "
                         "closure after first returning below 20%."),
-    ("Second look after an artefact", "If the first event in the window is an alpha blink (<100 ms) or the "
-                                      "lid was already moving at CS onset, the window is searched for a "
-                                      "LATER blink, because a real CR or UR may sit behind the artefact. "
-                                      "Where one is found it becomes the scored response; 'First response "
-                                      "obscured' marks those trials and the original first blink is kept in "
-                                      "its own columns."),
-    ("Response classes", f"alpha / startle = onset under 100 ms. CR = onset 100-{NOM['us_onset_ms']:.0f} ms, "
-                         f"i.e. the blink began before the US. UR only = onset at or after "
-                         f"{NOM['us_onset_ms']:.0f} ms. Trials where the lid was moving at CS onset and no "
-                         f"later blink was found cannot be timed and are excluded from the summary."),
+    ("Where the CR window comes from",
+     "Neither the eye nor the brainstem responds instantly, so the window is not the bare "
+     "interval between the two stimuli. The reflex latency - how long after a puff the "
+     "unconditioned blink actually starts - is measured in the US-only baseline as the "
+     "mean of those onsets minus %.1f SD, and both edges of the CR window sit that far "
+     "after their own stimulus: a blink cannot have been caused by the CS until that long "
+     "after CS onset, and cannot have been caused by the US until that long after US "
+     "onset. Only trials the scorer stands behind are used, and of those, onsets more "
+     "than %.1f robust SDs from the median of that baseline are set aside first - a "
+     "mean and an SD have no defence against one spontaneous blink scored long after "
+     "the reflex was missed. Every trial set aside is named on the US-only workbook's "
+     "cover. %s" % (C.REFLEX_K, C.REFLEX_OUTLIER_SD, WIN["why"])),
+    ("Second look after an artefact", "If the first event in the window began before the CR "
+                                      "window opens (under %.0f ms, too soon for the CS to have "
+                                      "caused it) or the lid was already moving at CS onset, the "
+                                      "window is searched for a LATER blink, because a real CR or "
+                                      "UR may sit behind the artefact. Where one is found it "
+                                      "becomes the scored response; 'First response obscured' marks "
+                                      "those trials and the original first blink is kept in its own "
+                                      "columns." % CR_LO),
+    ("Response classes", f"alpha / startle = onset under {CR_LO:.0f} ms: too soon after the "
+                         f"CS for the CS to have caused it. CR = onset {CR_LO:.0f}-{CR_HI:.0f} ms, "
+                         f"i.e. the blink was already under way before the puff could have "
+                         f"driven it. UR only = onset at or after {CR_HI:.0f} ms. Both boundaries "
+                         f"move with the protocol and with the measured reflex, rather than being "
+                         f"fixed. Trials where the lid was moving at CS onset and no later blink "
+                         f"was found cannot be timed and are excluded from the summary."),
 ]
 CAVEATS = [
     ("Measure", "Landmark EAR is a good proxy for lid aperture but it is not EMG or a magnetic search coil. "
@@ -133,10 +193,18 @@ CAVEATS = [
                            "rule. 'Blink onset' is the raw first event, kept for transparency."),
     ("Quality flags", "Flagged trials are kept in the table so nothing is silently dropped; filter on "
                       "'Quality flag' = clean if you want the strictest subset."),
+    ("Trials the scorer will not stand behind",
+     "'Score by hand' = yes marks a trial the automatic score cannot be trusted on, with "
+     "the reason beside it. They are listed on their own sheet, with the time to open the "
+     "recording at, and they are left out of the CR percentages - a trial that cannot be "
+     "timed cannot be counted either way. Nothing is dropped: every one is still in the "
+     "trial table."),
 ]
 
 STUDY = CFG["study"]
-ROLE_TITLE = {"conditioning": "delay eyeblink conditioning",
+# The conditioning workbook names the design it was actually run under, from the same
+# three numbers everything else reads.
+ROLE_TITLE = {"conditioning": DES["label"].lower(),
               "extinction": "extinction / post-conditioning test",
               "baseline_cs": "baseline - CS alone",
               "baseline_us": "baseline - US alone"}
@@ -197,17 +265,52 @@ def _book(role):
                      "Pooling it with the conditioning trials would mix two measurements."))
         what.append(("Reading the US column",
                      "No US was delivered. 'Closure at US' is sampled at %.0f ms - the interval "
-                     "learned during conditioning - and the CR window is that learned interval "
-                     "applied as a probe." % NOM["us_onset_ms"]))
+                     "learned during conditioning - and the CR window (%.0f-%.0f ms) is the one "
+                     "the conditioning trials were scored against, applied here as a probe: the "
+                     "same window, on trials where nothing followed the CS. %s"
+                     % (NOM["us_onset_ms"], CR_LO, CR_HI, DES["sentence"])))
     if role == "baseline_us":
         what.append(("What the timings mean",
                      "There is no CS, so every window is anchored on the US and the latencies are "
                      "measured from the puff. These are unconditioned responses by definition and "
                      "give the reflex baseline the CRs are read against."))
+        # This workbook is where the CR window is actually measured, so it says which of
+        # its own trials went into the number and which did not, and why.
+        R = M.get("reflex") or {}
+        if R.get("onset_ms") is not None:
+            what.append(("The reflex latency measured here",
+                         "%d of these trials gave a usable onset: %s ms, mean %.1f, SD %.1f. "
+                         "mean - %.1f SD = %.0f ms is the soonest a stimulus can have caused a "
+                         "blink, and it is what sets the CR window in the conditioning and "
+                         "extinction workbooks: %.0f-%.0f ms after CS onset."
+                         % (R["n"], ", ".join("%.0f" % o for o in R.get("onsets", [])),
+                            R["mean_ms"], R["sd_ms"], R["k"], R["onset_ms"], CR_LO, CR_HI)))
+        else:
+            what.append(("The reflex latency could not be measured here",
+                         "%s, so the CR window falls back to the protocol's startle cut-off "
+                         "and the bare US onset (%.0f-%.0f ms). %s"
+                         % (R.get("why", "these trials could not be used"), CR_LO, CR_HI,
+                            "Scoring more of these trials by hand would fix it."
+                            if R.get("skipped") else "")))
+        if R.get("skipped"):
+            what.append(("Trials left out of that measurement",
+                         "; ".join("%s trial %d (%s)"
+                                   % (k["session_name"], k["session_trial"], k["because"])
+                                   for k in R["skipped"])
+                         + ". A trial whose lid was already moving at the puff has an onset "
+                           "that is not the reflex, and one of those would drag the mean out "
+                           "and inflate the SD until the window was meaningless."))
     if role == "baseline_cs":
         what.append(("What the timings mean",
                      "The CS alone, before any pairing. Blinks here are orienting or spontaneous, "
                      "not conditioned, and give the false-positive rate for the CR window."))
+    nman = sum(1 for r in ALLROWS if r["role"] == role and r["needs_manual_scoring"])
+    what.append(("Trials to score by hand",
+                 ("%d of the %d trial(s) here could not be scored with confidence. They are "
+                  "on the 'Score by hand' sheet with the time to open the recording at and "
+                  "the reason for each, and they are marked in the trial table."
+                  % (nman, npair + nrest)) if nman else
+                 "None - every trial in this workbook was scored cleanly."))
     what.append(("Timeline", (timeline + " 'CS onset on session clock' is the position on that "
                               "continuous clock.") if timeline else "Single recording."))
     if others:
@@ -234,6 +337,11 @@ COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "t
         ("CS timing source", "cs_timing", None, 20),
         ("Block boundary from", "block_closed_by", None, 16),
         ("Quality flag", "quality", None, 24),
+        # The scorer's own verdict on whether this trial can be left to it.  Next to the
+        # quality flag because that is what a reader is already looking at when deciding
+        # whether to trust a row.
+        ("Score by hand", "needs_manual_scoring", None, 11),
+        ("Score by hand because", "manual_scoring_because", None, 34),
         ("Blinks in 1 s window", "n_full_blinks", "0", 10),
         ("SCORED onset (ms)", "scored_onset_ms", "0.0", 13),
         ("SCORED class", "scored_class", None, 19),
@@ -259,11 +367,28 @@ COLS = [("#", "gidx", "0", 6), ("Block", "block", "0", 7), ("Trial in block", "t
         ("Inter-blink interval (ms)", "inter_blink_ms", None, 14),
         ("Partial lid movements", "partial_movement_ms", None, 20)]
 
+# A trace protocol has an interval with neither stimulus on, and how closed the lid was
+# across it is a measurement in its own right.  A delay protocol has no such interval, so
+# the column is not offered there rather than being filled with blanks.
+if DES["kind"] == "trace":
+    _mid = (NOM["cs_ms"] + NOM["us_onset_ms"]) / 2
+    COLS.insert([c[1] for c in COLS].index("closure_at_CSoff_pct") + 1,
+                ("Closure mid-gap %.0f ms (%%)" % _mid, "closure_at_midgap_pct", "0.0", 14))
+
+
+def col_letter(field):
+    """Spreadsheet column letter of a trial-table field, by name.
+
+    The conditional formats used to name their columns as literal letters, which drifts
+    the moment a column is added or moved - and the trace column above does exactly that.
+    """
+    return get_column_letter([c[1] for c in COLS].index(field) + 1)
+
 
 def style_header(ws, row=1):
     for c in range(1, ws.max_column + 1):
         cell = ws.cell(row=row, column=c)
-        cell.font = Font(bold=True, size=10, color="FFFFFFFF")
+        cell.font = F(bold=True, size=10, color=WHITE)
         cell.fill = PatternFill("solid", fgColor=HDR)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[row].height = 36
@@ -288,30 +413,47 @@ def write_table(ws, rows):
             if isinstance(v, bool):
                 v = "yes" if v else "no"
             c = ws.cell(row=i, column=j, value=v)
-            c.font = Font(size=10, color=MUT, italic=True) if flagged else Font(size=10, color=INK)
+            c.font = F(size=10, color=MUT, italic=True) if flagged else F(size=10, color=INK)
             c.alignment = Alignment(horizontal="right" if fmt else "left")
             if fmt:
                 c.number_format = fmt
             c.border = Border(bottom=thin)
             if key in ("scored_onset_ms", "scored_class"):
-                c.font = Font(size=10, bold=True, color=INK, italic=flagged)
+                c.font = F(size=10, bold=True, color=INK, italic=flagged)
+            # A trial nobody should read off this row without opening the video is said
+            # so on the row itself, in the one warm colour this workbook uses, rather
+            # than only on its own sheet.
+            if src.get("needs_manual_scoring") and key in ("needs_manual_scoring",
+                                                           "manual_scoring_because"):
+                c.fill = PatternFill("solid", fgColor=FLAG)
+                c.font = F(size=10, color=ACTION,
+                           bold=(key == "needs_manual_scoring"))
     style_header(ws)
     widths(ws, [c[3] for c in COLS])
     ws.freeze_panes = "G2"
     n = len(rows) + 1
     if not rows:
         ws.cell(row=2, column=1, value="No trials of this kind in this recording group.")
-        ws.cell(row=2, column=1).font = Font(size=10, color=MUT, italic=True)
+        ws.cell(row=2, column=1).font = F(size=10, color=MUT, italic=True)
         return
     ws.auto_filter.ref = "A1:" + get_column_letter(len(COLS)) + str(n)
-    ws.conditional_formatting.add("L2:L" + str(n), ColorScaleRule(
-        start_type="num", start_value=0, start_color="FFF6E7C8",
-        mid_type="num", mid_value=175, mid_color="FFBFD0EC",
-        end_type="num", end_value=400, end_color="FFE9BDB9"))
-    for rng in ("U2:U", "X2:X", "Y2:Y", "AB2:AB"):
-        ws.conditional_formatting.add(rng + str(n), ColorScaleRule(
-            start_type="num", start_value=0, start_color="FFFFFFFF",
-            end_type="num", end_value=100, end_color="FF6D85AE"))
+    # latency, coloured across the window this protocol actually uses: nothing before the
+    # startle cut-off, the US onset in the middle, the end of the search window at the top
+    lat = col_letter("scored_onset_ms")
+    ws.conditional_formatting.add("%s2:%s%d" % (lat, lat, n), ColorScaleRule(
+        start_type="num", start_value=0, start_color=C.xl("cs_soft"),
+        mid_type="num", mid_value=round(CR_HI / 2), mid_color=C.xl("us_soft"),
+        end_type="num", end_value=round(max(DES["span_ms"], CR_HI)),
+        end_color=C.xl("ur_soft")))
+    pct = ["peak_closure_pct", "closure_at_US_pct", "closure_at_CSoff_pct",
+           "closure_at_1000ms_pct", "closure_at_midgap_pct"]
+    for field in pct:
+        if field not in [c[1] for c in COLS]:
+            continue
+        L = col_letter(field)
+        ws.conditional_formatting.add("%s2:%s%d" % (L, L, n), ColorScaleRule(
+            start_type="num", start_value=0, start_color=WHITE,
+            end_type="num", end_value=100, end_color=C.xl("us_mid")))
     ws.sheet_view.showGridLines = False
 
 
@@ -329,12 +471,19 @@ def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
     else:
         lbl_us = ("US onset = %.0f ms" % NOM["us_onset_ms"]) if has_us else (
             "learned US onset = %.0f ms (none delivered)" % NOM["us_onset_ms"])
+        # The reference line at the CS offset is only "the CS and US offset" when the two
+        # really do end together; in a trace protocol it is the start of the gap.
+        lbl_cs_off = ("CS / US offset = %.0f ms" % NOM["cs_ms"] if DES["coterminate"]
+                      else "CS offset = %.0f ms" % NOM["cs_ms"])
         hd = ["#", "Block", "Session", CR_LBL, ALPHA_LBL, UR_LBL,
               "lid moving at onset", "CS onset = 0 ms", lbl_us,
-              "CS / US offset = %.0f ms" % NOM["cs_ms"], "Block mean onset"]
+              lbl_cs_off, "Block mean onset",
+              "CR window opens = %.0f ms" % CR_LO, "CR window closes = %.0f ms" % CR_HI]
         colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
         yaxis = "Blink onset (ms from yellow LED / CS onset)"
-        ymin, ymax = -120, 520
+        # room for the whole trial, so a trace protocol's UR is on the chart rather than
+        # clipped off the top of it
+        ymin, ymax = -120, max(520, int(DES["span_ms"]) + 160)
     for j, x in enumerate(hd, 1):
         if x:
             ws.cell(row=1, column=j, value=x)
@@ -355,10 +504,12 @@ def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
         if not us_anchored:
             ws.cell(row=i, column=9, value=NOM["us_onset_ms"])
             ws.cell(row=i, column=10, value=NOM["cs_ms"])
+            ws.cell(row=i, column=12, value=CR_LO)
+            ws.cell(row=i, column=13, value=CR_HI)
         if r_["block"] in bmean:
             ws.cell(row=i, column=11, value=round(bmean[r_["block"]], 1)).number_format = "0.0"
     style_header(ws)
-    widths(ws, [6, 7, 10, 19, 21, 19, 17, 15, 20, 19, 15])
+    widths(ws, [6, 7, 10, 19, 21, 19, 17, 15, 20, 19, 15] + ([] if us_anchored else [19, 19]))
     ws.sheet_view.showGridLines = False
     ch = ScatterChart()
     ch.style = 2
@@ -369,8 +520,8 @@ def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
     ch.x_axis.scaling.min, ch.x_axis.scaling.max = 0, len(rows) + 1
     ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
     xref = Reference(ws, min_col=1, min_row=2, max_row=len(rows) + 1)
-    marks = ((4, "FF3A67CF", 7), (5, "FFB8760F", 7), (7, "FF93A0AE", 6)) if us_anchored else (
-             (4, "FF2C4C86", 7), (5, "FFB8760F", 7), (6, "FFB03A32", 7), (7, "FF93A0AE", 6))
+    marks = ((4, C.xl("us"), 7), (5, C.xl("cs"), 7), (7, C.xl("faint"), 6)) if us_anchored else (
+             (4, C.xl("cr"), 7), (5, C.xl("cs"), 7), (6, C.xl("ur"), 7), (7, C.xl("faint"), 6))
     for k, colr, size in marks:
         s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
         s.marker = Marker(symbol="circle", size=size)
@@ -378,10 +529,14 @@ def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
         s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
         s.graphicalProperties.line.noFill = True
         ch.series.append(s)
-    lines = ((8, "FF3A67CF" if us_anchored else "FFB8760F", "solid", 20000),
-             (11, "FF141922", "solid", 28000)) if us_anchored else (
-            (8, "FFB8760F", "solid", 20000), (9, "FF3A67CF", "dash", 20000),
-            (10, "FF3A67CF", "dash", 20000), (11, "FF141922", "solid", 28000))
+    lines = ((8, C.xl("us") if us_anchored else C.xl("cs"), "solid", 20000),
+             (11, C.xl("ink"), "solid", 28000)) if us_anchored else (
+            [(8, C.xl("cs"), "solid", 20000), (9, C.xl("us"), "dash", 20000),
+             (10, C.xl("us"), "dash", 20000), (11, C.xl("ink"), "solid", 28000)]
+            # Both edges of the CR window, on the chart rather than in a caption - but
+            # only when they were measured, or they would simply redraw the US line.
+            + ([(12, C.xl("cr"), "sysDash", 16000), (13, C.xl("cr"), "sysDash", 16000)]
+               if WIN["measured"] else []))
     for k, colr, dash, wdt in lines:
         s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
         s.marker = Marker(symbol="none")
@@ -411,7 +566,7 @@ def masthead(ws):
     except (OSError, ValueError):
         pass
     c = ws.cell(row=r, column=1, value="%s  -  EBC Analyzer %s" % (C.LAB, C.VERSION))
-    c.font = Font(size=9, color=MUT)
+    c.font = F(size=9, color=MUT)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
     return r + 2
 
@@ -433,14 +588,14 @@ def build(block):
 
     def blockhdr(ws, r, title):
         c = ws.cell(row=r, column=1, value=title)
-        c.font = Font(bold=True, size=10, color="FFFFFFFF")
+        c.font = F(bold=True, size=10, color=WHITE)
         c.fill = PatternFill("solid", fgColor=HDR)
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
 
     def kv(ws, r, k, v, h=46):
-        ws.cell(row=r, column=1, value=k).font = Font(size=10, color=MUT)
+        ws.cell(row=r, column=1, value=k).font = F(size=10, color=MUT)
         c = ws.cell(row=r, column=2, value=v)
-        c.font = Font(size=10, bold=True, color=INK)
+        c.font = F(size=10, bold=True, color=INK)
         c.alignment = Alignment(horizontal="left", wrap_text=True)
         ws.row_dimensions[r].height = h
 
@@ -450,7 +605,7 @@ def build(block):
     ws = wb.active
     ws.title = "Read me"
     r = masthead(ws)
-    ws.cell(row=r, column=1, value=cfg["title"]).font = Font(bold=True, size=14, color=INK)
+    ws.cell(row=r, column=1, value=cfg["title"]).font = F(bold=True, size=14, color=INK)
     ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
     r += 2
     for hdr_, items in (("PROTOCOL", PROTOCOL), ("WHAT THIS WORKBOOK COVERS", cfg["what"]),
@@ -460,8 +615,12 @@ def build(block):
             kv(ws, r, k, v); r += 1
         r += 1
     blockhdr(ws, r, "SHEETS"); r += 1
-    sheets = [("Session summary", "One row per recording, paired CS-US trials only."),
+    sheets = [("Score by hand", "The trials the scorer will not stand behind, and where "
+                                "to find each one in its recording."),
+              ("Session summary", "One row per recording, paired CS-US trials only."),
               ("Block summary", "One row per block of 9 paired trials - the learning curve in numbers.")] if paired else [
+              ("Score by hand", "The trials the scorer will not stand behind, and where "
+                                "to find each one in its recording."),
               ("Trial summary", "Counts, and mean / SD / median of the scored onsets.")]
     sheets += ([("Paired trials", "One row per paired CS-US trial."),
                 ("CS-only trials", "The CS-only probes, scored and charted separately.")] if paired
@@ -476,6 +635,62 @@ def build(block):
     widths(ws, [30, 112])
     ws.sheet_view.showGridLines = False
 
+    # ---------------- Score by hand ----------------
+    # The trials the scorer will not stand behind, on a sheet of their own and first,
+    # because they are the only thing in the workbook that asks somebody to do something.
+    # Every one of them is still in the trial table with the same reason beside it; this
+    # sheet exists so that "which ones do I have to look at?" is answered by opening the
+    # workbook rather than by filtering it.
+    ws = wb.create_sheet("Score by hand")
+    hd = ["Recording", "Trial in recording", "#", "Block", "At in the recording",
+          "On session clock (s)", "Type", "What the scorer put down",
+          "Scored onset (ms)", "Why it cannot be trusted"]
+    for j, x in enumerate(hd, 1):
+        ws.cell(row=1, column=j, value=x)
+    hand = [r for r in rows if r["needs_manual_scoring"]]
+    # paired conditioning trials first: those are the measurement itself
+    hand.sort(key=lambda r: (r["trial_type"] != "CS-US", TAG_ORDER.index(r["session"]),
+                             r["session_trial"]))
+    ri = 2
+    for r in hand:
+        vals = [r["session_name"], r["session_trial"], r["gidx"], r["block"],
+                at_in_video(r), r.get("session_clock_s"), r["trial_type"],
+                r["scored_class"], r["scored_onset_ms"], r["manual_scoring_because"]]
+        for j, v in enumerate(vals, 1):
+            c = ws.cell(row=ri, column=j, value=v)
+            c.font = F(size=10, color=INK if j != 10 else ACTION)
+            c.border = Border(bottom=thin)
+            c.alignment = Alignment(horizontal="left" if j in (1, 5, 7, 8, 10) else "right",
+                                    wrap_text=(j == 10), vertical="top")
+            if j == 6:
+                c.number_format = "0.000"
+            if j == 9:
+                c.number_format = "0.0"
+        ws.row_dimensions[ri].height = 30
+        ri += 1
+    if not hand:
+        c = ws.cell(row=2, column=1,
+                    value="Every trial in this workbook was scored cleanly - there is "
+                          "nothing here to read off the video by hand.")
+        c.font = F(size=10, color=MUT, italic=True)
+        ri = 3
+    note = ("The times are from the start of that recording, in the form a video player "
+            "shows. Open the recording there and read the blink onset off it. "
+            "%d of the %d trial(s) in this workbook are listed. These trials are left out "
+            "of the CR percentages - a trial that cannot be timed cannot be counted "
+            "either way - but every one of them is still in the trial table, with "
+            "'Score by hand' set and the same reason beside it. Nothing has been dropped."
+            % (len(hand), len(rows)))
+    c = ws.cell(row=ri + 1, column=1, value=note)
+    c.font = F(size=9, color=MUT, italic=True)
+    ws.merge_cells(start_row=ri + 1, start_column=1, end_row=ri + 1, end_column=10)
+    ws.cell(row=ri + 1, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[ri + 1].height = 46
+    style_header(ws)
+    widths(ws, [16, 13, 6, 7, 15, 15, 10, 21, 12, 62])
+    ws.freeze_panes = "A2"
+    ws.sheet_view.showGridLines = False
+
     # ---------------- Trial summary (books with no paired trials) ----------------
     # Extinction and the two baselines have no blocks and no learning curve, so they got
     # no summary at all and the mean and SD had to be worked out by hand from the trial
@@ -483,8 +698,12 @@ def build(block):
     if not paired and main:
         ws = wb.create_sheet("Trial summary")
         hd = ["Session", "Video file", "Duration (s)", "%s trials" % main_type,
-              "Clean (unflagged)", "Scoreable", "With a blink", "CR n", "CR % of scoreable",
-              "alpha <100 ms", "UR / late", "Mean scored onset (ms)", "SD (ms)", "SEM (ms)",
+              "Clean (unflagged)", "To score by hand", "Scoreable", "With a blink",
+              "CR n", "CR % of scoreable",
+              # a US-anchored book has no CS to be startled by, so its own cut-off is the
+              # one the scorer used there, not the CR window's lower edge
+              ("alpha <20 ms" if main_type == "US-only" else "alpha <%.0f ms" % ALPHA),
+              "UR / late", "Mean scored onset (ms)", "SD (ms)", "SEM (ms)",
               "Median scored onset (ms)", "Min (ms)", "Max (ms)",
               "Mean peak closure (%)", "SD peak closure (%)",
               "Mean closure at US %d ms (%%)" % NOM["us_onset_ms"]]
@@ -508,6 +727,7 @@ def build(block):
                     else round(SESSMETA[tag]["duration_s"], 1),
                     len(rs),
                     sum(1 for r in rs if r["quality"] == "clean"),
+                    sum(1 for r in rs if r["needs_manual_scoring"]),
                     len(sc),
                     n,
                     len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
@@ -524,9 +744,9 @@ def build(block):
                     round(float(np.mean([r["closure_at_US_pct"] for r in sc])), 1) if sc else None]
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=ri, column=j, value=v)
-                c.font = Font(size=10, bold=(tag == "ALL"), color=INK)
+                c.font = F(size=10, bold=(tag == "ALL"), color=INK)
                 c.border = Border(bottom=thin,
-                                  top=Side(style="medium", color="FF1F2937") if tag == "ALL" else None)
+                                  top=Side(style="medium", color=INK) if tag == "ALL" else None)
                 c.alignment = Alignment(horizontal="left" if j <= 2 else "right")
             ri += 1
         # what the columns actually mean, next to the numbers rather than in the Read me
@@ -535,7 +755,7 @@ def build(block):
             "stimulus onset cannot be, and is excluded here but kept in the trial table. "
             "Mean / SD / SEM are over the scored onsets of the scoreable trials. "
             "n is small in a baseline recording - read the SD alongside it, not instead of it."
-        )).font = Font(size=9, color=MUT, italic=True)
+        )).font = F(size=9, color=MUT, italic=True)
         style_header(ws)
         widths(ws, [13, 26, 11] + [12] * (len(hd) - 3))
         ws.freeze_panes = "C2"
@@ -544,8 +764,10 @@ def build(block):
     # ---------------- Session summary (paired only) ----------------
     if paired:
         ws = wb.create_sheet("Session summary")
-        hd = ["Session", "Video file", "Duration (s)", "Paired CS-US trials", "Scoreable", "CR n",
-              "CR % of scoreable", "alpha <100 ms", "UR only", "no later blink", "Mean CR onset (ms)",
+        hd = ["Session", "Video file", "Duration (s)", "Paired CS-US trials",
+              "To score by hand", "Scoreable", "CR n",
+              "CR % of scoreable", "alpha <%.0f ms" % ALPHA, "UR only", "no later blink",
+              "Mean CR onset (ms)",
               "SD (ms)", "Median CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)",
               "Recovered behind artefact"]
         for j, x in enumerate(hd, 1):
@@ -562,7 +784,8 @@ def build(block):
             name = "All pooled" if tag == "ALL" else rs[0]["session_name"]
             vals = [name, vid, round(SESSMETA[sess[0]]["duration_s"], 1) if tag != "ALL"
                     else round(sum(SESSMETA[t]["duration_s"] for t in sess), 1),
-                    len(rs), len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+                    len(rs), sum(1 for r in rs if r["needs_manual_scoring"]),
+                    len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
                     sum(1 for r in sc if is_alpha(r)),
                     sum(1 for r in sc if is_ur(r)),
                     len(rs) - len(sc),
@@ -576,21 +799,21 @@ def build(block):
                 vals[2] = round(SESSMETA[tag]["duration_s"], 1)
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=ri, column=j, value=v)
-                c.font = Font(size=10, bold=(tag == "ALL"), color=INK)
+                c.font = F(size=10, bold=(tag == "ALL"), color=INK)
                 c.border = Border(bottom=thin,
-                                  top=Side(style="medium", color="FF1F2937") if tag == "ALL" else None)
+                                  top=Side(style="medium", color=INK) if tag == "ALL" else None)
                 c.alignment = Alignment(horizontal="left" if j <= 2 else "right")
             ri += 1
         style_header(ws)
-        widths(ws, [13, 26, 11, 12, 10, 8, 12, 11, 9, 11, 13, 9, 13, 13, 14, 13])
+        widths(ws, [13, 26, 11, 12, 13, 10, 8, 12, 11, 9, 11, 13, 9, 13, 13, 14, 13])
         ws.freeze_panes = "C2"
         ws.sheet_view.showGridLines = False
 
         # ---------------- Block summary ----------------
         ws = wb.create_sheet("Block summary")
-        hd = ["Block", "Paired trials", "Scoreable", "CR n", "CR %", "UR only n", "UR only %",
-              "alpha n", "Mean scored onset (ms)", "SD (ms)", "Mean CR onset (ms)",
-              "Mean peak closure (%)", "Mean closure at US (%)"]
+        hd = ["Block", "Paired trials", "To score by hand", "Scoreable", "CR n", "CR %",
+              "UR only n", "UR only %", "alpha n", "Mean scored onset (ms)", "SD (ms)",
+              "Mean CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)"]
         for j, x in enumerate(hd, 1):
             ws.cell(row=1, column=j, value=x)
         for bi, b in enumerate(sorted({r["block"] for r in paired}), 2):
@@ -599,7 +822,8 @@ def build(block):
             cr = [r for r in sc if is_cr(r)]
             allo = [r["scored_onset_ms"] for r in sc]
             o = [r["scored_onset_ms"] for r in cr]
-            vals = [b, len(g), len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+            vals = [b, len(g), sum(1 for r in g if r["needs_manual_scoring"]),
+                    len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
                     sum(1 for r in sc if is_ur(r)),
                     round(100 * sum(1 for r in sc if is_ur(r)) / len(sc), 1) if sc else None,
                     sum(1 for r in sc if is_alpha(r)),
@@ -610,25 +834,25 @@ def build(block):
                     round(float(np.mean([r["closure_at_US_pct"] for r in sc])), 1) if sc else None]
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=bi, column=j, value=v)
-                c.font = Font(size=10, color=INK)
+                c.font = F(size=10, color=INK)
                 c.border = Border(bottom=thin)
                 c.alignment = Alignment(horizontal="right")
         style_header(ws)
-        widths(ws, [8, 11, 10, 8, 9, 10, 10, 8, 15, 9, 15, 14, 15])
+        widths(ws, [8, 11, 13, 10, 8, 9, 10, 10, 8, 15, 9, 15, 14, 15])
         ws.sheet_view.showGridLines = False
         n = len(set(r["block"] for r in paired)) + 1
-        ws.conditional_formatting.add("E2:E" + str(n), ColorScaleRule(
-            start_type="num", start_value=0, start_color="FFFFFFFF",
-            end_type="num", end_value=100, end_color="FF6D85AE"))
+        ws.conditional_formatting.add("F2:F" + str(n), ColorScaleRule(
+            start_type="num", start_value=0, start_color=WHITE,
+            end_type="num", end_value=100, end_color=C.xl("us_mid")))
         lc = LineChart()
         lc.title = "Learning across blocks"
         lc.x_axis.title = "Block"
         lc.y_axis.title = "CR % / mean onset (ms)"
         lc.height, lc.width = 10, 20
-        lc.add_data(Reference(ws, min_col=5, min_row=1, max_row=n), titles_from_data=True)
-        lc.add_data(Reference(ws, min_col=11, min_row=1, max_row=n), titles_from_data=True)
+        lc.add_data(Reference(ws, min_col=6, min_row=1, max_row=n), titles_from_data=True)
+        lc.add_data(Reference(ws, min_col=12, min_row=1, max_row=n), titles_from_data=True)
         lc.set_categories(Reference(ws, min_col=1, min_row=2, max_row=n))
-        ws.add_chart(lc, "O2")
+        ws.add_chart(lc, "P2")
 
     # ---------------- trial tables ----------------
     write_table(wb.create_sheet(main_sheet), main)
@@ -650,7 +874,7 @@ def build(block):
                     e.get("reason", "") or ("" if e["ok"] else "duration off-spec")]
             for j, v in enumerate(vals, 1):
                 cc = ws.cell(row=ri, column=j, value=v)
-                cc.font = Font(size=10, color=INK if e["ok"] else MUT,
+                cc.font = F(size=10, color=INK if e["ok"] else MUT,
                                italic=not e["ok"])
                 cc.border = Border(bottom=thin)
                 cc.alignment = Alignment(horizontal="left" if j in (1, 3, 7, 8) else "right")
@@ -688,9 +912,10 @@ def build(block):
         ws.cell(row=1, column=j, value=nm)
     for i, tv in enumerate(t, 2):
         ws.cell(row=i, column=1, value=round(tv, 2)).number_format = "0.00"
-        for j, (_, C) in enumerate(series, 2):
-            if i - 2 < len(C):
-                ws.cell(row=i, column=j, value=round(C[i - 2] * 100, 2)).number_format = "0.0"
+        for j, (_, trace) in enumerate(series, 2):
+            if i - 2 < len(trace):
+                ws.cell(row=i, column=j,
+                        value=round(trace[i - 2] * 100, 2)).number_format = "0.0"
     style_header(ws)
     widths(ws, [21] + [17] * len(series))
     ws.freeze_panes = "B2"
@@ -704,7 +929,7 @@ def build(block):
                 titles_from_data=True)
     lc.set_categories(Reference(ws, min_col=1, min_row=2, max_row=len(t) + 1))
     for s in lc.series:
-        s.graphicalProperties.line = LineProperties(solidFill="FF33445E", w=6000)
+        s.graphicalProperties.line = LineProperties(solidFill=C.xl("trace"), w=6000)
         s.smooth = False
     lc.x_axis.tickLblSkip = 12
     lc.legend = None
@@ -714,14 +939,14 @@ def build(block):
     ws = wb.create_sheet("Figures")
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Rendered figures"
-    ws["A1"].font = Font(bold=True, size=13, color=INK)
+    ws["A1"].font = F(bold=True, size=13, color=INK)
     r = 3
     for f, cap in cfg["figs"]:
         f = os.path.join(OUT, f)
         if not os.path.exists(f):
             continue
         im = XLImage(f)
-        ws.cell(row=r, column=1, value=cap).font = Font(bold=True, size=10, color=MUT)
+        ws.cell(row=r, column=1, value=cap).font = F(bold=True, size=10, color=MUT)
         r += 1
         k = min(1200 / im.width, 1.0)
         im.width, im.height = int(im.width * k), int(im.height * k)

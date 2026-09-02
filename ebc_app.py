@@ -69,7 +69,8 @@ LOCK = threading.Lock()
 def blank_state():
     return {"running": False, "phase": "idle", "videos": {}, "order": [], "log": [],
             "error": None, "started": None, "finished": None, "cancel": False,
-            "out": None, "triage": None, "phase_label": "idle", "notes": []}
+            "out": None, "triage": None, "manual": None, "phase_label": "idle",
+            "scoring": None, "notes": []}
 
 
 STATE = blank_state()
@@ -113,9 +114,12 @@ def load_prefs():
         if not isinstance(p, dict):
             raise ValueError("not an object")
     except (OSError, ValueError):
-        return {"recent": [], "last": None}
+        return {"recent": [], "last": None, "protocol": None}
     p.setdefault("recent", [])
     p.setdefault("last", None)
+    p.setdefault("protocol", None)
+    if not isinstance(p["protocol"], dict):
+        p["protocol"] = None
     p["recent"] = [d for d in p["recent"] if isinstance(d, str) and os.path.isdir(d)]
     return p
 
@@ -126,6 +130,18 @@ def save_prefs(p):
             json.dump(p, fh, indent=1)
     except OSError:
         pass                      # a read-only home is not worth failing the app over
+
+
+def remember_protocol(proto):
+    """Keep the last protocol that was actually run, so the next study starts from it.
+
+    A lab that has moved to a trace design should not have to retype it for every
+    participant; a lab that has not is unaffected, because what is stored is what was
+    used last and that is the standard one.
+    """
+    p = load_prefs()
+    p["protocol"] = {k: proto[k] for k in C.DEFAULT_PROTOCOL if k in proto}
+    save_prefs(p)
 
 
 def remember(path):
@@ -342,6 +358,33 @@ def load_triage():
         return
     with LOCK:
         STATE["triage"] = t
+
+
+def load_manual():
+    """The trials ebc_score.py would not stand behind, and the window it scored against.
+
+    Read from merged.json rather than recomputed, so the page, the console report and
+    trials_to_score_by_hand.csv can never disagree about which trials these are.
+    """
+    out = STATE.get("out")
+    if not out:
+        return
+    p = os.path.join(out, "_work", "merged.json")
+    try:
+        with open(p, encoding="utf-8") as fh:
+            m = json.load(fh)
+    except (OSError, ValueError):
+        return
+    mr = m.get("manual_review")
+    win = m.get("cr_window")
+    with LOCK:
+        if mr:
+            STATE["manual"] = mr
+        # Where the CR window actually ended up, so the page reports the window the run
+        # was scored against rather than the one the protocol panel predicted before the
+        # US-only baseline had been read.
+        if win:
+            STATE["scoring"] = dict(window=win, reflex=m.get("reflex"))
 
 
 def on_line(line):
@@ -602,6 +645,13 @@ def preflight(body):
     except OSError:
         pass
 
+    bad = C.check_protocol(read_protocol(body.get("nominal")))
+    if bad:
+        return fail("The protocol in step 2 cannot be analysed.",
+                    "\n".join(bad),
+                    "Fix the numbers in step 2, or press \u2018Back to this lab\u2019s "
+                    "standard\u2019 to start again from the usual delay protocol.")
+
     if "conditioning" not in [i.get("role") for i in items]:
         note("No conditioning chapter is ticked.", "warn",
              "The acquisition figure and the conditioning workbook come from "
@@ -623,6 +673,25 @@ def estimate_minutes(items):
 # --------------------------------------------------------------------------
 # running
 # --------------------------------------------------------------------------
+def read_protocol(nominal):
+    """The protocol the page is asking for, as numbers the pipeline will accept.
+
+    Only keys the protocol actually has are taken - a page from an older build, or a
+    stray field, cannot smuggle anything into the study file - and the three counts are
+    read as whole numbers.  Anything unreadable is left at its default rather than
+    failing here; check_protocol() then has the last word on whether the set makes sense.
+    """
+    proto = dict(C.DEFAULT_PROTOCOL)
+    for k, v in (nominal or {}).items():
+        if k not in C.DEFAULT_PROTOCOL or v is None or v == "":
+            continue
+        try:
+            proto[k] = int(round(float(v))) if k in C.COUNT_KEYS else float(v)
+        except (TypeError, ValueError):
+            continue
+    return proto
+
+
 def build_study(body):
     """Turn what was ticked in the browser into a study file the pipeline understands."""
     items = body["items"]
@@ -630,8 +699,7 @@ def build_study(body):
     video_dir = os.path.dirname(items[0]["path"])
     out = (body.get("out_dir") or "").strip() or os.path.join(video_dir, "analysis_EBC")
 
-    proto = dict(C.DEFAULT_PROTOCOL)
-    proto.update({k: float(v) for k, v in (body.get("nominal") or {}).items() if v})
+    proto = read_protocol(body.get("nominal"))
 
     order = {r: 0 for r in C.ROLES}
     recs = []
@@ -672,7 +740,7 @@ def runner(body):
         SEEN_LINES.clear()
         with LOCK:
             STATE.update(running=True, phase="checking", phase_label=PHASE["checking"],
-                         error=None, log=[], triage=None, notes=[],
+                         error=None, log=[], triage=None, manual=None, notes=[],
                          started=time.time(), finished=None, cancel=False,
                          order=[i["tag"] for i in items],
                          videos={i["tag"]: {"label": i["label"], "pct": 0.0,
@@ -701,11 +769,18 @@ def runner(body):
         with LOCK:
             STATE["out"] = cfg["out_dir"]
         remember(cfg["video_dir"])
+        remember_protocol(cfg["protocol"])
 
         p = cfg["protocol"]
-        log("study '%s'  |  CS %.0f ms, US onset %.0f ms, US %.0f ms, %d+%d x %d blocks"
-            % (cfg["study"], p["cs_ms"], p["us_onset_ms"], p["us_dur_ms"],
-               p["paired_per_block"], p["cs_only_per_block"], p["n_blocks"]))
+        d = C.design(p)
+        pre_ms, post_ms, _ = C.window(p)
+        log("study '%s'  |  %s" % (cfg["study"], d["label"].lower()))
+        log("   CS %.0f ms, US %.0f ms starting at %.0f ms - %s"
+            % (p["cs_ms"], p["us_dur_ms"], p["us_onset_ms"], d["short"]))
+        log("   %d paired + %d CS-only per block, %d blocks (%d trials expected)"
+            % (p["paired_per_block"], p["cs_only_per_block"], p["n_blocks"],
+               C.expected_trials(p)))
+        log("   trial window -%.0f to +%.0f ms around each CS onset" % (pre_ms, post_ms))
         log("study file: " + cfg_path)
         log("results will appear in: " + cfg["out_dir"])
         for r in cfg["recordings"]:
@@ -717,6 +792,7 @@ def runner(body):
 
         rc = run_pipeline(cfg_path, cfg["out_dir"], body.get("force"))
         load_triage()
+        load_manual()
         if STATE["cancel"]:
             return set_error(fail(
                 "Stopped at your request.", "",
@@ -915,21 +991,35 @@ def results(out):
 
 
 def open_in_explorer(target):
+    """Show `target` in the file manager.
+
+    A folder is opened.  A file is *revealed* - the folder opens with that file already
+    selected - which is what the results list asks for: the app cannot open a workbook or
+    a figure itself, so the honest thing it can do is put the person in front of it.
+    """
     try:
-        if not os.path.isdir(target):
+        is_file = os.path.isfile(target)
+        folder = os.path.dirname(target) if is_file else target
+        if not is_file and not os.path.isdir(target):
             return fail("That folder is not there.", target,
                         "It is created when a run starts. If a run did finish, the "
                         "folder may have been moved since.")
         if os.name == "nt":
-            os.startfile(target)  # noqa: S606
+            if is_file:
+                # Explorer parses its own command line, and /select, must be followed by
+                # the path with no space between - as a list it would arrive as
+                # "/select, C:\..." and Explorer would quietly open Documents instead.
+                subprocess.Popen('explorer /select,"%s"' % os.path.normpath(target))
+            else:
+                os.startfile(target)  # noqa: S606
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", target])
+            subprocess.Popen(["open"] + (["-R", target] if is_file else [target]))
         else:
-            subprocess.Popen(["xdg-open", target])
+            subprocess.Popen(["xdg-open", folder])
     except Exception as e:  # noqa: BLE001
         return fail("The folder could not be opened.", str(e),
-                    "Copy this path into File Explorer instead:\n    " + target)
-    return {"ok": True, "path": target}
+                    "Copy this path into File Explorer instead:\n    " + folder)
+    return {"ok": True, "path": folder, "selected": target if is_file else ""}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -1010,6 +1100,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     "python_version": "%d.%d.%d" % sys.version_info[:3],
                                     "version": VERSION, "frozen": FROZEN,
                                     "protocol": C.DEFAULT_PROTOCOL,
+                                    "protocol_last": load_prefs().get("protocol"),
+                                    "presets": C.PRESETS,
                                     "min_per_gb": MIN_PER_GB,
                                     "min_per_recording": MIN_PER_RECORDING})
         if u.path == "/api/status":
@@ -1021,12 +1113,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if u.path == "/api/download":
             return self._download(q)
         if u.path == "/api/open_folder":
-            target = q.get("path", [""])[0] or STATE.get("out")
-            if not target:
+            out = STATE.get("out")
+            if not out:
                 return self._send(200, fail(
                     "There is no output folder yet.", "",
                     "It is created when a run starts, next to the recordings, and is "
                     "called analysis_EBC."))
+            # `show` names one of the result files to reveal inside the output folder.
+            # Only the base name is taken, so nothing the page sends can point outside it.
+            show = os.path.basename(q.get("show", [""])[0])
+            target = os.path.join(out, show) if show else out
+            if show and not os.path.isfile(target):
+                return self._send(200, fail(
+                    "That file is not in the output folder any more.", target,
+                    "It may have been moved or renamed since the run finished. "
+                    "Opening the folder itself will show what is actually there."))
             return self._send(200, open_in_explorer(target))
         return self._send(404, fail(
             "The page asked for something this app does not have.", u.path,

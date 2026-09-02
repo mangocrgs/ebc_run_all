@@ -6,7 +6,7 @@ rem   packaging\build.bat
 rem
 rem What comes out is
 rem
-rem     packaging\Setup EBC Analyzer 1.0.exe        (~240 MB)
+rem     packaging\Setup EBC Analyzer 1.1.exe        (~240 MB)
 rem
 rem which installs an app carrying Python, OpenCV, MediaPipe, SciPy, matplotlib and
 rem ffmpeg inside it.  The machine it lands on needs none of those, and no
@@ -63,7 +63,7 @@ echo   [3/3] Packing the installer. Several minutes - it is compressing ~885 MB.
 echo.
 echo   Done.
 echo.
-echo     installer   %HERE%Setup EBC Analyzer 1.0.exe
+echo     installer   %HERE%Setup EBC Analyzer 1.1.exe
 echo     app folder  %STAGE%\dist\EBC Analyzer\
 echo.
 echo   Send the installer to anyone. They double-click it; nothing else is needed on

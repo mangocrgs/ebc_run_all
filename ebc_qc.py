@@ -25,7 +25,10 @@ import ebc_config as C
 from ebc_paths import work_dir, out_dir
 from ebc_video import probe, frames, still
 
-CS_C, US_C, INK, MUT = "#B8760F", "#3A67CF", "#141922", "#59636F"
+# the same palette and the same face as the figures and the workbooks
+CS_C, US_C = C.PALETTE["cs"], C.PALETTE["us"]
+INK, MUT = C.PALETTE["ink"], C.PALETTE["muted"]
+C.mpl_font(plt)
 
 
 def led_page(cfg, rec, wdir, odir):
@@ -115,10 +118,13 @@ def led_page(cfg, rec, wdir, odir):
             a.set_xlabel("time in recording, s", fontsize=10)
     sub = "anchor (%d,%d) from %s" % (S["anchor"]["x"], S["anchor"]["y"], S["anchor"]["source"])
     if S.get("warnings"):
-        sub += "   ⚠  " + "; ".join(S["warnings"])
+        # spelled out rather than a warning sign: the UI face has no glyph for U+26A0
+        # and matplotlib draws a hollow box where the warning should be
+        sub += "   LOOK:  " + "; ".join(S["warnings"])
     fig.suptitle("%s — stimulus detection check   |   %s" % (cfg["study"], sub),
-                 fontsize=12.5, x=.012, ha="left", y=.985)
-    fig.subplots_adjust(left=.045, right=.965, top=.90, bottom=.07)
+                 fontsize=16, x=.010, ha="left", y=.988, va="top", color=INK,
+                 fontweight="semibold")
+    fig.subplots_adjust(left=.045, right=.965, top=.885, bottom=.07)
     p = os.path.join(odir, "qc_leds_%s.png" % tag)
     fig.savefig(p, dpi=135)
     plt.close(fig)
@@ -138,7 +144,9 @@ def filmstrip(cfg, tag, trial_ids, wdir, odir):
     rows = {r["session_trial"]: r for r in ROWS if r["session"] == tag}
     W, H, fps, _ = probe(rec["path"])
     MS = 1000.0 / fps
-    PRE = int(round(300.0 / MS))
+    PRE_MS, POST_MS, _ = C.window(cfg["protocol"])
+    PRE = int(round(PRE_MS / MS))
+    POST = int(round(POST_MS / MS))
     X0 = max(0, int(fb["x0"]) - 70); X1 = min(W, int(fb["x1"]) + 70)
     Y0 = max(0, int(fb["y0"]) - 70); Y1 = min(H, int(fb["y1"]) + 70)
     CW = (X1 - X0) // 16 * 16; CH = (Y1 - Y0) // 2 * 2
@@ -146,7 +154,16 @@ def filmstrip(cfg, tag, trial_ids, wdir, odir):
     fm = mp.solutions.face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1,
                                          refine_landmarks=True)
     EYE = [33, 133, 160, 158, 144, 153, 362, 263, 385, 387, 380, 373, 246, 466, 7, 249]
-    us0 = cfg["protocol"]["us_onset_ms"]
+    proto = cfg["protocol"]
+    us0 = proto["us_onset_ms"]
+    cs_off = proto["cs_ms"]
+    # The contact sheet steps through the trial from just before the CS to a little past
+    # the last stimulus, so a trace protocol's gap and its US are on the sheet rather than
+    # off the end of it.  The step is chosen to keep the sheet about twenty tiles wide
+    # whatever the protocol asks for - for the lab's delay numbers that is the -150 to
+    # 800 ms in 50 ms steps this has always shown.
+    tile_to = min(POST_MS, C.design(proto)["span_ms"] + 400.0)
+    tile_step = max(50, int(round((tile_to + 150.0) / 20.0 / 50.0)) * 50)
     out_files = []
     for ti in trial_ids:
         r = rows.get(ti)
@@ -156,7 +173,7 @@ def filmstrip(cfg, tag, trial_ids, wdir, odir):
             else int(round(r["us_onset_video_s"] * fps))
         A = [np.frombuffer(x, np.uint8).reshape(CH, CW, 3)
              for x in frames(rec["path"], "crop=%d:%d:%d:%d" % (CW, CH, X0, Y0), fsz,
-                             ss=(f0 - PRE) / fps, n=PRE + 138)]
+                             ss=(f0 - PRE) / fps, n=PRE + POST)]
         if not A:
             print("no frames for trial %d" % ti); continue
         A = np.stack(A)
@@ -169,14 +186,14 @@ def filmstrip(cfg, tag, trial_ids, wdir, odir):
         tr = M["traces"][tag][str(ti)]
         t = np.array(tr["t"]); Cl = np.array(tr["C"])
         tiles = []
-        for ms in range(-150, 850, 50):
+        for ms in range(-150, int(tile_to) + 1, tile_step):
             i = int(np.argmin(np.abs(t - ms)))
             if i >= len(A):
                 break
             crop = cv2.resize(A[i][y1:y2, x1:x2], None, fx=1.7, fy=1.7, interpolation=cv2.INTER_CUBIC)
             pad = np.full((crop.shape[0] + 34, crop.shape[1], 3), 25, np.uint8)
             pad[34:] = crop
-            col = (0, 220, 255) if ms < 0 else ((80, 255, 80) if ms < us0 else (255, 140, 80))
+            col = tile_colour(ms, cs_off, us0)
             cv2.putText(pad, "%+d ms" % ms, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, .42, col, 1, cv2.LINE_AA)
             cv2.putText(pad, "close %.0f%%" % (Cl[i] * 100), (4, 29), cv2.FONT_HERSHEY_SIMPLEX,
                         .40, (230, 230, 230), 1, cv2.LINE_AA)
@@ -199,6 +216,21 @@ def filmstrip(cfg, tag, trial_ids, wdir, odir):
                                                r["scored_onset_ms"]))
     fm.close()
     return out_files
+
+
+def tile_colour(ms, cs_off, us0):
+    """Colour of a contact-sheet tile's caption: what is happening at that moment.
+
+    Cyan before the CS, green while the CS is on and a CR could still be forming, a
+    quieter green across a trace protocol's empty gap, orange once the US has landed.
+    """
+    if ms < 0:
+        return (0, 220, 255)
+    if ms >= us0:
+        return (255, 140, 80)
+    if ms < cs_off:
+        return (80, 255, 80)
+    return (70, 190, 120)
 
 
 def main():
