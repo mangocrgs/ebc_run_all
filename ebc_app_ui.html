@@ -53,7 +53,10 @@ body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-heigh
 
 /* ---------------------------------------------------------------- top bar */
 .topbar{position:sticky;top:0;z-index:20;background:var(--paper);
-  border-bottom:1px solid var(--rule);margin-bottom:2px}
+  border-bottom:1px solid var(--rule);margin-bottom:2px;
+  box-shadow:0 6px 16px -10px rgba(22,27,35,0);transition:box-shadow .25s ease}
+/* set by the scroll listener: the bar only casts a shadow once a card is under it */
+.topbar.over{box-shadow:0 6px 16px -8px rgba(22,27,35,.22)}
 .topbar .inner{max-width:940px;margin:0 auto;padding:14px 24px;
   display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 h1{font-size:29px;font-weight:600;margin:0;letter-spacing:-.025em;white-space:nowrap;
@@ -77,10 +80,29 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
 
 /* ---------------------------------------------------------------- cards */
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;
-  padding:20px 20px 18px}
-/* the step being worked on right now, lifted off the page rather than outlined louder */
-.card.lead{box-shadow:0 1px 2px rgba(22,27,35,.05),0 6px 18px rgba(22,27,35,.07)}
+/* The cards float.  Three shadows stacked rather than one, because a single blur reads
+   as a grey halo and not as height: a 1px contact shadow that keeps the card's own edge,
+   a short mid shadow for the near ground, and a wide, offset, very soft one for the far
+   ground.  The paper behind them is a light grey rather than white for the same reason -
+   a shadow cast on white has nothing to darken.
+   The border goes nearly to nothing at the same time.  A card that is both outlined and
+   raised reads as a sticker; the shadow is now what separates it from the page and the
+   hairline only stops the top edge dissolving into the light coming from above. */
+.card{background:var(--surface);border:1px solid rgba(22,27,35,.055);border-radius:10px;
+  padding:20px 20px 18px;
+  box-shadow:0 1px 1px rgba(22,27,35,.05),
+             0 5px 11px -3px rgba(22,27,35,.075),
+             0 14px 30px -10px rgba(22,27,35,.10);
+  transition:box-shadow .3s cubic-bezier(.22,1,.36,1),
+             transform .3s cubic-bezier(.22,1,.36,1)}
+/* The step being worked on right now is simply higher off the page than the others:
+   the same three shadows, thrown further and softer, and the card lifted 3px so the
+   shadow has somewhere to have come from.  Nothing is outlined louder, nothing is
+   tinted - the one card you are meant to be in is the one nearest to you. */
+.card.lead{transform:translateY(-3px);
+  box-shadow:0 2px 3px rgba(22,27,35,.05),
+             0 12px 22px -6px rgba(22,27,35,.11),
+             0 30px 58px -14px rgba(22,27,35,.20)}
 /* The step number hangs off the left edge of its own card, half in and half out.  Four
    white boxes down a page are hard to count at a glance; four numbers standing outside
    them are not, and the overhang is what makes the number read as a marker on the step
@@ -93,7 +115,8 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
 .card h2 .n{display:inline-flex;width:44px;height:44px;border-radius:99px;
   background:var(--accent);color:#fff;align-items:center;justify-content:center;
   font-size:21px;font-weight:600;flex:none;margin-left:-40px;
-  border:2px solid var(--surface);box-shadow:0 2px 9px rgba(22,27,35,.16)}
+  border:2px solid var(--surface);
+  box-shadow:0 1px 2px rgba(22,27,35,.10),0 5px 13px -2px rgba(22,27,35,.26)}
 .card h2 .n.done{background:var(--ok)}
 .card h2 .n.wait{background:var(--rule);color:var(--muted);box-shadow:none}
 /* the running instruction under each heading: what to do here, right now, set to start
@@ -166,6 +189,9 @@ tbody tr.on{background:var(--info-bg)}
 td.r,th.r{text-align:right}
 .nm{font-size:13.5px;word-break:break-word}
 .cloud{font-size:11px;color:var(--warn);display:block}
+/* Said under a file whose name carried no role at all, so a value the app picked
+   because it had to pick one never looks like a value it read. */
+.guessed{font-size:11px;color:var(--warn);display:block}
 .empty{font-size:13.5px;color:var(--muted);text-align:center;padding:22px 10px;
   border:1px dashed var(--rule);border-radius:7px}
 .summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:12px;
@@ -182,7 +208,9 @@ td.r,th.r{text-align:right}
    fired whenever they did not add up to a delay design.  That was the app telling the
    user their trace protocol was a mistake.  It is now a panel: pick a ready-made
    protocol or type your own, see it drawn, and read back what it is.  The page
-   describes the protocol; it no longer has an opinion about which one is correct. */
+   describes the protocol; it no longer has an opinion about which one is correct.  The
+   two presets are named Delay and Trace and nothing else: neither is called the
+   standard, because which design is standard is the lab's decision, not this page's. */
 .proto{border:1px solid var(--rule);border-radius:7px;background:var(--sunken);
   padding:14px 15px;margin-top:14px}
 .proto-top{display:flex;gap:12px;align-items:center;justify-content:space-between;
@@ -310,6 +338,8 @@ body.fx .ticker .track{animation:tick 26s linear infinite}
      page, standing still */
   #cursor{display:none!important}
   [data-magnet],[data-tilt],[data-fisheye]>*{transform:none!important}
+  /* the cards keep their height - a shadow is not motion - but stop travelling to it */
+  .card{transition:none!important}
   .card.lead::before,.proto::before{opacity:0!important}
   .ticker .track{animation:none!important;transform:none!important}
   .ticker{-webkit-mask-image:none;mask-image:none}
@@ -423,13 +453,34 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   font-size:12.5px;color:var(--ink)}
 /* ---------------------------------------------------------------- credits */
 /* Full width, edge to edge, and black - which is the field the lab mark is already
-   drawn on, so the mark sits in it without a plaque and the page ends on the lab. */
-.credits{background:#000;color:#E8ECF2;padding:26px 24px;
-  display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap}
-.credits .lockup{width:300px;max-width:100%;height:auto;display:block;flex:none}
-.credits .who{min-width:180px}
+   drawn on, so the mark sits in it without a plaque and the page ends on the lab.
+   Three things across it, in the order they answer "whose work is this": the university
+   on the left, the lab and the two names in the middle, the research body on the right.
+   The institutions are set at half the height of the lab lockup and dimmed slightly,
+   because they are the affiliation and not the author.
+   Both are the white versions of their marks: the CNRS field knocked out of white, the
+   Universite Paris Cite lockup with its black artwork reversed. Neither logo is redrawn
+   or recoloured beyond that - if the comms office issues its own dark-ground files, drop
+   them into assets/ under these two names and nothing else has to change. */
+.credits{background:#000;color:#E8ECF2;padding:24px}
+.credits .inner{max-width:940px;margin:0 auto;display:flex;gap:26px;align-items:center;
+  justify-content:space-between;flex-wrap:wrap}
+.credits .lab{flex:1 1 320px;display:flex;gap:26px;align-items:center;flex-wrap:wrap;
+  justify-content:center}
+.credits .lockup{width:270px;max-width:100%;height:auto;display:block;flex:none}
+.credits .who{min-width:170px}
 .credits .names{margin:0;font-size:14.5px;color:#FFFFFF}
 .credits .when{margin:3px 0 0;font-size:12.5px;color:#96A0AE}
+/* The two institutional marks are set in boxes of equal width, one aligned to the outer
+   edge of each - a square mark and a wide lockup would otherwise pull the lab off the
+   middle of the bar by the difference between their widths. */
+.credits .inst{flex:0 0 158px;max-width:158px;height:46px;width:auto;display:block;
+  object-fit:contain;object-position:left center;opacity:.88}
+.credits .inst.cnrs{height:54px;object-position:right center}
+@media (max-width:700px){
+  .credits .inner{justify-content:center}
+  .credits .lab{flex-basis:100%;order:-1}
+}
 </style>
 </head>
 <body>
@@ -520,8 +571,9 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <div class="segs" id="presets" data-fisheye role="group"
            aria-label="Ready-made protocols"></div>
       <button type="button" class="link" id="protoreset" data-magnet
-              title="Put every number back to this lab&rsquo;s standard delay protocol">
-        Back to this lab&rsquo;s standard</button>
+              title="Put every number on this panel, the detection tolerances included,
+                     back to what the app opens on">
+        Reset every number</button>
     </div>
 
     <div id="ptlwrap" data-tilt></div>
@@ -753,13 +805,21 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
 <!-- The credits sit on black, which is also the field the lab mark is drawn on, so the
      mark stops needing a plaque of its own and the page ends on the lab rather than on
-     a caveat. -->
+     a caveat.  The two institutions the lab answers to sit either side of it. -->
 <footer class="credits">
-  <img class="lockup" src="/assets/logo_full.png"
-       alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
-  <div class="who">
-    <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
-    <p class="when">August&nbsp;2026</p>
+  <div class="inner">
+    <img class="inst upc" src="/assets/logo_upcite.png" width="158" height="46"
+         alt="Universit&eacute; Paris Cit&eacute;" title="Universit&eacute; Paris Cit&eacute;">
+    <div class="lab">
+      <img class="lockup" src="/assets/logo_full.png"
+           alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
+      <div class="who">
+        <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
+        <p class="when">August&nbsp;2026</p>
+      </div>
+    </div>
+    <img class="inst cnrs" src="/assets/logo_cnrs.svg" width="54" height="54"
+         alt="CNRS" title="Centre national de la recherche scientifique">
   </div>
 </footer>
 
@@ -896,7 +956,8 @@ function renderVids(d){
     VIDS.map((v,i) => `<tr class="${v.on?"on":""}">
       <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
       <td><span class="nm">${esc(v.name)}</span>${v.cloud
-          ? `<span class="cloud">stored online only — will download before it can be read</span>` : ""}</td>
+          ? `<span class="cloud">stored online only — download it first, the run will not start on it</span>` : ""}${v.guessed
+          ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
       <td><select data-i="${i}" class="rl">
         <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
@@ -1185,9 +1246,10 @@ function refreshProtocol(){
   if (PROTO_BAD.length) show("#protomsg", "bad", {
     error:"These numbers do not describe a session that can be analysed.",
     detail:PROTO_BAD.join("\n"),
-    hint:"Change them here, or press \u2018Back to this lab\u2019s standard\u2019 to "
-       + "start again from the usual delay protocol. Nothing is lost - the run has not "
-       + "started, and everything else on the page is untouched."});
+    hint:"Change them here, press \u2018Delay\u2019 or \u2018Trace\u2019 to start "
+       + "again from a ready-made one, or \u2018Reset every number\u2019 to put the "
+       + "whole panel back. Nothing is lost - the run has not started, and everything "
+       + "else on the page is untouched."});
   else clear("#protomsg");
 
   // a preset lights up when every number it names matches; typing over one leaves none lit
@@ -1259,8 +1321,7 @@ function refreshGuide(){
   else if (ENV && !ENV.ok) $("#todo2").innerHTML = `This computer is missing something the
       analysis needs &mdash; open <b>What this computer needs</b> below.`;
   else if (PROTO_BAD.length) $("#todo2").innerHTML = `The protocol below cannot be analysed
-      as it stands &mdash; <b>fix the numbers</b>, or press <b>Back to this lab&rsquo;s
-      standard</b>.`;
+      as it stands &mdash; <b>fix the numbers</b>, or press <b>Reset every number</b>.`;
   else $("#todo2").innerHTML = `Check that the <b>protocol</b> matches how this session was
       actually run, then press <b>Run analysis</b>.`;
 
@@ -1782,6 +1843,20 @@ async function poll(){
 }
 
 /* ---------------------------------------------------------------- start */
+/* The top bar casts a shadow only once there is something under it to cast onto, which
+   is what tells you the page has scrolled at all - the bar and the paper are the same
+   colour, so without it the page looks stuck. */
+(function topbarShadow(){
+  const bar = document.querySelector(".topbar");
+  let on = null;
+  const set = () => {
+    const now = window.scrollY > 4;
+    if (now !== on){ on = now; bar.classList.toggle("over", now); }
+  };
+  window.addEventListener("scroll", set, {passive:true});
+  set();
+})();
+
 (async function start(){
   $("#pilltext").textContent = "starting up";
   const h = await api("/api/hello");

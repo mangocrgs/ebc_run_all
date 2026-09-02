@@ -132,10 +132,11 @@ NO_US_MESSAGE = """
   Remove '{file}' from the study file to process the rest.
 """
 
-# The protocol this lab has been running.  It is a *default*, not a law: every number
-# here can be set per study, and the pipeline reads them rather than assuming them.  In
-# particular nothing below requires the US to co-terminate with the CS - put us_onset_ms
-# at or beyond cs_ms and the study becomes a trace protocol, with the gap carried through
+# The protocol the app opens on.  It is a *default*, not a law and not anyone's house
+# standard: every number here can be set per study, the app remembers the last protocol
+# actually run, and the pipeline reads them rather than assuming them.  In particular
+# nothing below requires the US to co-terminate with the CS - put us_onset_ms at or
+# beyond cs_ms and the study becomes a trace protocol, with the gap carried through
 # pairing, scoring, the figures and the workbook read-mes.
 DEFAULT_PROTOCOL = {
     "cs_ms": 400.0,          # CS duration (yellow LED)
@@ -156,22 +157,23 @@ DEFAULT_PROTOCOL = {
 # read as 9 and a fraction is refused rather than silently floored.
 COUNT_KEYS = ("paired_per_block", "cs_only_per_block", "n_blocks")
 
-# Ready-made protocols the app offers.  A preset is only a set of numbers: choosing one
-# is exactly the same as typing them, and nothing downstream knows which was used.
+# Ready-made protocols the app offers.  There are two, named for the two designs that
+# exist - delay and trace - and nothing more.  A preset is only a set of numbers:
+# choosing one is exactly the same as typing them, and nothing downstream knows which
+# was used.  Neither is labelled the standard one, because which protocol is standard is
+# a fact about a lab and not about this program; the numbers a study was actually run
+# with are what get written beside its results.
 PRESETS = [
-    {"id": "delay", "name": "Delay - this lab's standard",
-     "note": "US inside the CS and ending with it. Nine paired trials then a CS-only "
-             "probe, ten times over.",
+    {"id": "delay", "name": "Delay",
+     "note": "The US falls inside the CS and ends with it, so there is no gap to bridge. "
+             "Nine paired trials then a CS-only probe, ten times over.",
      "protocol": {"cs_ms": 400.0, "us_onset_ms": 350.0, "us_dur_ms": 50.0,
                   "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10}},
-    {"id": "trace", "name": "Trace - 500 ms gap",
+    {"id": "trace", "name": "Trace",
      "note": "The CS ends, nothing happens for 500 ms, then the US. The gap is what the "
-             "participant has to bridge.",
+             "participant has to bridge. Nine paired trials then a CS-only probe, ten "
+             "times over.",
      "protocol": {"cs_ms": 400.0, "us_onset_ms": 900.0, "us_dur_ms": 50.0,
-                  "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10}},
-    {"id": "short_delay", "name": "Short delay - 250 ms ISI",
-     "note": "A shorter CS, with the US still ending on it.",
-     "protocol": {"cs_ms": 300.0, "us_onset_ms": 250.0, "us_dur_ms": 50.0,
                   "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10}},
 ]
 

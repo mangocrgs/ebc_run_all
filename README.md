@@ -19,8 +19,9 @@ number of participants.
 Not everyone wants a terminal.  Double-click the **EBC Analyzer** shortcut on the Desktop
 — or, on a machine with Python, **`EBC Analyzer.bat`** or `python ebc_app.py` — and the
 app opens **in its own window**: pick a folder, tick the videos, confirm what each one is,
-press Run.  Progress streams per recording; the workbooks, figures and CSVs appear as
-download links when it finishes.
+press Run.  Progress streams per recording; the workbooks, figures and CSVs are listed
+when it finishes, and a click on any of them opens the output folder with that file
+selected.
 
 It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
 away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
@@ -66,7 +67,7 @@ Everything lives under one folder:
 ```
 C:\Users\marga\EBC Analyzer\
     ebc_*.py, ebc_app_ui.html    the pipeline and the interface   (in git)
-    assets/                      the lab mark, cut to three shapes (in git)
+    assets/                      the lab mark and the two crests   (in git)
     packaging/                   spec, installer script, build.bat (in git)
     studies/                     one JSON per participant          (in git)
     results/                     workbooks, figures, CSVs, caches  (not in git)
@@ -125,7 +126,7 @@ changing a scoring rule or a figure. `--jobs N` sets how many recordings decode 
 
 ## What changes from one participant to the next
 
-**The protocol usually does not.**  This lab's standard session is:
+**The protocol usually does not.**  The session the app opens on is:
 
 | | | |
 |---|---|---|
@@ -135,9 +136,11 @@ changing a scoring rule or a figure. `--jobs N` sets how many recordings decode 
 | Structure | 9 paired + 1 CS-only probe, x 10 blocks | 100 trials |
 
 Those are the defaults in `ebc_config.DEFAULT_PROTOCOL`, so **a study file does not need a
-`protocol` block at all**, and the app opens on them.  If you find yourself editing the
-numbers to make the trial count come out right, stop: the protocol is the test, and a
-disagreement is a finding about the recording, not a parameter to tune.
+`protocol` block at all**.  They are a starting point and not a house standard — which
+design is standard is a fact about a lab, so nothing in the app or in its wording calls
+one of them the right one.  If you find yourself editing the numbers to make the trial
+count come out right, stop: the protocol is the test, and a disagreement is a finding
+about the recording, not a parameter to tune.
 
 ### A different protocol
 
@@ -161,9 +164,13 @@ protocol that is merely unusual is described and left alone; one that is arithme
 impossible — a trial longer than half the gap between trials, a startle cut-off past the
 US — is refused before a run starts, in words, with the numbers named.
 
-The app's step 2 shows the protocol drawn on a time axis as you type it, offers the delay
-and trace presets from `ebc_config.PRESETS`, and remembers the last protocol actually run
-so a lab that has moved to a different design does not retype it for every participant.
+The app's step 2 shows the protocol drawn on a time axis as you type it, and offers the
+two presets in `ebc_config.PRESETS` — **Delay** and **Trace**, named for the designs and
+nothing else.  A preset is only a set of numbers; choosing one is the same as typing them,
+and nothing downstream knows which was used.  **Reset every number** puts the whole panel,
+detection tolerances included, back to `DEFAULT_PROTOCOL`.  The last protocol actually run
+comes back on the next launch, so a lab that has settled on a design does not retype it
+for every participant.
 
 **What does change is where things are in the frame** - the participant sits differently,
 the camera is re-aimed, the stimulator box moves, and the room light is not the same on a
@@ -433,7 +440,7 @@ the individual onsets that went into it.
 | `ebc_run_all.py` | The driver. |
 | `ebc_app.py`, `ebc_app_ui.html` | The window and what it shows. Writes a study file and runs the driver on it. |
 | `ebc_launch.py` | The one door in. Decides whether a launch is the app, the folder dialog or one pipeline stage — the only file that knows it might be running from an `.exe`. |
-| `assets/` | The lab mark, cut from the source logo: `logo_mark.png` (title bar), `logo_full.png` (colophon and workbook covers), `ebc.ico` (the app icon). |
+| `assets/` | The lab mark, cut from the source logo: `logo_mark.png` (title bar), `logo_full.png` (credits bar and workbook covers), `ebc.ico` (the app icon). Beside them the two affiliations that close the page: `logo_upcite.png` and `logo_cnrs.svg`, both the white versions for a dark ground — the official marks with nothing redrawn, the CNRS field knocked out of white and the Université Paris Cité lockup reversed. Replacing either is a matter of dropping a new file in under the same name. |
 | `packaging/` | `make_assets.py` cuts those three from the source logo; `ebc_analyzer.spec` builds the app, `ebc_analyzer.iss` packs it into an installer, `build.bat` does all of it. |
 
 ## Known limits

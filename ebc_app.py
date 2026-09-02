@@ -41,7 +41,7 @@ import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebc_config as C                                    # noqa: E402
-from ebc_launch import STAGE, PICK, helper_cmd            # noqa: E402
+from ebc_launch import STAGE, PICK, helper_cmd, helper_env  # noqa: E402
 from ebc_paths import BASE                                # noqa: E402
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".mts", ".webm"}
@@ -504,7 +504,7 @@ def tail_logs(out, stop):
 
 
 def run_pipeline(cfg_path, out, force):
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+    env = helper_env()
     cmd = helper_cmd(STAGE, "ebc_run_all.py", "--config", cfg_path)
     if force:
         cmd.append("--force")
@@ -602,6 +602,34 @@ def preflight(body):
                     "The folder changed since you opened it. Press Open to re-read the "
                     "folder, then tick them again.")
 
+    # ONLINE-ONLY FIRST, AND BEFORE ANY BYTE IS READ.  This order is the whole point of
+    # these two checks, and it used to be the other way round.
+    #
+    # A OneDrive placeholder carries RECALL_ON_OPEN - opening it *is* the download.  So
+    # the readability probe below, one harmless-looking read of one byte, recalled every
+    # ticked file in full before it returned: a folder freshly uploaded to OneDrive meant
+    # seventeen gigabytes pulled back down inside a check advertised as taking a second.
+    # preflight runs on the runner thread, so the window stayed up and answered, the
+    # progress bar simply never moved, and the message written for exactly this case sat
+    # nine lines further down where the recall it was meant to warn about had already
+    # started.  An hour of silence is not a warning.
+    #
+    # So it is a refusal now, not a note.  Hydrating gigabytes is a decision with a cost,
+    # it belongs to the person whose disk and connection it is, and it is one right-click
+    # away in the place they already know.
+    cloud = [i for i in items if is_online_only(i["path"])]
+    if cloud:
+        gb = sum(os.path.getsize(i["path"]) for i in cloud) / 1e9
+        return fail(
+            "%d ticked recording(s) are stored online only, not on this disk."
+            % len(cloud),
+            "%s\n\n%.1f GB would have to download before the analysis could read a "
+            "single frame." % (", ".join(i["label"] for i in cloud), gb),
+            "In File Explorer, select them, right-click and choose 'Always keep on this "
+            "device'. Wait for the green tick on every one, then press Run again. The "
+            "app can be left open while they come down.")
+
+    # Nothing here can be a placeholder any more, so this cannot trigger a recall.
     for i in items:
         try:
             with open(i["path"], "rb") as fh:
@@ -610,13 +638,6 @@ def preflight(body):
             return fail("A ticked recording cannot be read: " + i["label"], str(e),
                         "The file may be open in another program, or on a drive that "
                         "has gone away. Close anything using it and try again.")
-
-    cloud = [i["label"] for i in items if is_online_only(i["path"])]
-    if cloud:
-        note("%d recording(s) are stored online only and must download first: %s"
-             % (len(cloud), ", ".join(cloud)), "warn",
-             "This can add a long wait before any progress shows. To avoid it, "
-             "right-click them in File Explorer and choose 'Always keep on this device'.")
 
     video_dir = os.path.dirname(items[0]["path"])
     out = (body.get("out_dir") or "").strip() or os.path.join(video_dir, "analysis_EBC")
@@ -836,10 +857,21 @@ def natkey(name):
 
 
 def guess_role(stem):
+    """What the file name says this recording is, or None when it says nothing.
+
+    None is the honest answer for GX012908.MP4 - a camera's own numbering carries no
+    role, and neither does anything else the name can be.  It used to return
+    "conditioning" for those, which is not a guess but an assertion: the app offered
+    four gigabytes of unidentified footage as a conditioning chapter, indistinguishable
+    on the page from a file that had actually said so, and one press of "tick every
+    recording" put it in the run.  The caller keeps a valid role in the dropdown - the
+    schema has no "unknown" and a select has to show something - but it also marks the
+    row, so the difference between what was read and what was assumed is visible.
+    """
     for pat, role in C._PATTERNS:
         if re.search(pat, stem, re.I):
             return role
-    return "conditioning"
+    return None
 
 
 def make_tag(stem, used):
@@ -933,7 +965,9 @@ def list_dir(path):
         stem = os.path.splitext(v["name"])[0]
         v["tag"] = make_tag(stem, used)
         v["label"] = stem
-        v["role"] = guess_role(stem)
+        role = guess_role(stem)
+        v["role"] = role or "conditioning"      # the dropdown needs a valid one
+        v["guessed"] = role is None             # ... and the page says it was a guess
         v["path"] = os.path.join(path, v["name"])   # built here, not in the browser
 
     # Which sub-folders are worth clicking into.  One scandir each, stopped at the first

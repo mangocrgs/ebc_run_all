@@ -8,10 +8,18 @@ So it is cut, not scaled:
 
     logo_mark.png   the brain glyph alone, square, black field.  Title bar, at 34 px,
                     where only the glyph survives the reduction.
-    logo_full.png   the whole lockup, tight-cropped.  The footer colophon, at 360 px,
-                    where the tagline is legible again.
+    logo_full.png   the whole lockup, tight-cropped.  The credits bar, at 270 px,
+                    where the tagline is legible again, and the workbook covers.
     ebc.ico         the brain glyph on a rounded black tile, 16 - 256 px, for the
                     executable, the task bar and the browser tab.
+
+The two affiliation marks in the same folder are NOT cut here - they are not ours to
+cut.  assets/logo_upcite.png and assets/logo_cnrs.svg are the official Universite Paris
+Cite and CNRS marks, taken from u-paris.fr and cnrs.fr and put into their white,
+dark-ground form and nothing else: the CNRS field knocked out of white through a mask
+that leaves the lettering transparent, and the UPC lockup's black artwork reversed with
+its alpha untouched.  No shape is redrawn and no proportion changed.  If either comms
+office issues its own dark-ground file, drop it in under the same name.
 
 Re-run after replacing the source:
 

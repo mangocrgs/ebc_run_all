@@ -107,11 +107,34 @@ def main():
     return ebc_app.main()
 
 
+def helper_env(base=None):
+    """The environment every helper process is given.
+
+    Both variables are about being watched.  A stage's stdout is almost never a console:
+    the app reads it through a pipe to drive the progress panel, and ebc_run_all
+    redirects it to a log.  Into either of those Python block-buffers 8 KB at a time, so
+    a stage that prints one short line per recording says nothing for twenty minutes and
+    then says all of it at once - which reads as a hang, and is the reason the run looks
+    stuck when it is working perfectly.  PYTHONUNBUFFERED is what makes progress
+    actually progress.
+
+    PYTHONIOENCODING is the other half.  A console on a French Windows is cp1252, and a
+    stage printing a degree sign or an en dash into it dies of UnicodeEncodeError - an
+    error about the encoding of a message, raised instead of the message.
+
+    The app already set both before launching ebc_run_all, and the stages it spawned
+    inherited them; a run started from the command line got neither.  Setting them here
+    means one command line and one environment, whoever started it.
+    """
+    return dict(base or os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
+
+
 def helper_cmd(job, *args):
     """The command line for one of the app's own helper processes.
 
     Imported by ebc_app and ebc_run_all so that the difference between "a Python and a
-    script" and "the .exe again, with a switch" is written down once.
+    script" and "the .exe again, with a switch" is written down once.  Pair it with
+    helper_env() - the command says what to run, the environment says how it reports.
     """
     args = [str(a) for a in args]
     if getattr(sys, "frozen", False):

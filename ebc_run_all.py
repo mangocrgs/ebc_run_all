@@ -27,7 +27,7 @@ import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebc_config as C
-from ebc_launch import STAGE, helper_cmd
+from ebc_launch import STAGE, helper_cmd, helper_env
 from ebc_paths import BASE, work_dir, out_dir
 
 STAGES = ["locate", "stimulus", "protocol", "eyes", "score", "report"]
@@ -36,7 +36,7 @@ STAGES = ["locate", "stimulus", "protocol", "eyes", "score", "report"]
 def run(script, *args, **kw):
     cmd = helper_cmd(STAGE, script, *args)
     print("\n>>> %s %s" % (script, " ".join(str(a) for a in args)), flush=True)
-    r = subprocess.run(cmd)
+    r = subprocess.run(cmd, env=helper_env())
     if r.returncode != 0 and not kw.get("allow_fail"):
         sys.exit("!! %s failed (exit %d)" % (script, r.returncode))
     return r.returncode
@@ -51,7 +51,7 @@ def run_parallel(script, cfg_path, tags, jobs, log_dir):
             tag = queue.pop(0)
             lf = open(os.path.join(log_dir, "%s_%s.log" % (tag, script.split(".")[0])), "w")
             p = subprocess.Popen(helper_cmd(STAGE, script, cfg_path, tag),
-                                 stdout=lf, stderr=subprocess.STDOUT)
+                                 stdout=lf, stderr=subprocess.STDOUT, env=helper_env())
             live.append((tag, p, lf))
             print("    started %-14s %s" % (tag, script), flush=True)
         time.sleep(2.0)
