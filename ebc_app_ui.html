@@ -126,7 +126,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted);margin-bottom:1
   <div class="dirs" id="dirs"></div>
   <div id="vidwrap"></div>
   <p class="note" id="pick">Tick the recordings to analyse. Videos are read where they sit — nothing is copied or uploaded, so a 4 GB file costs no extra disk.
-     Conditioning chapters are stitched into one timeline in the order shown; use ▲▼ if the recording order differs.</p>
+     They are listed in the order the camera recorded them, not by name, and that is the order conditioning chapters are stitched into one timeline &mdash;
+     use ▲▼ only if you know better than the camera clock. Anything marked &#9888; is a copy, a test or a file that says it failed: it is left unticked.</p>
 
   <details class="guide">
     <summary>What each recording is for, and what makes one usable</summary>
@@ -303,12 +304,14 @@ function renderVids(){
     return;
   }
   $("#vidwrap").innerHTML = `<table><thead><tr>
-      <th style="width:34px"><input type="checkbox" id="all" title="select all"></th><th>File</th><th class="r" style="width:90px">Size</th>
+      <th style="width:34px"><input type="checkbox" id="all" title="select all"></th><th>File</th><th style="width:130px">Recorded</th><th class="r" style="width:90px">Size</th>
       <th style="width:190px">Role</th><th style="width:150px">Trials from</th>
       <th style="width:96px">Order</th></tr></thead><tbody>` +
     VIDS.map((v,i) => `<tr>
       <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
-      <td><span class="nm">${v.name}</span></td>
+      <td><span class="nm">${v.name}</span>${(v.chapter||"")?`<span class="note" style="margin-left:6px">${v.chapter}</span>`:""}
+          ${(v.notes||[]).map(n=>`<div class="note" style="color:#9a5b00">&#9888; ${n}</div>`).join("")}</td>
+      <td class="num" style="color:var(--muted)">${v.recorded ? v.recorded.slice(5) : "&mdash;"}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
       <td><select data-i="${i}" class="rl">
         <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
@@ -328,7 +331,10 @@ function renderVids(){
       </tr>`).join("") + `</tbody></table>`;
   const all = $("#all");
   if (all) { all.checked = VIDS.length > 0 && VIDS.every(v => v.on);
-             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked); renderVids(); }; }
+             // "select all" leaves out what the metadata says is a copy, a test or a
+             // failed take; tick those one at a time if you really want them
+             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked && !v.skip);
+                                   renderVids(); }; }
   document.querySelectorAll(".ck").forEach(c => c.onchange = e => {
     VIDS[e.target.dataset.i].on = e.target.checked; renderVids(); });
   document.querySelectorAll(".rl").forEach(c => c.onchange = e => {
@@ -366,6 +372,7 @@ $("#stop").onclick = () => api("/api/stop", {method:"POST", body:"{}"});
 
 // Fallback labels only - the server sends phase_label. Keys match ebc_run_all's stages.
 const PHASES = {starting:"starting", locate:"finding the stimulator box",
+                timeline:"checking the recordings and their order",
                 stimulus:"reading the LEDs", triage:"checking the LED signal quality",
                 protocol:"building trials", eyes:"tracking eyelids", score:"scoring",
                 figures:"drawing figures", export_csv:"writing tables",
@@ -374,14 +381,15 @@ const PHASES = {starting:"starting", locate:"finding the stimulator box",
 
 // Where each stage sits along the whole run. Reading the LEDs and tracking eyelids are
 // the long ones and carry per-recording progress; the rest are seconds.
-const WEIGHT = {starting:0, locate:.02, stimulus:.05, triage:.60, protocol:.62, eyes:.64,
+const WEIGHT = {starting:0, timeline:.01, locate:.02, stimulus:.05, triage:.60, protocol:.62, eyes:.64,
                 score:.92, figures:.94, export_csv:.96, workbooks:.98, qc:.99, done:1};
 
 function phaseName(s){ return s.phase_label || PHASES[s.phase] || s.phase; }
 
 function renderTriage(t){
   const box = $("#triage");
-  if (!t || (!(t.notes||[]).length && !(t.excluded||[]).length && !(t.suspect||[]).length))
+  if (!t || (!(t.notes||[]).length && !(t.excluded||[]).length && !(t.suspect||[]).length
+             && !(t.role_disagreements||[]).length && !t.geometry))
     { box.innerHTML = ""; return; }
   let h = "";
   if ((t.notes||[]).length){
@@ -410,6 +418,18 @@ function renderTriage(t){
           failed, which is not enough to overrule the channel. But a healthy CS channel usually
           passes all three. Open <i>qc_leds_&lt;name&gt;.png</i> and satisfy yourself the accepted
           pulses really look like stimuli before leaning on these trials.</div></div>`;
+  }
+  if ((t.role_disagreements||[]).length || t.geometry){
+    const n = (t.role_disagreements||[]).length;
+    h += `<div class="tri look"><h4>&#9998; Does the recording match what it was called?</h4>`;
+    (t.role_disagreements||[]).forEach(e => {
+      h += `<div class="rec">${e.label} &middot; ticked as ${e.role}</div>
+            <ul><li>${e.message}</li></ul>`;
+    });
+    if (t.geometry) h += `<ul><li>${t.geometry}</li></ul>`;
+    h += `<div class="why">Nothing was renamed or re-scored because of this. What a recording
+          is decides how it is scored, so if one of these is wrong, change it above and run
+          again &mdash; before reading any numbers.</div></div>`;
   }
   if ((t.excluded||[]).length){
     h += `<div class="tri stop"><h4>&#10006; ${t.excluded.length}

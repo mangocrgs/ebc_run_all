@@ -70,13 +70,28 @@ def build(cfg):
     stim = load_stim(cfg, wdir)
     by_tag = {s["tag"]: s for s in stim}
 
-    # conditioning chapters share one clock: a trial's position in the session is its
-    # time in its own file plus the length of every chapter before it
+    # Conditioning chapters share one clock: a trial's position in the session is its
+    # time in its own file plus where that file started.
+    #
+    # Where the recordings started is read from the camera (ebc_timeline.py) rather than
+    # assumed.  Laying the files end to end - the old way - is only right when they are
+    # the unbroken chapters of one take; when a session was recorded in two takes with
+    # ten minutes of extinction in between, it silently closes the gap and every later
+    # trial sits at the wrong time.  The fallback is still end-to-end, for a study whose
+    # files carry no camera dates at all.
+    elapsed = {r["tag"]: r.get("elapsed_s") for r in cfg["recordings"]}
+    cond_tags = [s["tag"] for s in stim if s["role"] == "conditioning"]
+    dated = all(elapsed.get(t) is not None for t in cond_tags) and bool(cond_tags)
     offset, acc = {}, 0.0
+    clock = "the camera's clock" if dated else "the chapters laid end to end"
     for s in stim:
-        if s["role"] == "conditioning":
+        if s["role"] != "conditioning":
+            continue
+        if dated:
+            offset[s["tag"]] = round(elapsed[s["tag"]] - elapsed[cond_tags[0]], 3)
+        else:
             offset[s["tag"]] = acc
-            acc += float(s["duration_s"])
+        acc += float(s["duration_s"])
 
     anchor_of = {r["tag"]: r.get("anchor", "cs") for r in cfg["recordings"]}
 
@@ -84,6 +99,12 @@ def build(cfg):
     for s in stim:
         cs = [e for e in s["events"].get("yellow", []) if e["ok"]]
         us_all = s["events"].get("blue", [])
+        if s["role"] in C.NO_US_ROLES:
+            # These roles deliver the CS alone.  The blue channel is still read and still
+            # reported - a puff in an extinction recording means the file is mislabelled,
+            # and ebc_triage.py says so - but it is not allowed to turn a CS-only trial
+            # into a paired one on the strength of a stray blue flash.
+            us_all = []
         pairs, unpaired = pair_cs_us(cs, us_all, proto)
         fps = s["fps"]
         dur = s["duration_s"]
@@ -207,7 +228,7 @@ def build(cfg):
                       for i, n in enumerate(runs) if n != proto["paired_per_block"]],
         blocks_found=len(runs),
     )
-    out = dict(study=cfg["study"], protocol=proto, offsets=offset,
+    out = dict(study=cfg["study"], protocol=proto, offsets=offset, session_clock=clock,
                sessions=report, checks=check, trials=trials)
     with open(os.path.join(wdir, "trials.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=1)
@@ -228,6 +249,9 @@ def print_report(res):
                "-" if s["isi_ms"] is None else "%.1f" % s["isi_ms"]))
     c = res["checks"]
     p = res["protocol"]
+    if res.get("session_clock"):
+        print("\n  conditioning trials are placed on one session clock from %s"
+              % res["session_clock"])
     print("\nProtocol check  (%d blocks of %d paired + %d CS-only)" %
           (p["n_blocks"], p["paired_per_block"], p["cs_only_per_block"]))
     print("  conditioning trials   %d found / %d expected" %

@@ -67,13 +67,22 @@ DEFAULT_PROTOCOL = {
     "us_tol": 0.60,          # the US is short, so its measured duration is noisier
 }
 
-# name -> role, applied to the file stem, case-insensitive, first match wins
+# name -> role, applied to the file stem, case-insensitive, first match wins.
+#
+# The names come from whoever emptied the SD card, so the patterns allow for the
+# spellings that have actually turned up: `CS ONLY`, `cs only`, `CSUS3` with no space,
+# `csus 2`, `CSUS fin`, and the French the lab writes half the time.  What a name says
+# about the ORDER of the recordings is not used - see ebc_media.py; the camera's own
+# clock is read instead, because `CSUS fin` has twice turned out to be the tail of the
+# extinction take rather than the recording after `CSUS 3`.
 _PATTERNS = [
-    (r"^\s*cs\s*[-_ ]?only", "baseline_cs"),
-    (r"^\s*us\s*[-_ ]?only", "baseline_us"),
-    (r"extinction", "extinction"),
-    (r"^\s*cs\s*[-_ ]?us", "conditioning"),
+    (r"\bcs\s*[-_ ]?(only|alone|seul)", "baseline_cs"),
+    (r"\bus\s*[-_ ]?(only|alone|seul)", "baseline_us"),
+    (r"extinct", "extinction"),
+    (r"cs\s*[-_ ]?us|us\s*[-_ ]?cs|paired|appari|conditionn?(ement|ing)|acquisition", "conditioning"),
 ]
+
+VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts")
 
 
 def _slug(stem):
@@ -86,24 +95,53 @@ def _numeric_key(stem):
     return (int(m[-1]) if m else 1, stem.lower())
 
 
-def discover(video_dir, exts=(".mp4", ".mov", ".avi", ".mkv")):
+def role_of(stem):
+    """The role a file name implies, or None when it implies nothing."""
+    return next((r for pat, r in _PATTERNS if re.search(pat, stem, re.I)), None)
+
+
+def _uniq(tag, used):
+    """A tag no other recording has.  Two files can slug to one tag - `CSUS 1.MP4` and
+    `CSUS1.MP4` both give `csus1` - and that used to stop the run before it started."""
+    t, i = tag, 2
+    while t in used:
+        t, i = "%s_%d" % (tag, i), i + 1
+    used.add(t)
+    return t
+
+
+def video_files(video_dir, exts=VIDEO_EXTS):
+    return [fn for fn in sorted(os.listdir(video_dir))
+            if os.path.splitext(fn)[1].lower() in exts and not fn.startswith(("~", "."))]
+
+
+def unrecognised(video_dir, exts=VIDEO_EXTS):
+    """Recordings in the folder whose name says nothing about what they are.
+
+    Discovery cannot include these - a role is not a guess to be made from nothing - but
+    they are the commonest way for a session to go missing (`GX012908.MP4`, straight off
+    the card), so they are reported rather than passed over in silence.
+    """
+    return [fn for fn in video_files(video_dir, exts)
+            if role_of(os.path.splitext(fn)[0]) is None]
+
+
+def discover(video_dir, exts=VIDEO_EXTS):
     """Build a recording list from the file names in a folder."""
-    found = []
-    for fn in sorted(os.listdir(video_dir)):
-        stem, ext = os.path.splitext(fn)
-        if ext.lower() not in exts or stem.startswith("~"):
-            continue
-        role = next((r for pat, r in _PATTERNS if re.search(pat, stem, re.I)), None)
+    found, used = [], set()
+    for fn in video_files(video_dir, exts):
+        stem = os.path.splitext(fn)[0]
+        role = role_of(stem)
         if role is None:
             continue
-        found.append({"tag": _slug(stem), "file": fn, "label": stem.strip(), "role": role,
-                      "_key": _numeric_key(stem)})
+        found.append({"tag": _uniq(_slug(stem), used), "file": fn, "label": stem.strip(),
+                      "role": role, "from": "folder scan", "_key": _numeric_key(stem)})
     order = {r: 0 for r in ROLES}
     out = []
     for rec in sorted(found, key=lambda r: (ROLES.index(r["role"]), r["_key"])):
         rec.pop("_key")
         order[rec["role"]] += 1
-        rec["order"] = order[rec["role"]]
+        rec["order"] = order[rec["role"]]        # provisional: ebc_timeline.py re-dates it
         out.append(rec)
     return out
 
@@ -134,7 +172,7 @@ def load(path=None, video_dir=None, study=None):
 
     if not cfg.get("recordings"):
         cfg["recordings"] = discover(cfg["video_dir"])
-    seen = set()
+    seen, kept, left_out = set(), [], []
     for rec in cfg["recordings"]:
         rec.setdefault("label", os.path.splitext(rec["file"])[0])
         rec.setdefault("tag", _slug(rec["label"]))
@@ -145,10 +183,27 @@ def load(path=None, video_dir=None, study=None):
             raise SystemExit(f"{rec['file']}: unknown anchor {rec['anchor']!r} (expected {ANCHORS})")
         if rec["anchor"] == "us" and rec["role"] in NO_US_ROLES:
             raise SystemExit(NO_US_MESSAGE.format(file=rec["file"], role=rec["role"]))
+        # Two files whose names differ only in spacing slug to the same tag.  That is a
+        # naming accident, not a reason to refuse to run: rename the second and say so.
         if rec["tag"] in seen:
-            raise SystemExit(f"duplicate tag {rec['tag']!r}")
-        seen.add(rec["tag"])
+            was = rec["tag"]
+            rec["tag"] = _uniq(was, seen)
+            print("note: %s and another recording both give the tag %r; this one is %r"
+                  % (rec["file"], was, rec["tag"]))
+        else:
+            seen.add(rec["tag"])
         rec["path"] = os.path.join(cfg["video_dir"], rec["file"])
+        # "include": false is how ebc_timeline.py records a decision to leave a file out
+        # (a copy of another recording, a name that says it failed).  The reason travels
+        # with it, so nothing disappears without an explanation.
+        (left_out if rec.get("include") is False else kept).append(rec)
+    for rec in left_out:
+        print("left out: %-28s %s" % (rec["file"], rec.get("excluded_because", "include: false")))
+    cfg["recordings"] = kept
+    cfg["excluded"] = cfg.get("excluded", []) + [
+        {k: v for k, v in r.items() if k != "path"} for r in left_out]
+    if not kept:
+        raise SystemExit("every recording in the study file is marked include: false")
     return cfg
 
 

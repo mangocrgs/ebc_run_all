@@ -34,6 +34,7 @@ import webbrowser
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebc_config as C                                    # noqa: E402
+import ebc_media as M                                     # noqa: E402
 from ebc_paths import BASE                                # noqa: E402
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".mts", ".webm"}
@@ -71,7 +72,8 @@ RE_STAGE = re.compile(r"^>>>\s+ebc_(\w+)\.py")
 
 # key -> label.  The key is what ebc_run_all prints (">>> ebc_<key>.py"), and the page
 # weights its overall progress bar by it, so these must stay in step with STAGES there.
-PHASE = {"locate": "finding the stimulator box", "stimulus": "reading the LEDs",
+PHASE = {"timeline": "checking the recordings and their order",
+         "locate": "finding the stimulator box", "stimulus": "reading the LEDs",
          "triage": "checking the LED signal quality",
          "protocol": "building trials", "eyes": "tracking eyelids",
          "score": "scoring", "figures": "drawing figures",
@@ -282,13 +284,42 @@ def list_dir(path):
                 vids.append({"name": e.name, "size": e.stat().st_size})
     except OSError as e:
         return {"error": str(e), "path": path, "dirs": [], "videos": []}
+    # What the camera wrote into each file: when it was recorded, whether it is a chapter
+    # of a longer take, whether it is a copy of another one.  The list is then shown in
+    # recording order, which is the order the pipeline will use - so what is ticked here
+    # and what is analysed agree, and a name like `CSUS fin` cannot put a chapter of the
+    # extinction take in the middle of conditioning.
+    meta = M.load([os.path.join(path, v["name"]) for v in vids])
+    names = [v["name"] for v in vids]
+    rows = {r["file"]: r for r in M.timeline(meta, names)}
+    order = {r["file"]: r["rank"] for r in rows.values()}
+    copies = {c: d["keep"] for d in M.duplicates(meta, names) for c in d["copies"]}
+    vids.sort(key=lambda v: order.get(v["name"], 10 ** 6))
     used = set()
     for v in vids:
         stem = os.path.splitext(v["name"])[0]
+        m, row = meta.get(v["name"], {}), rows.get(v["name"], {})
         v["tag"] = make_tag(stem, used)
         v["label"] = stem
         v["role"] = guess_role(stem)
         v["path"] = os.path.join(path, v["name"])   # built here, not in the browser
+        v["recorded"] = (m.get("created") or "")[:19].replace("T", " ")
+        v["duration_s"] = m.get("duration_s")
+        v["chapter"] = ("chapter %d/%d" % (row["chapter"], row["n_chapters"])
+                        if row.get("n_chapters", 1) > 1 else "")
+        notes = []
+        if m.get("offline"):
+            notes.append("in the cloud, not downloaded yet - the run will stall on it")
+        if m.get("error"):
+            notes.append(m["error"])
+        if v["name"] in copies:
+            notes.append("the same clip as %s" % copies[v["name"]])
+        for why in (M.flagged(stem), M.derived(meta, v["name"])):
+            if why:
+                notes.append(why)
+        v["notes"] = notes
+        # do not pre-tick something the metadata says is a copy, a test or a failure
+        v["skip"] = bool(notes) and not m.get("offline")
     up = os.path.dirname(path)
     drives = ["%s:\\" % d for d in string.ascii_uppercase
               if os.path.exists("%s:\\" % d)] if os.name == "nt" else ["/"]

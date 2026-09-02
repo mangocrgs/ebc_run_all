@@ -18,9 +18,12 @@ Two passes over the recording:
               119.88 fps, 8.34 ms.
 
 The US LED is never searched for across the frame.  At 50 ms it is one or two frames in
-the survey, indistinguishable from noise; instead its window is pinned beside the CS LED,
-where it physically is.  That also keeps the read window small, which is what makes pass
-B cheap.
+the survey, indistinguishable from noise; instead it is looked for in a window around the
+CS LED, since the two are centimetres apart on the same panel.  That window is symmetric:
+which side of the CS LED the US LED appears on depends on how the box was turned and
+where the camera stood, so it is measured per participant and never assumed.  What keeps
+the wide window honest is that every pulse must come from the same spot as the others -
+a flash 200 px away is a reflection, and is rejected as one.
 """
 import os
 import sys
@@ -39,18 +42,58 @@ SURVEY_W, SURVEY_H, BLK = 480, 270, 6
 SURVEY_FPS = 30.0
 BRIGHT_MIN = 165          # a lit LED is bright; this rejects dark bluish shadow
 
+# Window sizes are in pixels of a 1920-wide frame and scaled to whatever the recording
+# actually is, so a camera at 2.7K or 4K does not silently read a window a third of the
+# intended size.
+REF_W = 1920.0
 CS_HALF = 34              # half-size of the patch read around a confident CS LED
 CS_PAD = 60               # extra margin when the position is uncertain
-# where the US LED may sit relative to the CS LED: it is a few centimetres to one side
-# on the same panel, so a box this size around the CS LED always contains it.
-US_BOX = dict(left=90, right=190, up=80, down=80)
+
+# Where the US LED may sit relative to the CS LED.  It is a few centimetres away on the
+# same panel - but WHICH WAY is a property of how the box was turned and where the
+# camera stood, not of the protocol, and it has to be allowed to differ from one
+# participant, one session or one recording to the next.  So the window is symmetric:
+# it reaches as far to the left as to the right, and as far up as down, and the side
+# the LED is actually on is measured afterwards rather than assumed here.
+#
+# A window this size sees a good deal besides the LED, so a pulse is also required to
+# come from the same spot as the others (`gate_positions`); that, not a tight window,
+# is what keeps a reflection off a bottle from being read as a stimulus.
+US_REACH = dict(x=190, y=110)
 # a recording with no CS at all inherits the box position from the rest of the session,
 # so its window has to allow for the camera having been re-aimed in between
-US_BOX_INHERITED = dict(left=190, right=260, up=150, down=150)
+US_REACH_INHERITED = dict(x=280, y=180)
+# two pulses of one LED are this close together; anything further away in the window is
+# something else that flashed
+SAME_SPOT_PX = 45
 
 
 def log(tag, *a):
     print("[%s]" % tag, *a, flush=True)
+
+
+def known_us_offset(wdir, tag):
+    """The CS-to-US offset already measured in another recording of this participant.
+
+    The first recording to be read searches both sides of the CS LED.  Once one of them
+    has found the US LED, the rest are told where to look - still a wide window, but
+    centred on the answer instead of on a guess.  Recordings are read a few at a time,
+    so this fills in as the stage goes and is complete by the second run.
+    """
+    seen = []
+    for fn in sorted(os.listdir(wdir)):
+        if not fn.endswith("_stim.json") or fn == tag + "_stim.json":
+            continue
+        try:
+            with open(os.path.join(wdir, fn), encoding="utf-8") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if d.get("us_offset"):
+            seen.append(d["us_offset"])
+    if not seen:
+        return None
+    return [int(np.median([o[0] for o in seen])), int(np.median([o[1] for o in seen]))]
 
 
 def _metrics(img):
@@ -124,26 +167,39 @@ def merge_adjacent(cands, radius=40):
 
 
 # ----------------------------------------------------------------- pass B: read
-def boxes(anchor, wants, W, H, confident, consensus=None):
-    """Sub-windows to read: a patch on the CS LED, a wider one beside it for the US.
+def boxes(anchor, wants, W, H, confident, consensus=None, us_offset=None):
+    """Sub-windows to read: a patch on the CS LED, and one around it for the US.
 
     When the box position for this recording is not certain - a clip with only two CS
     presentations, or none at all - the CS window is widened to span both the local
     estimate and the study consensus, so the LED is inside it either way.  A recording
     whose camera was re-aimed part way through is covered by the same widening.
+
+    The US window is centred on the CS LED and symmetric, so it does not care which side
+    of the panel the US LED is on.  Once another recording of the same participant has
+    *measured* that offset, `us_offset` recentres the window on where the LED will be -
+    the search stays as wide, it just no longer has to be blind.
     """
     ax, ay = anchor
+    s = max(W / REF_W, 0.5)
     b = {}
     if wants.get("yellow"):
+        half = CS_HALF * s
         if confident or not consensus:
-            b["yellow"] = (ax - CS_HALF, ay - CS_HALF, ax + CS_HALF, ay + CS_HALF)
+            b["yellow"] = (ax - half, ay - half, ax + half, ay + half)
         else:
             kx, ky = consensus
-            b["yellow"] = (min(ax, kx) - CS_PAD, min(ay, ky) - CS_PAD,
-                           max(ax, kx) + CS_PAD, max(ay, ky) + CS_PAD)
+            pad = CS_PAD * s
+            b["yellow"] = (min(ax, kx) - pad, min(ay, ky) - pad,
+                           max(ax, kx) + pad, max(ay, ky) + pad)
     if wants.get("blue"):
-        m = US_BOX_INHERITED if not confident else US_BOX
-        b["blue"] = (ax - m["left"], ay - m["up"], ax + m["right"], ay + m["down"])
+        m = US_REACH_INHERITED if not confident else US_REACH
+        rx, ry = m["x"] * s, m["y"] * s
+        cx, cy = ax, ay
+        if us_offset:                      # measured elsewhere in this participant
+            cx, cy = ax + us_offset[0], ay + us_offset[1]
+            rx, ry = max(rx * 0.6, 70 * s), max(ry * 0.6, 70 * s)
+        b["blue"] = (min(ax, cx) - rx, min(ay, cy) - ry, max(ax, cx) + rx, max(ay, cy) + ry)
     for k, (x0, y0, x1, y1) in list(b.items()):
         b[k] = (max(0, int(x0)), max(0, int(y0)), min(W, int(x1)), min(H, int(y1)))
     return b
@@ -202,6 +258,60 @@ def lit_position(led, key, on_thr):
                 spread_y=int(np.percentile(ys, 95) - np.percentile(ys, 5)))
 
 
+def event_positions(led, key, events):
+    """The brightest pixel of each pulse, in full-resolution frame coordinates."""
+    p = led["pos_" + key]
+    s = led["sig_" + key].astype(float)
+    bx, by, bw, _ = [int(v) for v in led["box_" + key]]
+    out = []
+    for e in events:
+        a, b = int(e["a"]), int(e["b"])
+        k = a + int(np.argmax(s[a:b + 1])) if b >= a else a
+        i = int(p[k])
+        out.append((bx + i % bw, by + i // bw))
+    return out
+
+
+def gate_positions(events, pos, radius, key, min_ref=3):
+    """Reject pulses that lit up somewhere else in the window.
+
+    An LED does not move.  Once a handful of pulses agree on a spot, a "pulse" 200 px
+    away is a reflection, a screen, a phone or someone's white sleeve catching the sun -
+    and with a window wide enough to find the US LED on either side of the CS LED, there
+    is room in it for all of those.  Rejecting on position is what lets the window be
+    that wide: the alternative is a tight window that assumes which side the LED is on.
+
+    The reference spot is the densest cluster of accepted pulses, not their mean, so a
+    few strays cannot drag it off the LED.  Nothing is deleted - a rejected pulse keeps
+    its reason and still appears in stimulus_events.csv.
+    """
+    ok = [i for i, e in enumerate(events) if e["ok"]]
+    if len(ok) < min_ref:
+        return None, 0
+    best, best_n = None, -1
+    for i in ok:
+        x, y = pos[i]
+        n = sum(1 for j in ok
+                if abs(pos[j][0] - x) <= radius and abs(pos[j][1] - y) <= radius)
+        if n > best_n:
+            best, best_n = i, n
+    if best_n < min_ref:
+        return None, 0
+    near = [j for j in ok if abs(pos[j][0] - pos[best][0]) <= radius
+            and abs(pos[j][1] - pos[best][1]) <= radius]
+    cx = int(np.median([pos[j][0] for j in near]))
+    cy = int(np.median([pos[j][1] for j in near]))
+    n_cut = 0
+    for j in ok:
+        d = ((pos[j][0] - cx) ** 2 + (pos[j][1] - cy) ** 2) ** 0.5
+        if d > radius:
+            events[j]["ok"] = False
+            events[j]["reason"] = ("lit %d px from where the %s LED is - a reflection or "
+                                   "another light, not the stimulus" % (d, key))
+            n_cut += 1
+    return (cx, cy), n_cut
+
+
 def main():
     cfg = C.load(sys.argv[1])
     tag = sys.argv[2]
@@ -224,12 +334,20 @@ def main():
     spot = LOC[tag]
     anchor = (spot["x"], spot["y"])
     confident = bool(spot.get("confident")) or spot["source"] == "config"
-    wants = {"yellow": rec["role"] != "baseline_us",
-             "blue": rec["role"] in ("conditioning", "baseline_us")}
-    sub = boxes(anchor, wants, W, H, confident, CONSENSUS)
-    log(tag, "CS LED anchor (%d,%d) [%s]  windows %s"
+    # The blue channel is read for every role, including the ones the protocol says
+    # deliver no US.  It costs one wider crop and it is the only way to notice that a
+    # recording labelled `extinction` is in fact full of puffs - which is what a
+    # mislabelled file looks like from the outside.  It changes no trial: ebc_protocol.py
+    # still builds CS-only trials for those roles whatever the blue channel saw.
+    wants = {"yellow": rec["role"] != "baseline_us", "blue": True}
+    # if another recording of this participant has already measured which side of the CS
+    # LED the US LED sits on, start from there; otherwise search both sides equally
+    us_off = rec.get("us_offset") or known_us_offset(wdir, tag)
+    sub = boxes(anchor, wants, W, H, confident, CONSENSUS, us_off)
+    log(tag, "CS LED anchor (%d,%d) [%s]  windows %s%s"
         % (anchor[0], anchor[1], spot["source"],
-           {k: "%dx%d@(%d,%d)" % (v[2] - v[0], v[3] - v[1], v[0], v[1]) for k, v in sub.items()}))
+           {k: "%dx%d@(%d,%d)" % (v[2] - v[0], v[3] - v[1], v[0], v[1]) for k, v in sub.items()},
+           "" if not us_off else "  US LED expected %+d,%+d from the CS LED" % tuple(us_off)))
 
     led = read_window(path, tag, wdir, sub, W, H, fps)
     out = dict(tag=tag, file=rec["file"], label=rec["label"], role=rec["role"],
@@ -245,10 +363,21 @@ def main():
         sig = led["sig_" + key].astype(float)
         gap = proto["min_iti_s"] if key == "yellow" else 0.0
         ev, info = detect(sig, fps, nom, tol=tol, min_gap_s=gap)
+        # one LED, one place: a pulse from elsewhere in the window is not this stimulus
+        pos = event_positions(led, key, ev)
+        spot_xy, n_moved = gate_positions(ev, pos, SAME_SPOT_PX * max(W / REF_W, 0.5), key)
+        if n_moved:
+            info["n_ok"] = sum(e["ok"] for e in ev)
+            log(tag, "  %-6s %d pulse(s) rejected: lit somewhere else in the window"
+                % (key, n_moved))
         st = pulse_stats(ev)
         entry = dict(box=[int(v) for v in led["box_" + key]], signal=info, stats=st)
         if info.get("on_threshold") is not None:
             entry["position"] = lit_position(led, key, info["on_threshold"])
+        if spot_xy:
+            entry["position"] = dict(entry.get("position") or {},
+                                     x=spot_xy[0], y=spot_xy[1], source="accepted pulses")
+            entry["n_off_spot"] = n_moved
         out["leds"][key] = entry
         out["events"][key] = [dict(frame=e["a"], t=round(e["t"], 4),
                                    dur_ms=round(e["dur_ms"], 1), ok=e["ok"],
@@ -269,6 +398,21 @@ def main():
             out["warnings"].append("%s: lit pixel wanders %dx%d px - not a point source"
                                    % (key, entry["position"]["spread_x"],
                                       entry["position"]["spread_y"]))
+    # Which side of the CS LED the US LED turned out to be on.  Nothing assumes it; it
+    # is measured here, carried to the other recordings of the participant so their
+    # windows can be aimed rather than searched, and checked across them by ebc_triage.
+    y_pos = (out["leds"].get("yellow") or {}).get("position")
+    u_pos = (out["leds"].get("blue") or {}).get("position")
+    if y_pos and u_pos and y_pos.get("x") is not None and u_pos.get("x") is not None:
+        dx, dy = u_pos["x"] - y_pos["x"], u_pos["y"] - y_pos["y"]
+        out["us_offset"] = [int(dx), int(dy)]
+        out["us_side"] = ("left" if dx < 0 else "right") if abs(dx) >= abs(dy) else                          ("above" if dy < 0 else "below")
+        log(tag, "  US LED sits %d px to the %s of the CS LED (offset %+d,%+d)"
+            % (max(abs(dx), abs(dy)), out["us_side"], dx, dy))
+        if max(abs(dx), abs(dy)) > 0.16 * W:
+            out["warnings"].append(
+                "the two LEDs are %d px apart, which is far for one panel - check "
+                "qc_leds_%s.png that both markers are on the box" % (max(abs(dx), abs(dy)), tag))
     for w in out["warnings"]:
         log(tag, "  !! " + w)
     with open(os.path.join(wdir, tag + "_stim.json"), "w", encoding="utf-8") as fh:

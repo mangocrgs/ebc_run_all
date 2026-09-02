@@ -73,6 +73,81 @@ The one thing that genuinely defeats the automatic search is a **CS LED with no 
 left**, which is a lighting problem rather than a geometry one.  See *When the CS LED
 cannot be read*.
 
+## What the file names are not allowed to decide
+
+The names are typed by whoever emptied the SD card at the end of a long session, so they
+are the least reliable thing in the folder.  Before anything is decoded, `ebc_timeline.py`
+reads what the *camera* wrote into each file - the recording time, the timecode track and
+the duration - and recovers what actually happened.  Three facts from real sessions in
+this study, all of which the names got wrong:
+
+| What the names say | What the camera says |
+|---|---|
+| Carole: `CSUS 1`, `CSUS 2`, `CSUS 3`, `CSUS fin` | `CSUS fin` is **chapter 2 of the extinction take** - recorded after extinction, not after `CSUS 3`.  On a numeric sort it landed *second*. |
+| Marie: `CSUS 4` closes conditioning | same shape: it is the tail of the `extinction` take |
+| Charles: `csus1 - failed`, `csus 2`, `csus 3` | chapters 1, 2 and 3 of **one unbroken 25-minute recording**.  Not three sessions, and chapter 1 is not "failed" in any sense the recording knows about |
+
+So the order of the recordings, and which files are one continuous take, come from the
+camera clock and never from the names:
+
+* **creation_time** names the take - every chapter of one recording carries the same value.
+* **the timecode track** is the camera's own clock at the first frame.  It is monotonic
+  within a take and separates its chapters, which creation_time cannot; it resets when
+  the camera loses power, so it orders chapters, never takes.
+* **timecode + duration** say whether two files are contiguous: chapter n+1 starts where
+  chapter n ended, to within the rounding of the timecode seconds field.
+
+This matters because the conditioning chapters are laid on one clock and that clock sets
+every block boundary.  It is now the real clock: a session recorded in two takes with ten
+minutes of extinction between them no longer has the gap silently closed.
+
+### The human errors it is built for
+
+| What happens | What the pipeline does |
+|---|---|
+| a name says `failed`, `test`, `raccourci`, `copie`, `(2)` | left out of a folder scan, with the reason.  **Listed by hand in a study file it is kept** - an explicit list is a deliberate choice |
+| the same clip under two names (same recording time and timecode) | one is left out; scoring both would count every trial in it twice |
+| a re-encoded copy (no camera metadata at all) | reported as derived, and left out of a folder scan.  Re-encoding is what flattens the LED contrast the whole pipeline depends on |
+| chapters of one take, renamed as separate sessions | recognised as one take, ordered by chapter, and if an earlier chapter is not being analysed the report says how far into the take the scored part starts |
+| a chapter labelled with a different role than its neighbours | reported: one unbroken recording, so the labels are a judgement, not a fact |
+| two files whose names differ only in spacing (`CSUS 1`, `CSUS1`) | the second is renamed instead of stopping the run |
+| a file in OneDrive that has not been downloaded | said before the run stalls on it for twenty minutes |
+| empty, damaged, or not a video | left out with the reason |
+| the frame rate, frame size or rotation changes mid-participant | reported - the box is located in pixels, so a shared position cannot cross that |
+| recordings in one folder spanning more than eight hours | reported: probably two sessions, or a stray file from another day |
+| a recording whose name says nothing (`GX012908.MP4`) | listed, with its date, as in the folder but not analysed |
+| a recording that does not behave like its role - a `US` in an extinction file, no `US` at all in a conditioning file | reported by `ebc_triage.py`, and **nothing is renamed or re-scored on the strength of it**.  Fix the role and re-run |
+
+The blue channel is now read for *every* role, including the ones the protocol says
+deliver no US.  It costs one wider crop and it is the only way to notice that a file
+labelled `extinction` is full of puffs.  It changes no trial: those roles still get
+CS-only trials whatever the blue channel saw.
+
+## Which side of the panel the LEDs are on
+
+Nothing assumes it.  The US LED is looked for in a window **centred** on the CS LED and
+symmetric - as far left as right, as far up as down - because which way round the two sit
+depends on how the box was turned and where the camera stood, not on the protocol.  The
+side is then *measured* (`us_offset` in `<tag>_stim.json`), carried to the other
+recordings of the participant so their windows are aimed rather than blind, and checked
+across them: if it changes half way through a participant, something moved between
+recordings and every inherited position across that boundary is suspect, which is said.
+
+Two things make a window that wide safe:
+
+* **Every pulse must come from the same place.**  An LED does not move.  Once a handful
+  of pulses agree on a spot, a "pulse" 200 px away is a reflection, a phone screen or a
+  white sleeve catching the sun - and it is rejected as one, with the reason kept.  This,
+  rather than a tight window, is what makes the search side-agnostic.
+* **Window sizes are in pixels of a 1920-wide frame and scaled** to whatever the
+  recording is, so a 2.7K or 4K camera does not read a window a third of the intended size.
+
+The stimulator box moving *between* recordings is handled too: confident positions are
+clustered rather than averaged, and a recording that cannot locate the box itself
+inherits the position of the recording nearest it **in time**.  A median over a session
+where the box moved sits where the box has never been, and every recording inheriting it
+inherits a wrong answer.
+
 ## Running a new participant
 
 1. Put the recordings in one folder per participant, named so the roles are obvious:
@@ -138,7 +213,9 @@ A recording's **role** decides what is expected of it and how it is scored:
 
 Omit `recordings` and the folder is scanned: `CSUS *`, `extinction*`, `CS ONLY`, `US ONLY`
 map onto the four roles. Add `"led_yellow": [x, y]` to a recording to pin the CS LED by
-hand if the automatic search ever picks the wrong spot.
+hand if the automatic search ever picks the wrong spot, and `"us_offset": [dx, dy]` to say
+where the US LED sits relative to it.  `"include": false` leaves a listed recording out
+of the run without deleting the line.
 
 ### When the CS LED cannot be read
 
@@ -207,8 +284,9 @@ This is the part that has to be right, because everything downstream is measured
    a factor of two to three over the runner-up.
 2. **The US LED is never searched for across the frame.** At 50 ms it is one or two frames in
    a subsampled survey, indistinguishable from sensor noise or someone walking past — a
-   whole-frame search finds noise, reliably. Instead its window is pinned beside the CS LED,
-   where it physically is on the same panel. That is also what keeps the read window small.
+   whole-frame search finds noise, reliably. Instead it is looked for in a symmetric window
+   around the CS LED, since the two are centimetres apart on the same panel; which side it
+   is on is measured, not assumed (see *Which side of the panel the LEDs are on*).
 3. **The box position is decided for the whole participant at once.** Short clips with two
    CS presentations cannot locate anything on their own, and a US-only recording has no CS
    to find; both take the position from the recordings that *were* confident. Where the
@@ -221,9 +299,9 @@ This is the part that has to be right, because everything downstream is measured
    modes of the signal, with a Schmitt trigger so a flickering edge cannot split one pulse
    into two.
 6. **Every pulse is kept, accepted or rejected, with the reason.** A pulse outside the
-   duration tolerance, or closer than `min_iti_s` to the previous accepted one, is LED
-   flicker rather than a stimulus — but it still appears in `stimulus_events.csv`. Nothing
-   is dropped silently.
+   duration tolerance, closer than `min_iti_s` to the previous accepted one, or lit
+   somewhere else in the window than the LED, is flicker or a reflection rather than a
+   stimulus — but it still appears in `stimulus_events.csv`. Nothing is dropped silently.
 7. **The pipeline says when it does not trust itself.** Weak contrast, accepted pulses only
    a fraction of a second apart, or a "lit pixel" that wanders across the frame instead of
    staying a point source all raise a warning that is carried into the QC page and the JSON.
@@ -264,6 +342,8 @@ response there is by definition unconditioned.
 | Script | What it does |
 |---|---|
 | `ebc_config.py` | The study file: recordings, roles, protocol. Discovers a folder when there is no config. |
+| `ebc_media.py` | What the camera wrote into each file: recording time, timecode, takes and chapters, copies. `python ebc_media.py <folder>` prints a folder's timeline. |
+| `ebc_timeline.py` | Puts the recordings in the order they were made, leaves out copies and files that say they failed, and reports everything odd about the set. Writes `ordered_config.json`. |
 | `ebc_paths.py` | Where the outputs and the cache live, per study. |
 | `ebc_video.py` | ffmpeg/ffprobe helpers. |
 | `ebc_signal.py` | Bimodal threshold + Schmitt trigger: a 1-D LED signal to a list of pulses. |

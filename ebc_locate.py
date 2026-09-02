@@ -33,6 +33,29 @@ CONFIDENT_MARGIN = 1.5      # top candidate must beat the runner-up by this fact
 CONSENSUS_RADIUS = 280      # px; how far the box may sit from where the study says
 
 
+def cluster(points, radius=CONSENSUS_RADIUS):
+    """Group positions that are in the same place, biggest group first.
+
+    Taking one median over the whole study assumes the box never moved.  When it did -
+    the camera re-aimed between recordings, the tripod nudged, the box carried round to
+    the participant's other side - a median lands between the two positions, which is
+    where the box has never been, and every recording that inherits it inherits a wrong
+    answer.  Clustering keeps the two positions apart so each recording can inherit the
+    one that belongs to it.
+    """
+    groups = []
+    for p in points:
+        for g in groups:
+            if (p["x"] - g[0]["x"]) ** 2 + (p["y"] - g[0]["y"]) ** 2 <= radius ** 2:
+                g.append(p)
+                break
+        else:
+            groups.append([p])
+    groups.sort(key=lambda g: -len(g))
+    return [dict(x=int(np.median([p["x"] for p in g])), y=int(np.median([p["y"] for p in g])),
+                 tags=[p["tag"] for p in g], n=len(g)) for g in groups]
+
+
 def main():
     cfg = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
     wdir = work_dir(cfg)

@@ -47,6 +47,10 @@ CERTAIN_ACCEPT = 0.10    # this alone is damning: nine of ten "pulses" were nois
 
 BANNER = "=" * 78
 
+# a role is contradicted, not merely unsupported, when this many stimuli of the wrong
+# kind were read - one stray pulse is noise, a dozen is a mislabelled file
+WRONG_ROLE_MIN = 5
+
 SUSPECT_NOTE = """
   These are scored normally from their CS LED: only one of the three checks was failed,
   which is not enough to overrule the channel.  But a healthy CS channel usually passes
@@ -115,10 +119,70 @@ def decide(rec, ex):
     return "us", ("trials will be recovered from the US LED and the CS onset inferred"), None
 
 
+def role_check(cfg, stims):
+    """Does each recording behave like the role it was given?
+
+    The role is typed by a person at the end of a long session and it decides how the
+    recording is scored, so it is worth testing against what the LEDs did.  A US is only
+    ever delivered in conditioning; a recording labelled `extinction` that is full of
+    puffs is a file named wrong, not an unusual extinction.  Nothing is renamed here -
+    that would be guessing at intent - but the disagreement is stated.
+    """
+    out = []
+    for rec in cfg["recordings"]:
+        s = stims.get(rec["tag"])
+        if not s:
+            continue
+        n_cs = ((s["leds"].get("yellow") or {}).get("signal") or {}).get("n_ok", 0)
+        n_us = ((s["leds"].get("blue") or {}).get("signal") or {}).get("n_ok", 0)
+        role, said = rec["role"], None
+        if role in C.NO_US_ROLES and n_us >= WRONG_ROLE_MIN:
+            said = ("%d US flashes were read in a recording labelled '%s', which delivers "
+                    "the CS alone.  Either this is a conditioning recording under the "
+                    "wrong name, or the blue channel is reading something else."
+                    % (n_us, role))
+        elif role == "conditioning" and n_cs >= WRONG_ROLE_MIN and n_us == 0:
+            said = ("%d CS presentations and no US at all, in a recording labelled "
+                    "'conditioning'.  That is what extinction or a CS-only baseline looks "
+                    "like; check the role before reading the CR rate." % n_cs)
+        elif role == "baseline_us" and n_cs >= WRONG_ROLE_MIN:
+            said = ("%d CS presentations were read in a US-only baseline, which has no CS."
+                    % n_cs)
+        if said:
+            out.append(dict(tag=rec["tag"], label=rec["label"], role=role, message=said))
+    return out
+
+
+def geometry_check(stims):
+    """Is the US LED on the same side of the CS LED in every recording?
+
+    Which side it is on is a fact about the rig - how the box was turned, which side of
+    the participant the camera stood.  It is measured per recording rather than assumed,
+    and if it changes half way through a participant then something moved between
+    recordings, and every position inherited across that boundary is suspect.
+    """
+    seen = [(t, s["us_offset"], s.get("us_side")) for t, s in stims.items()
+            if s.get("us_offset")]
+    if len(seen) < 2:
+        return None
+    sides = {sd for _, _, sd in seen}
+    xs = [o[0] for _, o, _ in seen]
+    ys = [o[1] for _, o, _ in seen]
+    spread = max(max(xs) - min(xs), max(ys) - min(ys))
+    if len(sides) == 1 and spread <= 60:
+        return None
+    return ("the US LED is not in the same place relative to the CS LED in every "
+            "recording (%s).  The box was turned or the camera moved between them, so "
+            "check qc_leds_<tag>.png for each: a position inherited from another "
+            "recording will be wrong across that change."
+            % ", ".join("%s %+d,%+d" % (t, o[0], o[1]) for t, o, _ in seen))
+
+
 def run(cfg):
     wdir = work_dir(cfg)
     proto = cfg["protocol"]
     out, notes, excluded, seen, suspect = [], [], [], [], []
+    stims = {}
 
     for rec in cfg["recordings"]:
         f = os.path.join(wdir, rec["tag"] + "_stim.json")
@@ -127,6 +191,7 @@ def run(cfg):
             continue
         with open(f, encoding="utf-8") as fh:
             stim = json.load(fh)
+        stims[rec["tag"]] = stim
         ex = examine(stim, proto, rec["role"])
         anchor, note, drop = decide(rec, ex)
 
@@ -150,13 +215,15 @@ def run(cfg):
     eff_path = os.path.join(wdir, "effective_config.json")
     with open(eff_path, "w", encoding="utf-8") as fh:
         json.dump(eff, fh, indent=1)
+    roles = role_check(cfg, stims)
+    geom = geometry_check(stims)
     with open(os.path.join(wdir, "triage.json"), "w", encoding="utf-8") as fh:
-        json.dump(dict(examined=seen, notes=notes, suspect=suspect, excluded=excluded),
-                  fh, indent=1)
-    return eff_path, notes, excluded, seen, suspect
+        json.dump(dict(examined=seen, notes=notes, suspect=suspect, excluded=excluded,
+                       role_disagreements=roles, geometry=geom), fh, indent=1)
+    return eff_path, notes, excluded, seen, suspect, roles, geom
 
 
-def report(notes, excluded, kept, suspect=()):
+def report(notes, excluded, kept, suspect=(), roles=(), geom=None):
     print("\n%-14s %-13s %9s %7s %9s   %s"
           % ("recording", "role", "contrast", "CS ok", "of raw", "trials from"))
     for r in kept:
@@ -224,8 +291,8 @@ def report(notes, excluded, kept, suspect=()):
 
 def main():
     cfg = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
-    eff_path, notes, excluded, kept, suspect = run(cfg)
-    report(notes, excluded, kept, suspect)
+    eff_path, notes, excluded, kept, suspect, roles, geom = run(cfg)
+    report(notes, excluded, kept, suspect, roles, geom)
     if not any(r["role"] != "baseline_us" for r in kept):
         print("\n!! nothing left to score - every recording was excluded")
     print("\nwrote " + eff_path)

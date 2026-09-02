@@ -7,6 +7,8 @@
 
 Stages, in order:
 
+    timeline    read the camera metadata: what order the recordings were really made in,
+                which files are chapters of one take, which are copies    (no decoding)
     locate      find the stimulator box in every recording          (one pass per video)
     stimulus    read both LEDs at full rate and detect every pulse   (one pass per video)
     triage      judge each CS channel; anchor on the US, or exclude, where it failed
@@ -29,7 +31,7 @@ import ebc_config as C
 from ebc_paths import BASE, work_dir, out_dir
 
 PY = sys.executable
-STAGES = ["locate", "stimulus", "protocol", "eyes", "score", "report"]
+STAGES = ["timeline", "locate", "stimulus", "protocol", "eyes", "score", "report"]
 
 
 def run(script, *args, **kw):
@@ -115,6 +117,21 @@ def main():
                     os.remove(p)
 
     todo = STAGES[STAGES.index(a.from_stage):] if not a.only else [a.only]
+
+    # What the camera wrote into the files decides the order the recordings are
+    # processed in and which of them are worth processing at all, so this runs first and
+    # everything after it reads the config it writes.
+    ordered = os.path.join(wdir, "ordered_config.json")
+    if "timeline" in todo:
+        run("ebc_timeline.py", cfg_path)
+    if os.path.exists(ordered):
+        cfg_path = ordered
+        cfg = C.load(cfg_path)
+        kept = {r["tag"] for r in cfg["recordings"]}
+        left = [t for t in tags if t not in kept]
+        if left:
+            print("   left out by the timeline check: " + ", ".join(left))
+        tags = [r["tag"] for r in cfg["recordings"]]        # now in recording order
 
     if "locate" in todo:
         run("ebc_locate.py", cfg_path)
