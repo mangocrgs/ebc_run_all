@@ -209,7 +209,24 @@ def read_window(path, tag, wdir, sub, W, H, fps):
     """Full-rate, full-resolution signal: per frame, the strongest pixel in each sub-window."""
     f = os.path.join(wdir, tag + "_led.npz")
     if os.path.exists(f):
-        cached = np.load(f)
+        # A cache is a convenience, never a dependency.  This one is written at the end
+        # of a pass that takes ten minutes, so an interrupted run - Ctrl-C, a timeout, a
+        # full disk - leaves a truncated file behind, and numpy raises BadZipFile on it.
+        # Reading the video again costs time; refusing to run costs the participant.
+        try:
+            cached = np.load(f)
+            cached.files
+        except Exception as e:
+            log(tag, "  cached window read is unusable (%s) - reading the recording again"
+                % type(e).__name__)
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+            cached = None
+    else:
+        cached = None
+    if cached is not None:
         # The cache is keyed on the tag alone, but what it holds is one particular pair
         # of windows.  They can legitimately differ between runs - a measured US offset
         # aims the blue window, a re-run of ebc_locate moves the anchor - and reusing the
