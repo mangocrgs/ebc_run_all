@@ -19,7 +19,9 @@
 #      to install, and "install ffmpeg, then add it to PATH" is exactly the wall that
 #      stops.  It is taken from whichever ffmpeg is on PATH on the build machine, and
 #      ebc_launch puts it back in front of PATH at run time.
+import io
 import os
+import re
 import shutil
 
 from PyInstaller.utils.hooks import collect_all
@@ -27,10 +29,27 @@ from PyInstaller.utils.hooks import collect_all
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))                    # noqa: F821
 
 # Stage scripts are run, never imported: they ship as source and so do their imports.
-STAGES = ["ebc_run_all.py", "ebc_locate.py", "ebc_stimulus.py", "ebc_triage.py",
-          "ebc_protocol.py", "ebc_eyes.py", "ebc_score.py", "ebc_figures.py",
-          "ebc_export_csv.py", "ebc_workbooks.py", "ebc_qc.py",
-          "ebc_app.py", "ebc_config.py", "ebc_paths.py", "ebc_signal.py", "ebc_video.py"]
+STAGES = ["ebc_run_all.py", "ebc_timeline.py", "ebc_locate.py", "ebc_stimulus.py",
+          "ebc_triage.py", "ebc_protocol.py", "ebc_eyes.py", "ebc_score.py",
+          "ebc_figures.py", "ebc_export_csv.py", "ebc_workbooks.py", "ebc_qc.py",
+          "ebc_app.py", "ebc_config.py", "ebc_media.py", "ebc_paths.py",
+          "ebc_signal.py", "ebc_video.py"]
+
+# Anything ebc_run_all starts with run() or run_parallel() MUST be in the list above:
+# ebc_launch runs a stage by reading its .py out of the bundle, and a stage that was
+# never bundled ends the run with "is not part of this build".  ebc_timeline.py and
+# ebc_media.py were added to the pipeline and not to this list, which nothing noticed
+# only because the timeline stage did not run by default; the moment it did, the
+# packaged app could not start a run at all.  This check makes the build fail here
+# instead, where it is one line to fix.
+_runs = set()
+for _line in io.open(os.path.join(ROOT, "ebc_run_all.py"), encoding="utf-8"):
+    for _m in re.finditer(r'run(?:_parallel)?\(\s*"(ebc_\w+\.py)"', _line):
+        _runs.add(_m.group(1))
+_missing = sorted(_runs - set(STAGES))
+if _missing:
+    raise SystemExit("spec is out of date: ebc_run_all runs %s, which this build does "
+                     "not carry. Add them to STAGES above." % ", ".join(_missing))
 
 datas = [(os.path.join(ROOT, s), ".") for s in STAGES]
 datas += [(os.path.join(ROOT, "ebc_app_ui.html"), "."),
