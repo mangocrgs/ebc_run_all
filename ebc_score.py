@@ -71,13 +71,27 @@ def excursions(C_, t, thr):
     return out
 
 
-def classify(onset_ms, us_onset_ms, moving, anchored_on_us):
+def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
+    """What a response at `onset_ms` after CS onset is, on THIS trial.
+
+    `us_delivered` is the part that used to be missing.  The CR/UR split asks whether a
+    response began before the puff - a question with no meaning on a trial that never
+    got one.  CS-only probes, extinction and the CS-only baseline were being sent through
+    the same 350 ms line and coming out labelled `UR (>=350ms)`, which is not merely a
+    wrong word: the summaries count a CR with `startswith("CR")`, so every late response
+    in extinction was excluded from the CR count by definition - and a late, small
+    response is exactly what a decaying CR looks like.  On a trial with no US, anything
+    past the alpha window is a conditioned response, because there is nothing else it
+    could be.
+    """
     if moving:
         return "in-progress at stimulus"
     if anchored_on_us:
         return "UR to the puff" if onset_ms >= 20 else "alpha/startle <20ms"
     if onset_ms < 100:
         return "alpha/startle <100ms"
+    if not us_delivered:
+        return "CR (no US on this trial)"
     if onset_ms < us_onset_ms:
         return "CR (100-%dms)" % round(us_onset_ms)
     return "UR (>=%dms)" % round(us_onset_ms)
@@ -140,13 +154,17 @@ def main():
         part = [b for b in exc if b["amp"] < MAIN]
         b1 = full[0] if full else (exc[0] if exc else None)
         on_us = tr["trial_type"] == "US-only"
+        # Did this trial actually deliver a puff?  Only a paired CS-US trial and a
+        # US-only baseline trial do; a probe, extinction and a CS-only baseline do not,
+        # and nothing about them may be judged against the US onset.
+        us_here = tr["trial_type"] in ("CS-US", "US-only")
 
-        cls = classify(b1["on"], US_ONSET, inprog, on_us) if b1 else None
+        cls = classify(b1["on"], US_ONSET, inprog, on_us, us_here) if b1 else None
         # if the first event is an alpha blink or the lid was already moving, look for a
         # later blink in the same window - a real CR or UR may sit behind the artefact
         obscured = bool(b1 and (inprog or (not on_us and b1["on"] < 100)))
         b2 = full[1] if (obscured and len(full) > 1) else None
-        sec = classify(b2["on"], US_ONSET, False, on_us) if b2 else None
+        sec = classify(b2["on"], US_ONSET, False, on_us, us_here) if b2 else None
 
         def at(ms):
             return float(Cl[min(max(k0 + int(round(ms / MS)), 0), len(Cl) - 1)])
@@ -164,7 +182,10 @@ def main():
             measured_isi_ms=tr["isi_ms"],
             alignment_error_ms=v.get("align_error_ms"),
             face_tracked_pct=round(100 * v.get("face_ok", 0), 1),
+            alignment=v.get("alignment"),
             quality=(("pre-CS blink" if preflag else "")
+                     + (" | alignment not verified"
+                        if v.get("align_error_ms") is None else "")
                      + (" | lid closing at onset" if inprog else "")
                      + (" | truncated window" if tr.get("truncated") else "")
                      + (" | face lost >20%" if v.get("face_ok", 1) < 0.8 else "")).strip(" |")
@@ -177,11 +198,16 @@ def main():
             closure_duration_ms=None if not b1 else round(b1["dur"], 1),
             reopen_half_ms=None if not b1 else round(b1["r50"], 1),
             reopen_full_ms=None if not b1 else round(b1["end"], 1),
-            closure_at_US_pct=round(at(US_ONSET) * 100, 1),
+            # "at the US" is only a place on the clock where a US was delivered.  On a
+            # probe or an extinction trial these would read as measurements of a moment
+            # that never happened, so they are left empty rather than filled with a
+            # number someone could average.
+            closure_at_US_pct=round(at(US_ONSET) * 100, 1) if us_here else None,
             closure_at_CSoff_pct=round(at(CS_DUR) * 100, 1),
             closure_at_1000ms_pct=round(at(1000) * 100, 1),
-            closed_at_US=bool(at(US_ONSET) >= 0.50),
-            reopened_before_US=bool(b1 is not None and at(US_ONSET) < 0.30),
+            closed_at_US=bool(at(US_ONSET) >= 0.50) if us_here else None,
+            reopened_before_US=(bool(b1 is not None and at(US_ONSET) < 0.30)
+                                if us_here else None),
             response_class=cls,
             first_response_obscured="yes" if obscured else "",
             secondary_onset_ms=None if not b2 else round(b2["on"], 1),

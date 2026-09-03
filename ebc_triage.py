@@ -168,8 +168,13 @@ def geometry_check(stims):
     and if it changes half way through a participant then something moved between
     recordings, and every position inherited across that boundary is suspect.
     """
+    # Only where a US is actually delivered.  A CS-only baseline or an extinction
+    # recording has no US LED to be offset from anything, so whatever its blue channel
+    # latched onto is not evidence about the rig - and letting it vote turned Thomas's
+    # perfectly consistent geometry (seven recordings agreeing within 13 px) into a
+    # "the US LED moved" warning on the strength of one csonly reading 224 px away.
     seen = [(t, s["us_offset"], s.get("us_side")) for t, s in stims.items()
-            if s.get("us_offset")]
+            if s.get("us_offset") and s.get("role") not in C.NO_US_ROLES]
     if len(seen) < 2:
         return None
     sides = {sd for _, _, sd in seen}

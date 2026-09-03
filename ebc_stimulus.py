@@ -277,17 +277,42 @@ def lit_position(led, key, on_thr):
 
 
 def event_positions(led, key, events):
-    """The brightest pixel of each pulse, in full-resolution frame coordinates."""
+    """Where each pulse lit up, in full-resolution frame coordinates.
+
+    Not the brightest pixel of the peak frame, which is what this used to be.  A bright
+    LED SATURATES - Marie's US LED sits at 255 for the whole pulse - and as soon as any
+    other pixel in the window saturates too, the two tie and `argmax` picks between them
+    on raster order, i.e. arbitrarily.  The position then jumps 200 px between one real
+    pulse and the next, and `gate_positions` throws the pulse out for lighting up in the
+    wrong place.  On Marie that discarded a quarter of her puffs and turned every one of
+    those paired trials into a CS-only probe: 36 probes recovered where the protocol has
+    10.
+
+    So take the whole pulse, not one frame of it, and return the medoid - the observed
+    position closest to all the others.  A tie that wins on some frames and loses on the
+    rest cannot carry the answer, and because the medoid is one of the observed points it
+    is always somewhere the window actually lit up, never an average of two places.
+    """
     p = led["pos_" + key]
-    s = led["sig_" + key].astype(float)
     bx, by, bw, _ = [int(v) for v in led["box_" + key]]
-    out = []
+    n = len(p)
+    out, jitter = [], []
     for e in events:
         a, b = int(e["a"]), int(e["b"])
-        k = a + int(np.argmax(s[a:b + 1])) if b >= a else a
-        i = int(p[k])
-        out.append((bx + i % bw, by + i // bw))
-    return out
+        b = max(a, min(b, n - 1))
+        idx = p[a:b + 1]
+        pts = [(bx + int(i) % bw, by + int(i) // bw) for i in idx]
+        if len(pts) == 1:
+            out.append(pts[0])
+            jitter.append(0.0)
+            continue
+        xs = np.array([q[0] for q in pts], float)
+        ys = np.array([q[1] for q in pts], float)
+        # medoid: the observed point with the smallest total distance to the others
+        d = np.abs(xs[:, None] - xs[None, :]) + np.abs(ys[:, None] - ys[None, :])
+        out.append(pts[int(np.argmin(d.sum(axis=1)))])
+        jitter.append(float(max(np.ptp(xs), np.ptp(ys))))
+    return out, jitter
 
 
 def gate_positions(events, pos, radius, key, min_ref=3):
@@ -387,8 +412,30 @@ def main():
         gap = proto["min_iti_s"] if key == "yellow" else 0.0
         ev, info = detect(sig, fps, nom, tol=tol, min_gap_s=gap)
         # one LED, one place: a pulse from elsewhere in the window is not this stimulus
-        pos = event_positions(led, key, ev)
-        spot_xy, n_moved = gate_positions(ev, pos, SAME_SPOT_PX * max(W / REF_W, 0.5), key)
+        pos, jitter = event_positions(led, key, ev)
+        radius = SAME_SPOT_PX * max(W / REF_W, 0.5)
+        # Rejecting a pulse for lighting up in the wrong place assumes there IS a right
+        # place - that the channel has a point source whose position one pulse can
+        # measure.  Where the brightest pixel wanders as far WITHIN a single pulse as it
+        # does between pulses, the position carries no information and the gate is not a
+        # filter, it is a coin toss.  Marie's blue channel is like that (the peak moves
+        # 85-170 px inside one 58 ms puff, against 8-20 px for every channel where the
+        # LED really is a point), and gating it threw away a quarter of her puffs and
+        # turned those paired trials into CS-only probes.  So measure first, and where
+        # the position is meaningless keep every pulse and say that reflections cannot
+        # be screened out here.
+        steady = float(np.median(jitter)) if jitter else 0.0
+        if steady >= radius:
+            spot_xy, n_moved = None, 0
+            out["warnings"].append(
+                "%s: no point source - the brightest pixel moves %d px within a single "
+                "pulse, so pulses cannot be screened on position and a reflection in "
+                "this window would be read as a stimulus.  Check qc_leds_%s.png"
+                % (key, int(steady), tag))
+            log(tag, "  %-6s position is not usable (moves %d px within one pulse) - "
+                     "keeping every pulse, no position screening" % (key, int(steady)))
+        else:
+            spot_xy, n_moved = gate_positions(ev, pos, radius, key)
         if n_moved:
             info["n_ok"] = sum(e["ok"] for e in ev)
             log(tag, "  %-6s %d pulse(s) rejected: lit somewhere else in the window"

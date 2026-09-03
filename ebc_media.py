@@ -176,8 +176,12 @@ def load(paths, cache=None):
         else:
             out[key] = probe_file(p)
     if cache:
+        # merge, never replace: load() is called more than once per run (the recordings,
+        # then the files whose names imply no role), and writing only what this call
+        # asked about threw away the entry for every real recording - so the next run
+        # re-probed the whole folder for nothing.
         with open(cache, "w", encoding="utf-8") as fh:
-            json.dump(out, fh, indent=1)
+            json.dump(dict(old, **out), fh, indent=1)
     return out
 
 

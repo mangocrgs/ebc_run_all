@@ -156,7 +156,13 @@ def main():
         rest = float(np.percentile(s[:max(PRE // 2, 5)], 50))
         lit = float(s.max())
         on = np.where(s > rest + 0.55 * (lit - rest))[0] if lit - rest > 25 else []
-        k0 = int(on[0]) - us_lag if len(on) else PRE
+        # When the anchor LED never lights in this window there is nothing to align to,
+        # and k0 falls back to where the stimulus file said the trial was.  That fallback
+        # used to report align_error_ms = (PRE - PRE) * MS = exactly 0.0 - the same value
+        # a perfectly verified alignment produces, and the one number a reader would use
+        # to decide the trial is trustworthy.  An unverified alignment now says so.
+        verified = len(on) > 0
+        k0 = int(on[0]) - us_lag if verified else PRE
 
         fm = mp.solutions.face_mesh.FaceMesh(static_image_mode=False, max_num_faces=1,
                                              refine_landmarks=True,
@@ -176,7 +182,10 @@ def main():
         fm.close()
         out[str(tr["session_trial"])] = dict(
             k0=k0, pre=PRE, n=len(A), anchor_frame=int(f0),
-            align_error_ms=round((k0 - PRE) * MS, 2),
+            align_error_ms=round((k0 - PRE) * MS, 2) if verified else None,
+            alignment=("measured from the %s LED" % anchor_led) if verified else
+                      ("NOT VERIFIED - the %s LED never lit in this window, so the trial "
+                       "sits where the stimulus file put it" % anchor_led),
             led_rest=round(rest, 1), led_lit=round(lit, 1),
             face_ok=float(np.isfinite(er).mean()),
             er=[None if not np.isfinite(v) else round(float(v), 6) for v in er],
@@ -186,7 +195,11 @@ def main():
                 % (ti, len(trials), (k0 - PRE) * MS, np.isfinite(er).mean() * 100, time.time() - t0))
     with open(out_f, "w", encoding="utf-8") as fh:
         json.dump(out, fh)
-    ae = [abs(v["align_error_ms"]) for v in out.values()]
+    ae = [abs(v["align_error_ms"]) for v in out.values() if v["align_error_ms"] is not None]
+    unver = [k for k, v in out.items() if v["align_error_ms"] is None]
+    if unver:
+        log(tag, "  !! %d trial(s) could not be aligned - the anchor LED never lit in "
+                 "their window: %s" % (len(unver), ", ".join(unver[:8])))
     log(tag, "%d/%d trials tracked, median |alignment error| %.1f ms, max %.1f ms -> %s_traces.json"
         % (len(out), len(trials), float(np.median(ae)) if ae else 0,
            float(np.max(ae)) if ae else 0, tag))
