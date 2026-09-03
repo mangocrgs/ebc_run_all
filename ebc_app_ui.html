@@ -420,6 +420,20 @@ body.fx .ticker .track{animation:tick 26s linear infinite}
 .crwin .tag.measured{border-color:var(--ok);color:var(--ok)}
 .crwin .tag.fallback{border-color:var(--warn);color:var(--warn);background:var(--warn-bg)}
 .crwin p{margin:7px 0 0;color:var(--muted)}
+/* the CS-only baseline and the order check: the same card as the CR window, because
+   they are the same kind of thing - something the run measured that the numbers below
+   cannot be read without.  A flagged card is bordered in the warning colour rather
+   than shouting in red: startle and a corrected order are findings to take account of,
+   not failures. */
+.crwin.flag{border-color:var(--warn);background:var(--warn-bg)}
+.crwin .rate{font-size:19px;font-weight:600;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.crwin .rates{display:flex;gap:22px;flex-wrap:wrap;margin:9px 0 0}
+.crwin .rates div{font-size:12.4px;color:var(--muted)}
+.crwin .rates b{display:block;font-size:17px;font-weight:600;color:var(--ink);
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.crwin ul.moved{margin:7px 0 0;padding-left:18px;color:var(--muted)}
+.crwin ul.moved b{color:var(--ink)}
 /* the hand-scoring worklist: one line per trial, times in the mono face because they are
    read off and typed into a video player */
 .tri table.hand{width:100%;border-collapse:collapse;margin:8px 0 4px;font-size:12.4px}
@@ -704,6 +718,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <table>
         <tr><th style="width:200px">Stage</th><th>What it does</th></tr>
         <tr><td>checking this computer</td><td>ffmpeg, the Python packages, the files and the output folder &mdash; before anything long starts.</td></tr>
+        <tr><td>putting the recordings in order</td><td>Reads the camera clock out of each file &mdash; seconds, nothing is decoded. This is what decides the order the recordings are analysed in, and so where every block boundary falls. A name like <em>CSUS fin</em> has twice turned out to be the tail of the extinction take rather than the recording after <em>CSUS 3</em>.</td></tr>
         <tr><td>finding the stimulator box</td><td>One quick survey pass per recording to locate the LEDs.</td></tr>
         <tr><td>reading the LEDs</td><td>Full-rate read of a small window around the box. <b>The slow part</b> &mdash; roughly 3 min per GB.</td></tr>
         <tr><td>checking the LED signal quality</td><td>Judges each CS channel and decides where trials come from. Any warning appears below.</td></tr>
@@ -731,6 +746,8 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
     <span class="mono" style="font-size:12px;color:var(--muted)" id="outpath"></span>
   </div>
   <div id="resmsg"></div>
+  <div id="orderwarn"></div>
+  <div id="baseline"></div>
   <div id="crwin"></div>
   <div id="handscore"></div>
   <p class="note" id="filesnote" style="margin:0 0 10px">
@@ -951,10 +968,10 @@ function renderVids(d){
           ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
       <td><select data-i="${i}" class="rl">
-        <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
-        <option value="extinction"   ${v.role==="extinction"?"selected":""}>Extinction</option>
         <option value="baseline_cs"  ${v.role==="baseline_cs"?"selected":""}>CS-only baseline</option>
         <option value="baseline_us"  ${v.role==="baseline_us"?"selected":""}>US-only baseline</option>
+        <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
+        <option value="extinction"   ${v.role==="extinction"?"selected":""}>Extinction</option>
       </select></td>
       <td><select data-i="${i}" class="an" ${(v.role==="extinction"||v.role==="baseline_cs")?"disabled":""}
                   title="Automatic reads both LEDs first and picks. Override only if you know better than the LED check page.">
@@ -1606,6 +1623,58 @@ function renderCrWindow(sc){
       <p>${detail}</p></div>`;
 }
 
+/* ------------------------------------------------- step 1: what the CS alone did */
+/* The false-positive rate is the number the CR rates further down are a rise ABOVE, so
+   it belongs on the same page as them and above them. Nothing here is graded: how much
+   startle is too much is a fact about a lab and a population, not about a recording. */
+function renderBaseline(b){
+  const box = $("#baseline");
+  if (!b || !b.n_scoreable){ box.innerHTML = ""; return; }
+  const flag = b.n_startle > 0;
+  const pc = v => (v == null ? "&mdash;" : Math.round(v) + "%");
+  const note = flag
+    ? `<p>These blinks began too soon after the CS to have been caused by it, so they are
+        not conditioned responses and are counted as none. The flag is here because the
+        same reaction happens on the paired trials, where a lid already moving when the
+        puff arrives can hide the response behind it &mdash; expect more
+        <em>in&#8209;progress&#8209;at&#8209;stimulus</em> exclusions than usual, and read the CR rate as a
+        fraction of the trials that survived rather than of the trials that were run.</p>`
+    : `<p>No startle. Every conditioned&#8209;response rate below is a rise above the
+        ${pc(b.false_positive_pct)} false&#8209;positive rate, not a rise above zero.</p>`;
+  box.innerHTML = `<div class="crwin${flag ? " flag" : ""}"><div class="hd">
+      <span class="rate">CS alone</span>
+      <span>${b.n_scoreable} of ${b.n_trials} baseline trial${b.n_trials === 1 ? "" : "s"} scored</span>
+      ${flag ? `<span class="tag fallback">startle flagged</span>`
+             : `<span class="tag measured">no startle</span>`}</div>
+      <div class="rates">
+        <div><b>${pc(b.startle_pct)}</b>startle &mdash; before ${Math.round(b.window_lo_ms)} ms,
+             too soon to be a response</div>
+        <div><b>${pc(b.false_positive_pct)}</b>in the CR window with no US anywhere
+             &mdash; the false-positive rate</div>
+        <div><b>${b.n_late}</b>later than the window closes</div>
+      </div>${note}</div>`;
+}
+
+/* ------------------------------------------------- step 3: was anything reordered */
+/* The conditioning takes are laid end to end on one clock, so their order sets every
+   block boundary. When the camera disagreed with the file names, that is a fact about
+   these results and has to be on the page with them, not only in the log. */
+function renderOrder(oc){
+  const box = $("#orderwarn");
+  if (!oc || !oc.length){ box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="crwin flag"><div class="hd">
+      <span class="rate">Order corrected</span>
+      <span>${oc.length} recording${oc.length === 1 ? " is" : "s are"} not where
+            ${oc.length === 1 ? "its name puts it" : "their names put them"}</span>
+      <span class="tag fallback">the camera clock was used</span></div>
+      <ul class="moved">${oc.map(c => `<li><b>${esc(String(c.file))}</b>
+        (${esc(String(c.role))}) was #${c.was} by name, is #${c.now} by the clock</li>`).join("")}</ul>
+      <p>The conditioning takes are laid end to end on one clock, so their order set every
+       block boundary and every trial number in this run. If the names were right and the
+       clock was not &mdash; a camera whose date was never set, or two cameras in one
+       session &mdash; then the blocks are wrong and this run should not be quoted.</p></div>`;
+}
+
 /* ---------------------------------------------------------------- score by hand */
 /* Trials the scorer will not stand behind.  Named, timed and reasoned, because the whole
    point is that somebody now has to open the recording at that moment and look. */
@@ -1681,6 +1750,7 @@ $("#stop").onclick = async () => {
 const PHASES = {checking:"checking this computer", starting:"starting",
                 locate:"finding the stimulator box",
                 stimulus:"reading the LEDs", triage:"checking the LED signal quality",
+                timeline:"putting the recordings in order",
                 protocol:"building trials", eyes:"tracking eyelids", score:"scoring",
                 figures:"drawing figures", export_csv:"writing tables",
                 workbooks:"building workbooks", qc:"quality-check pages",
@@ -1826,6 +1896,8 @@ async function poll(){
     b.onclick = () => revealFile(b.dataset.f));
   FX.reset();
   $("#stalenote").classList.toggle("hide", stale === 0);
+  renderOrder(s.order_changed);
+  renderBaseline(s.baseline);
   renderCrWindow(s.scoring);
   renderHandScore(s.manual);
 

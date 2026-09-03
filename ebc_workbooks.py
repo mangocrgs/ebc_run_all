@@ -209,7 +209,9 @@ ROLE_TITLE = {"conditioning": DES["label"].lower(),
               "baseline_cs": "baseline - CS alone",
               "baseline_us": "baseline - US alone"}
 ROLE_FIGS = {"conditioning": [("cond_acquisition.png", "Acquisition by block - conditioned responses "
-                                                       "replace reactions to the puff"),
+                                                       "replace reactions to the puff, with the CS-only "
+                                                       "probes on the same block axis and the mean CR "
+                                                       "onset +- SD below"),
                               ("cond_paired_onset_scatter.png", "Blink onset per paired trial, joined in "
                                                                 "order, with the block-mean learning curve"),
                               ("cond_csonly_onset_scatter.png", "The CS-only probe ending each block"),
@@ -248,6 +250,31 @@ def _book(role):
              "CS-only / US-only trials." % (ROLE_TITLE[role], len(labels), ", ".join(labels),
                                             mins, npair, nrest))]
     if role == "conditioning":
+        # Step one of the reading order, restated where the CR rate is: a CR percentage
+        # quoted with no false-positive rate beside it is not a finding, and the person
+        # who opens this workbook in six months will not have the console log.
+        B = M.get("cs_baseline") or {}
+        if B.get("false_positive_pct") is not None:
+            what.append(("Read these CR rates against the CS-only baseline",
+                         "Before any pairing, %d of %d scoreable CS-alone trials produced a "
+                         "blink inside this same CR window (%.0f%%), and %d of them (%.0f%%) "
+                         "produced a startle - a blink before %.0f ms, too soon after the CS "
+                         "for the CS to have caused it. The false-positive rate is the %.0f%%, "
+                         "and it is what the CR rates below are a rise above; they are not a "
+                         "rise above zero."
+                         % (B["n_in_window"], B["n_scoreable"], B["false_positive_pct"],
+                            B["n_startle"], B["startle_pct"], CR_LO,
+                            B["false_positive_pct"])))
+        elif "cs_baseline" in M:
+            what.append(("There is no CS-only baseline in this study",
+                         "Nothing here says what this participant does when the CS is "
+                         "presented alone, so the false-positive rate these CR rates should "
+                         "be read against is unknown. Quote it as unknown, not as zero."))
+        what.append(("What the CS-only probes are for",
+                     "A probe delivers no puff, so a response on one cannot be a reaction to "
+                     "anything but the CS. Probe responding that tracks the paired responding "
+                     "is what says the learning is stable rather than an artefact of the puff "
+                     "arriving; the acquisition figure draws both on the same block axis."))
         what.append(("CS-only trials are separate",
                      "The CS-only probes are scored but held out of the recording summary, the block "
                      "summary and the main scatter - a trial with no US is a different measurement. "
@@ -304,6 +331,26 @@ def _book(role):
         what.append(("What the timings mean",
                      "The CS alone, before any pairing. Blinks here are orienting or spontaneous, "
                      "not conditioned, and give the false-positive rate for the CR window."))
+        B = M.get("cs_baseline") or {}
+        if B.get("n_scoreable"):
+            what.append(("What this baseline measured",
+                         "%d of %d trials could be scored. %d (%.0f%%) were startle - a blink "
+                         "before %.0f ms, sooner after the CS than any stimulus can be responded "
+                         "to. %d (%.0f%%) fell inside the CR window with no US anywhere in the "
+                         "recording: that is the false-positive rate the conditioning CR rates "
+                         "are read against. %d were later than the window closes. No threshold "
+                         "is applied to any of these - how much startle is too much is a fact "
+                         "about a laboratory and a population, not about this recording."
+                         % (B["n_scoreable"], B["n_trials"], B["n_startle"], B["startle_pct"],
+                            CR_LO, B["n_in_window"], B["false_positive_pct"], B["n_late"])))
+            if B.get("n_startle"):
+                what.append(("Startle is flagged, not counted",
+                             "These blinks began too soon after the CS to have been caused by "
+                             "it, so they are not conditioned responses and are counted as "
+                             "none. The flag matters because the same reaction occurs on the "
+                             "paired trials, where a lid already moving when the puff arrives "
+                             "can hide the response behind it. Expect more in-progress-at-"
+                             "stimulus exclusions in the conditioning workbook than usual."))
     nman = sum(1 for r in ALLROWS if r["role"] == role and r["needs_manual_scoring"])
     what.append(("Trials to score by hand",
                  ("%d of the %d trial(s) here could not be scored with confidence. They are "
@@ -311,6 +358,19 @@ def _book(role):
                   "the reason for each, and they are marked in the trial table."
                   % (nman, npair + nrest)) if nman else
                  "None - every trial in this workbook was scored cleanly."))
+    # The order the recordings were laid on one clock is what set every block number in
+    # this workbook.  When the camera disagreed with the file names, that is a fact about
+    # these results and belongs beside them, not only in the log of the run that made them.
+    OC = M.get("order_changed")
+    if OC:
+        what.append(("ORDER CORRECTED - the file names did not match the camera clock",
+                     "%s. The conditioning takes are laid end to end on one clock, so their "
+                     "order set every block boundary and every trial number in this workbook. "
+                     "The order used is the camera's. If the names were right and the clock "
+                     "was not, the block numbers here are wrong."
+                     % "; ".join("%s (%s) was #%s by name, is #%s by the clock"
+                                 % (c.get("file"), c.get("role"), c.get("was"), c.get("now"))
+                                 for c in OC)))
     what.append(("Timeline", (timeline + " 'CS onset on session clock' is the position on that "
                               "continuous clock.") if timeline else "Single recording."))
     if others:

@@ -124,6 +124,62 @@ plus a short seek per trial for the eyelids. Intermediates are cached in `<out>/
 `--from score` reruns everything downstream in seconds — that is the flag to use when
 changing a scoring rule or a figure. `--jobs N` sets how many recordings decode at once.
 
+A run starts at the `timeline` stage. It used to start at `locate`, which meant the one
+stage that checks the recording order against the camera clock never ran unless somebody
+typed `--from timeline` — so an ordinary run took the order of the file names on trust,
+and the block boundaries with it. The timeline stage decodes nothing and costs seconds.
+
+## The order a session is read in
+
+The five steps below are the order the analysis is reported in, and the order to read the
+results in. It is a dependency chain, not a preference, and the run prints each step with
+its own heading so a fifty-minute log can be read from the top.
+
+1. **CS-only baseline — does the CS alone make this person blink?**
+   Two rates come out of it and they are not the same thing. *Startle* is a blink that
+   begins before the CR window opens: too soon after the CS for the CS to have caused it.
+   *CS-alone responding* is a blink inside the CR window on a recording where no US is
+   ever delivered — that is the **false-positive rate**, and it is what every CR rate
+   later on has to be read against. Both are counted and flagged; neither is graded. There
+   is no threshold here saying how much startle is too much, because that is a fact about
+   a laboratory and a population, not about a recording.
+
+2. **US-only baseline — how fast is the reflex?**
+   This measures the CR window (see *How a trial is scored*, step 5) and therefore has to
+   be settled before any other recording can be classified at all.
+
+3. **Recording order — are the CSUS takes where their names put them?**
+   The camera clock decides, not the file names. `CSUS fin` has twice turned out to be the
+   tail of the extinction take rather than the recording after `CSUS 3`. When the clock
+   and the names disagree the run says so **twice**: once at the timeline stage, and again
+   beside the scored results, because the conditioning takes are laid end to end on one
+   clock and their order sets every block boundary. It is also written onto the cover of
+   every workbook the run produces.
+
+4. **Paired CS-US trials — the measurement.**
+   CR count, CR percentage, the block-by-block learning curve, the mean CR onset with its
+   SD per block, and the per-trial scatter.
+
+5. **CS-only probes during conditioning — did the learning hold?**
+   A probe delivers no puff, so a response on one cannot be a reaction to anything but the
+   CS. Probe responding that tracks the paired responding is what says the learning is
+   stable rather than an artefact of the puff arriving, so the acquisition figure draws
+   both on the same block axis. The probe line is **broken across any block with no
+   scoreable probe** rather than drawn through it: joining the only two probes that could
+   be scored would draw a trend over blocks that were never measured.
+
+Extinction and anything else in the study are reported after the five, under their own
+heading.
+
+The arithmetic cannot run in this order — a blink is startle, CR or UR only relative to
+the CR window, and the window comes from step 2 — so everything is classified first and
+reported in the order above. The run says so where it matters rather than implying the
+CS-only baseline was scored before the window existed.
+
+**Nothing in this order infers the structure of the experiment.** Block size, block count,
+whether the design is delay or trace, the CS duration and the ISI all come from the study
+file. The pipeline counts and measures; it does not decide what the protocol was.
+
 ## What changes from one participant to the next
 
 **The protocol usually does not.**  The session the app opens on is:

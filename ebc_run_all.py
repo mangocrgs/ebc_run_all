@@ -24,6 +24,7 @@ import os
 import sys
 import time
 import argparse
+import json
 import shutil
 import subprocess
 
@@ -127,7 +128,12 @@ def main():
     ap.add_argument("--config")
     ap.add_argument("--videos", help="folder of recordings; roles are guessed from the names")
     ap.add_argument("--study", help="participant / study name used in the output file names")
-    ap.add_argument("--from", dest="from_stage", choices=STAGES, default="locate")
+    # The default starts at the timeline, not at locate.  It used to start at locate,
+    # which meant the one stage that checks the recording order against the camera clock
+    # never ran unless somebody typed --from timeline - so every ordinary run took the
+    # order of the file names on trust, and the block boundaries with it.  The timeline
+    # stage decodes nothing; it reads container metadata and costs seconds.
+    ap.add_argument("--from", dest="from_stage", choices=STAGES, default="timeline")
     ap.add_argument("--only", choices=STAGES)
     ap.add_argument("--force", action="store_true", help="redo the video passes from scratch")
     ap.add_argument("--jobs", type=int, default=3,
@@ -195,6 +201,27 @@ def main():
     if "protocol" in todo:
         run("ebc_triage.py", cfg_path)
     if os.path.exists(eff):
+        # The effective config is a cache of triage's DECISIONS - which recordings can be
+        # scored and what each is anchored on.  It is not a record of the protocol, and
+        # it must never outrank one: a reflex latency typed into the study file, a
+        # corrected CS duration, a changed block structure all have to reach the run that
+        # was just asked for.  So the decisions are reused and the protocol is refreshed
+        # from the study file every time.
+        try:
+            eff_cfg = C.load(eff)
+        except Exception as e:            # truncated by an interrupted run, or unreadable
+            print("   %s could not be read (%s); running triage again" % (eff, e))
+            run("ebc_triage.py", cfg_path)
+            eff_cfg = C.load(eff)
+        if eff_cfg.get("protocol") != cfg.get("protocol"):
+            eff_cfg["protocol"] = cfg["protocol"]
+            # written beside itself and renamed into place, so an interrupted write
+            # leaves the previous file intact rather than an empty one
+            tmp = eff + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(eff_cfg, fh, indent=1)
+            os.replace(tmp, eff)
+            print("   protocol refreshed from %s" % (a.config or "the folder scan"))
         cfg_path = eff
         # triage may have dropped a recording it cannot score; nothing downstream should
         # still be asked to process it

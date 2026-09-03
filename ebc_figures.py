@@ -279,45 +279,135 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
     print("wrote " + os.path.basename(p))
 
 
-def acquisition(rows, proto, win, title, odir, key="cond"):
-    blocks = sorted({r["block"] for r in rows if r["block"]})
-    xs, cr_r, ur_r, ns = [], [], [], []
-    for b in blocks:
+def block_rate(rows, cls_prefix):
+    """Per block: what fraction of the scoreable trials in it were `cls_prefix`.
+
+    Blocks come from the protocol - ebc_protocol numbers them from the paired-trial
+    count the study file declares - so nothing here decides where a block begins.  It
+    reads the number off the trial and counts.
+    """
+    out = []
+    for b in sorted({r["block"] for r in rows if r["block"]}):
         g = [r for r in rows if r["block"] == b
              and r["scored_class"] is not None and not excluded(r["scored_class"])]
         if not g:
             continue
-        xs.append(b)
-        cr_r.append(100 * sum(str(r["scored_class"]).startswith("CR") for r in g) / len(g))
-        ur_r.append(100 * sum(str(r["scored_class"]).startswith("UR") for r in g) / len(g))
-        ns.append(len(g))
-    if not xs:
+        k = sum(str(r["scored_class"]).startswith(cls_prefix) for r in g)
+        out.append((b, 100.0 * k / len(g), len(g), k))
+    return out
+
+
+def block_onset(rows):
+    """Per block: the mean CR onset and its SD, over the CRs actually scored in it.
+
+    The SD is the spread of the onsets in that block and nothing else - no SD is shown
+    for a block with one CR in it, because one number has no spread, and none is shown
+    for a block with none.
+    """
+    out = []
+    for b in sorted({r["block"] for r in rows if r["block"]}):
+        o = [r["scored_onset_ms"] for r in rows
+             if r["block"] == b and str(r["scored_class"]).startswith("CR")
+             and r["scored_onset_ms"] is not None]
+        if not o:
+            continue
+        out.append((b, float(np.mean(o)),
+                    float(np.std(o, ddof=1)) if len(o) > 1 else None, len(o)))
+    return out
+
+
+def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
+    """The learning curve: how the response changes block by block.
+
+    Three things are drawn, and the third is the reason the figure has probes on it at
+    all.  The paired CR rate is the acquisition.  The rate of blinks that only follow
+    the puff is its mirror - as one rises the other falls.  The CS-only probes are the
+    check on both: a probe delivers no puff, so a response on one cannot be a reaction
+    to anything but the CS, and a probe rate that tracks the paired rate is what says
+    the learning is real and stable rather than an artefact of the puff arriving.
+
+    The lower panel is the same measurement in time rather than in count: the mean onset
+    of the CRs scored in each block, with the SD of that block's onsets.  A CR rate that
+    climbs while the onsets creep earlier is the response moving to where it does some
+    good; a rate that climbs with no change in onset is a different thing and is worth
+    seeing separately.
+    """
+    paired = block_rate(rows, "CR")
+    if not paired:
         return
-    f, a = plt.subplots(figsize=(13.5, 5.8))
+    urs = block_rate(rows, "UR")
+    onsets = block_onset(rows)
+    pr = block_rate(probes, "CR") if probes else []
+
+    f, (a, b_ax) = plt.subplots(2, 1, figsize=(13.5, 8.4), sharex=True,
+                                gridspec_kw=dict(height_ratios=[2.05, 1.0], hspace=.16))
+
+    xs = [p[0] for p in paired]
+    cr_r = [p[1] for p in paired]
     a.fill_between(xs, cr_r, color=CR_C, alpha=.16)
     a.plot(xs, cr_r, "-o", color=CR_C, lw=2.8, ms=9,
-           label="conditioned response (%.0f–%.0f ms)" % (win["lo_ms"], win["hi_ms"]))
-    a.plot(xs, ur_r, "-s", color=AL, lw=2.0, ms=7,
-           label="reaction to the puff only (≥ %.0f ms)" % win["hi_ms"])
-    for x_, y_, n_ in zip(xs, cr_r, ns):
+           label="conditioned response, paired trials (%.0f–%.0f ms)"
+                 % (win["lo_ms"], win["hi_ms"]))
+    if urs:
+        a.plot([u[0] for u in urs], [u[1] for u in urs], "-s", color=AL, lw=2.0, ms=7,
+               label="reaction to the puff only (≥ %.0f ms)" % win["hi_ms"])
+    if pr:
+        # The probe line is BROKEN across blocks that have no scoreable probe, rather
+        # than drawn straight through them.  Joining block 2 to block 10 because those
+        # are the only two probes that could be scored draws eight blocks of trend that
+        # were never measured, and it reads as a decline that nothing in the data says.
+        # A gap is a gap.  Each point is also labelled with the number of probes behind
+        # it, because one probe is 0% or 100% and nothing in between, and a reader has
+        # to be able to see that.
+        got = {p[0]: p for p in pr}
+        py = [got[x][1] if x in got else float("nan") for x in xs]
+        a.plot(xs, py, "--^", color=CS_C, lw=2.2, ms=9,
+               label="CS-only probe, no puff delivered  (%d scoreable, %d block(s))"
+                     % (sum(p[2] for p in pr), len(pr)))
+        for x_, y_, n_, _k in pr:
+            a.annotate("n=%d" % n_, (x_, y_), textcoords="offset points",
+                       xytext=(0, 11 if y_ < 8 else -15), ha="center", fontsize=8,
+                       color=CS_C)
+    for x_, y_, n_, _k in paired:
         a.annotate("%.0f%%\nn=%d" % (y_, n_), (x_, y_), textcoords="offset points",
                    xytext=(0, 12), ha="center", fontsize=8.5, color=MUT, linespacing=1.3)
     a.set_ylim(-5, 122); a.set_xlim(min(xs) - .5, max(xs) + .5)
-    a.set_xticks(xs)
-    a.set_xlabel("block  (%d paired CS-US trials each)  ·  %s"
-                 % (proto["paired_per_block"], C.design(proto)["label"].lower()), fontsize=11)
     a.set_ylabel("% of scoreable trials in the block", fontsize=11)
     a.set_title("Acquisition — the blink shifts from reacting to the puff, to anticipating it",
                 fontsize=14.5, loc="left", pad=14, color=INK, fontweight="semibold")
     a.grid(axis="y", color=GRID, lw=.8); a.set_axisbelow(True)
     for s in ("top", "right"):
         a.spines[s].set_visible(False)
-    a.legend(fontsize=10, frameon=False, loc="upper left", ncol=2,
-             bbox_to_anchor=(0, -.13), handletextpad=.5, columnspacing=2.2)
+    a.legend(fontsize=10, frameon=False, loc="upper left", ncol=3,
+             bbox_to_anchor=(0, -.02), handletextpad=.5, columnspacing=2.2)
+
+    if onsets:
+        ox = [o[0] for o in onsets]
+        om = [o[1] for o in onsets]
+        oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
+        b_ax.errorbar(ox, om, yerr=oe, fmt="-o", color=CR_C, lw=2.2, ms=7.5,
+                      ecolor=CR_C, elinewidth=1.4, capsize=4, alpha=.95)
+        for x_, y_, sd_, n_ in onsets:
+            b_ax.annotate("n=%d" % n_, (x_, y_), textcoords="offset points",
+                          xytext=(10, -3.5), ha="left", fontsize=8, color=MUT)
+        b_ax.axhspan(win["lo_ms"], win["hi_ms"], color=CR_C, alpha=.07, zorder=0)
+        b_ax.set_ylim(win["lo_ms"] - 25, win["hi_ms"] + 25)
+    else:
+        b_ax.text(.5, .5, "no CR onsets to average", transform=b_ax.transAxes,
+                  ha="center", va="center", fontsize=10, color=MUT)
+    b_ax.set_ylabel("mean CR onset ± SD  (ms)", fontsize=11)
+    b_ax.set_xticks(xs)
+    b_ax.set_xlabel("block  (%d paired CS-US trials each)  ·  %s"
+                    % (proto["paired_per_block"], C.design(proto)["label"].lower()),
+                    fontsize=11)
+    b_ax.grid(axis="y", color=GRID, lw=.8); b_ax.set_axisbelow(True)
+    for s in ("top", "right"):
+        b_ax.spines[s].set_visible(False)
+
     f.suptitle(title, fontsize=17, y=.988, x=.010, ha="left", va="top",
                color=INK, fontweight="semibold")
-    f.text(.010, .915, window_note(win), fontsize=9.5, color=MUT, ha="left", va="top")
-    f.subplots_adjust(left=.075, right=.985, top=.78, bottom=.22)
+    f.text(.010, .944, window_note(win), fontsize=9.5, color=MUT, ha="left", va="top")
+    f.subplots_adjust(left=.075, right=.985, top=.855, bottom=.095)
     p = os.path.join(odir, "%s_acquisition.png" % key)
     f.savefig(p, dpi=170); plt.close(f)
     print("wrote " + os.path.basename(p))
@@ -423,13 +513,20 @@ def main():
              "ext": "%s — extinction  |  CS-only",
              "baseline_cs": "%s — baseline, CS alone",
              "baseline_us": "%s — baseline, US alone"}
+    # The CS-only probes are drawn on the paired trials' own block axis, because that
+    # comparison - does responding to the CS alone track responding on the paired
+    # trials? - is the whole reason the probes are run.  They are picked out here rather
+    # than inside the figure so the figure is handed the rows and decides nothing about
+    # which recordings they came from.
+    PROBES = [r for r in ROWS
+              if r["role"] == "conditioning" and r["trial_type"] == "CS-only"]
     for key, role, tt, sub, rows in groups_present(ROWS, proto):
         t = TITLE[key]
         title = (t % (study, len(rows))) if key == "cond_paired" else (t % study)
         scatter(rows, key, role, sub, title, proto, win, odir,
                 proto["n_blocks"], proto["paired_per_block"])
         if key == "cond_paired":
-            acquisition(rows, proto, win, title, odir)
+            acquisition(rows, proto, win, title, odir, probes=PROBES)
         rasters(rows, M["traces"], key, role, title, proto, win, odir, order)
 
 

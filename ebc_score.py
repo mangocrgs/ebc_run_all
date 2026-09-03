@@ -261,6 +261,236 @@ def measure(tr, v, e, ms_per_frame, closed, search_ms):
                 on_us=tr["trial_type"] == "US-only")
 
 
+BANNER = "=" * 78
+
+
+def no_us_baseline(cfg, proto, reflex, win):
+    """No measured reflex: say what that costs, and make the choice the user's.
+
+    The pipeline will not pick for you.  Running on the protocol's standard window is a
+    defensible thing to do and it is what happens if you do nothing - but it is a
+    different measurement from one made against this person's own reflex, and a workbook
+    that does not say which it was cannot be defended later.
+    """
+    print(BANNER)
+    print("NO US-ONLY BASELINE - THE CR WINDOW IS NOT MEASURED FOR THIS PARTICIPANT")
+    print(BANNER)
+    print("  %s." % (reflex.get("why") or "there is no US-only recording in this study"))
+    print("""
+  The CR window is normally the participant's own blink reflex: the mean onset of their
+  unconditioned blinks minus 1.5 SD, applied after the CS and again after the US.  With
+  no US-only baseline there is nothing to measure it from, and you have to choose:
+
+    1  MEASURE IT BY HAND.  Read a dozen unconditioned blinks off the US-only video,
+       frame by frame, and put the latency in the study file:
+
+           "protocol": { ..., "reflex_ms": 43 }
+
+       The run then uses that number and every workbook says it was entered by hand.
+
+    2  USE THE STANDARD WINDOW.  %.0f-%.0f ms after CS onset - the protocol's startle
+       cut-off to the nominal US onset.  This is what is being used right now.  It
+       treats both stimuli as if a blink could follow them instantly, so a blink in the
+       first %.0f ms after the puff is counted as a reaction to the puff when it may be
+       a late CR.
+
+  Option 2 is running.  It is a real choice with a real cost, not a default to be
+  passed over - and comparing a participant scored one way with one scored the other is
+  comparing two different measurements.  Record ten to fifteen US-only trials in the
+  next session and neither option is needed.""" % (
+        win["lo_ms"], win["hi_ms"], float(proto["us_onset_ms"]) - win["lo_ms"]))
+    print(BANNER)
+
+
+def cs_baseline(cfg, rows, win):
+    """Step one: what the CS alone does, before any pairing has happened.
+
+    Two different things come out of a CS-only baseline, and they are not
+    interchangeable:
+
+      startle        a blink that begins BEFORE the CR window opens - sooner after the
+                     CS than any stimulus can be responded to.  It is a reaction to the
+                     onset of the stimulus itself, not to what the stimulus predicts.
+                     It is what the window's lower edge exists to exclude, and a
+                     participant who does it often will have paired trials thrown out
+                     for the same reason, so it is flagged here rather than discovered
+                     block by block.
+      CS-alone       a blink INSIDE the CR window on a recording where no US is ever
+      responding     delivered.  There has been no pairing, so none of it can be
+                     conditioned: this is the false-positive rate, and it is the number
+                     the conditioning CR rate has to be read against.
+
+    Both are counted, neither is judged.  There is no threshold here that says how much
+    startle is too much - that is a fact about a laboratory and a population, not about
+    this recording, and inventing one would put a pass/fail label on a number the
+    analyser has no standing to grade.  The rates are stated, and stated again next to
+    every CR rate downstream.
+
+    Returns the summary, or None when there is no CS-only baseline to summarise.
+    """
+    got = [r for r in rows if r["role"] == "baseline_cs"]
+    if not got:
+        no_cs_baseline(cfg)
+        return None
+
+    scoreable = [r for r in got if r["scored_class"] not in (None, win["moving_label"])]
+    startle = [r for r in scoreable if r["scored_class"] == win["alpha_label"]]
+    inwin = [r for r in scoreable if r["scored_class"] == win["cr_no_us_label"]]
+    late = [r for r in scoreable if r["scored_class"] == win["late_no_us_label"]]
+    n = len(scoreable)
+    pct = lambda k: (100.0 * k / n) if n else None
+
+    out = dict(n_trials=len(got), n_scoreable=n,
+               n_startle=len(startle), n_in_window=len(inwin), n_late=len(late),
+               startle_pct=pct(len(startle)), false_positive_pct=pct(len(inwin)),
+               startle_onsets_ms=[r["scored_onset_ms"] for r in startle
+                                  if r["scored_onset_ms"] is not None],
+               window_lo_ms=win["lo_ms"], window_hi_ms=win["hi_ms"],
+               sessions=sorted({r["session_name"] for r in got}))
+    o = [r["scored_onset_ms"] for r in inwin if r["scored_onset_ms"] is not None]
+    if o:
+        out["in_window_mean_ms"] = round(float(np.mean(o)), 1)
+        out["in_window_sd_ms"] = round(float(np.std(o, ddof=1)), 1) if len(o) > 1 else None
+
+    print("  %s: %d trial(s), %d scoreable" %
+          (", ".join(out["sessions"]), out["n_trials"], n))
+    if not n:
+        print("  none of them could be scored, so the CS alone tells us nothing here.")
+        return out
+    print("  startle (blink before %.0f ms, too soon to be a response)   %3d / %-3d  %5.1f%%"
+          % (win["lo_ms"], len(startle), n, out["startle_pct"]))
+    print("  in the CR window with no US anywhere - false positives      %3d / %-3d  %5.1f%%"
+          % (len(inwin), n, out["false_positive_pct"]))
+    print("  later than the window closes                                %3d / %-3d  %5.1f%%"
+          % (len(late), n, pct(len(late))))
+
+    if startle:
+        print()
+        print(BANNER)
+        print("STARTLE TO THE CS ALONE - %d of %d baseline trials (%.0f%%)"
+              % (len(startle), n, out["startle_pct"]))
+        print(BANNER)
+        if out["startle_onsets_ms"]:
+            print("  onsets: %s ms - all before the CR window opens at %.0f ms."
+                  % (", ".join("%.0f" % v for v in sorted(out["startle_onsets_ms"])),
+                     win["lo_ms"]))
+        print("""
+  These blinks began too soon after the CS for the CS to have caused them, so they are
+  not conditioned responses and they are not counted as any.  The flag is here because
+  the same reaction will occur on paired trials, where it does two things: it is
+  excluded from the CR count, and a lid already moving when the puff arrives can hide
+  the response that follows it.  Expect this participant's paired trials to carry more
+  in-progress-at-stimulus exclusions than usual, and read the CR rate as a fraction of
+  the trials that survived rather than of the trials that were run.""")
+        print(BANNER)
+
+    if inwin:
+        print()
+        print("  %.0f%% of CS-alone trials produced a blink inside the CR window with no US"
+              % out["false_positive_pct"])
+        print("  in the recording.  Every conditioning CR rate below is to be read against")
+        print("  that number, not against zero.")
+    return out
+
+
+def no_cs_baseline(cfg):
+    """No CS-only baseline: the false-positive rate is unknown, and cannot be guessed."""
+    # A CS-only recording that triage threw out is NOT the same thing as a study that
+    # never had one, and saying so would be a lie about the session.  The effective
+    # config keeps what it dropped, and why, under its own key - so look there before
+    # telling anyone their study has no baseline.
+    listed = [r for r in cfg["recordings"] if r.get("role") == "baseline_cs"]
+    dropped = [r for r in cfg.get("excluded", []) if r.get("role") == "baseline_cs"]
+    print(BANNER)
+    print("NO CS-ONLY BASELINE - THE FALSE-POSITIVE RATE IS UNKNOWN")
+    print(BANNER)
+    if dropped:
+        for r in dropped:
+            print("  %s WAS recorded, and was left out of this run:"
+                  % (r.get("file") or r.get("tag")))
+            print("    %s" % (r.get("excluded_because")
+                              or "no reason was recorded, which is itself worth chasing"))
+    elif listed:
+        print("  %s is in the study file but produced no scored trials - its CS LED"
+              % ", ".join(r["file"] for r in listed))
+        print("  could not be read, so the trial times could not be recovered.")
+    else:
+        print("  There is no CS-only recording in this study.")
+    print("""
+  The CS-only baseline is what says whether the tone alone makes this person blink.
+  Without it there is nothing to read the conditioning CR rate against: a 60% CR rate
+  means one thing next to a 5% false-positive rate and something else entirely next to
+  a 40% one.
+
+  This one cannot be recovered automatically.  A CS-only recording delivers no US, so
+  when its CS LED is unreadable there is no second channel to take the trial times from.
+
+    SCORE IT BY HAND.  Open the recording, read the onset of each CS presentation and
+    of any blink that follows, and record them beside the analyser's numbers.  Until
+    that exists, quote the conditioning CR rate with the false-positive rate stated as
+    unknown - not as zero.""")
+    print(BANNER)
+
+
+def order_check(wdir):
+    """Step three: are the CSUS takes in the order their names claim?
+
+    ebc_timeline reads the camera clock and renumbers the recordings when the file names
+    disagree with it.  That happens in the first stage of a run that takes the better
+    part of an hour, and its warning has scrolled a long way off the screen by the time
+    the numbers it moved arrive.  So it is re-stated here, next to the block numbers it
+    decided, and returned so merged.json can carry it into the workbooks.
+    """
+    path = os.path.join(wdir, "timeline.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            tl = json.load(fh)
+    except (OSError, ValueError):
+        print("  no timeline.json in this run, so the recording order was never checked")
+        print("  against the camera clock.  The order below is the order of the names.")
+        return None
+    changed = tl.get("order_changed") or []
+    if not changed:
+        print("  the file names and the camera clock agree - nothing was reordered.")
+        return changed
+    print(BANNER)
+    print("ORDER CORRECTED - %d recording(s) are not where their names put them"
+          % len(changed))
+    print(BANNER)
+    for c in changed:
+        print("  %-28s %-13s was #%s by name, is #%s by the clock"
+              % (str(c.get("file"))[:28], c.get("role"), c.get("was"), c.get("now")))
+    print("""
+  The conditioning takes are laid end to end on one clock, so their order is what sets
+  every block boundary and every trial number below.  The order used is the camera's,
+  not the names'.  If the names are right and the clock is not - a camera whose date was
+  never set, or two cameras in one session - then the blocks below are wrong and this
+  run should not be quoted.  Check the recorded times in the timeline table before
+  using these numbers.""")
+    print(BANNER)
+    return changed
+
+
+def summarise(rows, role, tt, win, label):
+    """One line of the trial summary: how many, how many scoreable, how many CR."""
+    rs = [r for r in rows if r["role"] == role and r["trial_type"] == tt]
+    if not rs:
+        return None
+    sc = [r for r in rs if r["scored_class"] not in (None, win["moving_label"])]
+    cr = [r for r in sc if str(r["scored_class"]).startswith("CR")]
+    rec = [r for r in rs if r["first_response_obscured"] == "yes"
+           and r["secondary_onset_ms"] is not None]
+    o = [r["scored_onset_ms"] for r in cr if r["scored_onset_ms"] is not None]
+    line = "  %-32s %3d trials, %3d scoreable, %3d CR" % (label, len(rs), len(sc), len(cr))
+    if o and sc:
+        line += " (%.0f%%), mean onset %.0f ms" % (len(cr) / len(sc) * 100,
+                                                   float(np.mean(o)))
+        if len(o) > 1:
+            line += " +- %.0f SD" % float(np.std(o, ddof=1))
+    print(line + "   [%d recovered behind an artefact]" % len(rec))
+    return dict(role=role, trial_type=tt, n=len(rs), n_scoreable=len(sc), n_cr=len(cr))
+
+
 def build_row(m, win, study, proto, des):
     """One measured trial, labelled against this study's CR window."""
     tr, v, Cl, k0, MS = m["tr"], m["v"], m["C"], m["k0"], m["MS"]
@@ -394,20 +624,60 @@ def main():
     us_rows = [build_row(m, FALLBACK, cfg["study"], proto, DES)
                for m in MEAS if m["on_us"]]
     REFLEX = reflex_from_us_only(us_rows)
+
+    # A reflex latency typed into the study file stands in for one that could not be
+    # measured.  It is not a default and it is not silent: it is a value someone read off
+    # the video themselves, and it is recorded as such everywhere the window is quoted.
+    manual_ms = proto.get("reflex_ms")
+    if not REFLEX.get("onset_ms") and manual_ms is not None:
+        REFLEX = dict(REFLEX, onset_ms=float(manual_ms), n=0, k=None,
+                      why="entered by hand in the study file (reflex_ms)", by_hand=True)
     WIN = C.cr_window(proto, REFLEX)
-    if WIN["measured"]:
-        print("reflex onset measured from %d US-only trial(s): %.0f +- %.0f ms after the "
-              "puff, mean - %.1f SD = %.0f ms"
-              % (REFLEX["n"], REFLEX["mean_ms"], REFLEX["sd_ms"], REFLEX["k"],
-                 REFLEX["onset_ms"]))
-    else:
-        print("reflex onset not measured (%s); falling back to the protocol's %.0f ms "
-              "startle cut-off" % (REFLEX.get("why") or "no US-only baseline",
-                                   float(proto["alpha_ms"])))
-    print("CR window = %.0f-%.0f ms from CS onset  [%s]"
-          % (WIN["lo_ms"], WIN["hi_ms"], WIN["cr_label"]))
 
     rows = [build_row(m, WIN, cfg["study"], proto, DES) for m in MEAS]
+
+    # ---- read in the order the session is worked through ----------------------------
+    # The arithmetic above has only one possible order, and it is not this one: a blink
+    # is startle, CR or UR only relative to the CR window, and that window is measured
+    # from the US-only baseline, so every trial in the study - the CS-only baseline
+    # included - has to be classified after the US-only trials have been.  The reading
+    # order is a different thing from the dependency order, and this is the reading
+    # order: what the CS alone does, how fast the reflex is, whether the recordings are
+    # where their names put them, the paired conditioning, then the probes that say
+    # whether what was learnt held.
+    print()
+    print(BANNER)
+    print("STEP 1 of 5   CS-ONLY BASELINE - does the CS alone make this person blink?")
+    print(BANNER)
+    CS_BASE = cs_baseline(cfg, rows, WIN)
+
+    print()
+    print(BANNER)
+    print("STEP 2 of 5   US-ONLY BASELINE - how fast is the reflex, and where does that")
+    print("              put the CR window?")
+    print(BANNER)
+    if WIN["measured"] and REFLEX.get("by_hand"):
+        print("  CR WINDOW FROM A HAND-ENTERED REFLEX LATENCY")
+        print("  reflex_ms = %.0f ms was taken from the study file, not measured from a"
+              % float(manual_ms))
+        print("  US-only baseline.  The CR window is %.0f-%.0f ms.  Every workbook says so."
+              % (WIN["lo_ms"], WIN["hi_ms"]))
+    elif WIN["measured"]:
+        print("  reflex onset measured from %d US-only trial(s): %.0f +- %.0f ms after "
+              "the puff," % (REFLEX["n"], REFLEX["mean_ms"], REFLEX["sd_ms"]))
+        print("  mean - %.1f SD = %.0f ms" % (REFLEX["k"], REFLEX["onset_ms"]))
+        print("  CR window = CS onset + %.0f ms  ->  US onset + %.0f ms"
+              % (REFLEX["onset_ms"], REFLEX["onset_ms"]))
+    else:
+        no_us_baseline(cfg, proto, REFLEX, WIN)
+    print("  CR window = %.0f-%.0f ms from CS onset  [%s]"
+          % (WIN["lo_ms"], WIN["hi_ms"], WIN["cr_label"]))
+
+    print()
+    print(BANNER)
+    print("STEP 3 of 5   RECORDING ORDER - are the CSUS takes where their names put them?")
+    print(BANNER)
+    ORDER_CHANGED = order_check(wdir)
 
     order = {r: i for i, r in enumerate(C.ROLES)}
     rows.sort(key=lambda r: (order[r["role"]], r["session"], r["session_trial"]))
@@ -444,6 +714,10 @@ def main():
 
     merged = dict(study=cfg["study"], protocol=proto, design=DES, closed_ref=CLOSED,
                   cr_window=WIN, reflex=REFLEX,
+                  # step 1 and step 3 of the reading order, carried so a workbook
+                  # opened weeks later still says what the CS alone did and
+                  # whether the recordings were put back in a different order
+                  cs_baseline=CS_BASE, order_changed=ORDER_CHANGED,
                   manual_review=dict(trials=manual, n_total=len(manual),
                                      n_conditioning_paired=n_paired,
                                      n_scoreable=sum(1 for r in rows
@@ -458,21 +732,32 @@ def main():
         json.dump(rows, fh)
 
     print()
-    for role, tt in (("conditioning", "CS-US"), ("conditioning", "CS-only"),
-                     ("extinction", "CS-only"), ("baseline_cs", "CS-only"),
-                     ("baseline_us", "US-only")):
-        rs = [r for r in rows if r["role"] == role and r["trial_type"] == tt]
-        if not rs:
-            continue
-        sc = [r for r in rs if r["scored_class"] not in (None, WIN["moving_label"])]
-        cr = [r for r in sc if str(r["scored_class"]).startswith("CR")]
-        rec = [r for r in rs if r["first_response_obscured"] == "yes"
-               and r["secondary_onset_ms"] is not None]
-        o = [r["scored_onset_ms"] for r in cr]
-        line = "%12s / %-8s: %3d trials, %3d scoreable, %3d CR" % (role, tt, len(rs), len(sc), len(cr))
-        if o:
-            line += " (%.0f%%), mean CR onset %.0f ms" % (len(cr) / len(sc) * 100, float(np.mean(o)))
-        print(line + "   [%d recovered behind an artefact]" % len(rec))
+    print(BANNER)
+    print("STEP 4 of 5   PAIRED CS-US CONDITIONING - the measurement itself")
+    print(BANNER)
+    summarise(rows, "conditioning", "CS-US", WIN, "paired CS-US")
+    if CS_BASE and CS_BASE.get("false_positive_pct") is not None:
+        print("  read against the CS-only baseline: %.0f%% of CS-alone trials produced a"
+              % CS_BASE["false_positive_pct"])
+        print("  blink in the same window with no US in the recording.")
+
+    print()
+    print(BANNER)
+    print("STEP 5 of 5   CS-ONLY PROBES DURING CONDITIONING - did the learning hold?")
+    print(BANNER)
+    if not summarise(rows, "conditioning", "CS-only", WIN, "CS-only probes"):
+        print("  no CS-only probes in the conditioning recordings, so there is nothing")
+        print("  here to read the stability of the learning off.")
+
+    after = [("extinction", "CS-only", "extinction"),
+             ("baseline_us", "US-only", "US-only baseline")]
+    shown_after = [t for t in after
+                   if any(r["role"] == t[0] and r["trial_type"] == t[1] for r in rows)]
+    if shown_after:
+        print()
+        print("Also in this study, outside the five steps:")
+        for role, tt, label in shown_after:
+            summarise(rows, role, tt, WIN, label)
 
     if manual:
         print("\n%d trial(s) could not be scored with confidence and should be read off "

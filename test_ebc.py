@@ -231,6 +231,90 @@ def test_detect_rejects_the_wrong_duration():
     assert sum(e["ok"] for e in ev) == 0
 
 
+# --------------------------------------------- the reading order, and what it must say
+def _cs_row(onset_ms, cls):
+    """One scored CS-only baseline trial, in the shape cs_baseline() reads."""
+    return dict(role="baseline_cs", trial_type="CS-only", session_name="CS ONLY",
+                session_trial=1, scored_onset_ms=onset_ms, scored_class=cls,
+                first_response_obscured="no", needs_manual_scoring=False)
+
+
+def test_startle_in_the_cs_only_baseline_is_flagged_and_not_counted_as_a_CR():
+    """A blink before the window opens is startle: flagged, and no part of any CR rate."""
+    rows = [_cs_row(LO - 20, WIN["alpha_label"]),
+            _cs_row(LO - 10, WIN["alpha_label"]),
+            _cs_row(LO + 100, WIN["cr_no_us_label"]),
+            _cs_row(HI + 200, WIN["late_no_us_label"])]
+    out = S.cs_baseline(dict(recordings=[], excluded=[]), rows, WIN)
+    assert out["n_scoreable"] == 4, out
+    assert out["n_startle"] == 2, out
+    assert out["startle_pct"] == 50.0, out
+    # the one blink inside the window is the false-positive rate, and startle is not in it
+    assert out["n_in_window"] == 1 and out["false_positive_pct"] == 25.0, out
+
+
+def test_a_dropped_cs_only_baseline_is_not_reported_as_never_recorded():
+    """Triage throwing a recording out is a different fact from it not existing.
+
+    The effective config carries what was dropped and why; saying "there is no CS-only
+    recording in this study" when there is one on the SD card sends someone looking for
+    a recording they already made.
+    """
+    import io as _io, contextlib
+    cfg = dict(recordings=[],
+               excluded=[dict(file="CS ONLY.MP4", role="baseline_cs",
+                              excluded_because="its CS LED could not be read")])
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        out = S.cs_baseline(cfg, [], WIN)
+    txt = buf.getvalue()
+    assert out is None
+    assert "CS ONLY.MP4" in txt and "WAS recorded" in txt, txt
+    assert "There is no CS-only recording in this study." not in txt, txt
+
+
+def test_a_corrected_recording_order_is_warned_about_where_the_results_are():
+    """The camera disagreeing with the file names has to reach the person reading the
+    numbers, not only the first minute of a fifty-minute log."""
+    import io as _io, json as _json, contextlib, tempfile
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "timeline.json"), "w", encoding="utf-8") as fh:
+        _json.dump(dict(order_changed=[dict(file="CSUS 4.MP4", role="conditioning",
+                                            was=4, now=2)]), fh)
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        changed = S.order_check(d)
+    txt = buf.getvalue()
+    assert changed and changed[0]["file"] == "CSUS 4.MP4"
+    assert "ORDER CORRECTED" in txt and "CSUS 4.MP4" in txt, txt
+    assert "was #4 by name, is #2 by the clock" in txt, txt
+
+
+def test_an_unchanged_order_says_so_rather_than_saying_nothing():
+    import io as _io, json as _json, contextlib, tempfile
+    d = tempfile.mkdtemp()
+    with open(os.path.join(d, "timeline.json"), "w", encoding="utf-8") as fh:
+        _json.dump(dict(order_changed=[]), fh)
+    buf = _io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        changed = S.order_check(d)
+    assert changed == []
+    assert "agree" in buf.getvalue()
+
+
+def test_the_probe_curve_is_broken_across_blocks_with_no_probe():
+    """Joining the only two scoreable probes draws a trend over blocks never measured."""
+    import ebc_figures as F
+    rows = [dict(block=1, scored_class=WIN["cr_no_us_label"], scored_onset_ms=200.0),
+            dict(block=9, scored_class=WIN["late_no_us_label"], scored_onset_ms=600.0)]
+    pr = F.block_rate(rows, "CR")
+    assert [p[0] for p in pr] == [1, 9], pr
+    got = {p[0]: p for p in pr}
+    ys = [got[x][1] if x in got else float("nan") for x in range(1, 11)]
+    gaps = [y for y in ys[1:8]]
+    assert all(y != y for y in gaps), ys        # NaN != NaN: every block between is a gap
+
+
 # ------------------------------------------------------------------ the suite itself
 def test_every_test_defined_in_this_file_is_collected():
     """The failure this file's docstring describes, as a test.

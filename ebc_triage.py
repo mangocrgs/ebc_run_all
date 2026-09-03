@@ -193,7 +193,7 @@ def geometry_check(stims):
 def run(cfg):
     wdir = work_dir(cfg)
     proto = cfg["protocol"]
-    out, notes, excluded, seen, suspect = [], [], [], [], []
+    out, notes, excluded, seen, suspect, gone = [], [], [], [], [], []
     stims = {}
 
     for rec in cfg["recordings"]:
@@ -211,6 +211,14 @@ def run(cfg):
         if drop:
             entry.update(action="excluded", message=drop)
             excluded.append(entry)
+            # Also into the config every later stage reads.  Dropping it from
+            # `recordings` and nowhere else made a recording that was thrown out here
+            # look exactly like one that was never made: the score stage went on to
+            # tell people their study had no CS-only baseline when it had one, on the
+            # SD card, that this function had just refused.  A stage that removes
+            # something says so where the removal is visible.
+            gone.append(dict({k: v for k, v in rec.items() if k != "path"},
+                             include=False, excluded_because=drop))
             continue
         r = dict(rec)
         r["anchor"] = anchor
@@ -224,6 +232,7 @@ def run(cfg):
 
     eff = dict(cfg)
     eff["recordings"] = [{k: v for k, v in r.items() if k != "path"} for r in out]
+    eff["excluded"] = list(eff.get("excluded") or []) + gone
     eff_path = os.path.join(wdir, "effective_config.json")
     with open(eff_path, "w", encoding="utf-8") as fh:
         json.dump(eff, fh, indent=1)

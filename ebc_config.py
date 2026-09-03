@@ -97,7 +97,15 @@ def mpl_font(plt):
 #   extinction    CS alone after conditioning.  No US is delivered.
 #   baseline_cs   CS alone before/outside conditioning.  Not part of the block structure.
 #   baseline_us   US alone.  There is no CS, so trials are anchored on the US instead.
-ROLES = ("conditioning", "extinction", "baseline_cs", "baseline_us")
+# The order a session is worked through, and the order everything is reported in.  It is
+# a dependency chain, not a preference:
+#   baseline_cs   does the CS alone make this person blink?  The false-positive rate the
+#                 conditioning CR rate has to be read against.
+#   baseline_us   how fast is their blink reflex?  This measures the CR window, so it has
+#                 to be settled before any other recording can be classified at all.
+#   conditioning  the measurement, once there is a window to make it against.
+#   extinction    what happens to the responding afterwards.
+ROLES = ("baseline_cs", "baseline_us", "conditioning", "extinction")
 
 # Which LED a recording's trials are built from.
 #

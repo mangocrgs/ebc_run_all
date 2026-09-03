@@ -314,7 +314,8 @@ RE_FRAMES = re.compile(r"(\d+)\s+frames\s+([\d.]+)s")
 
 # key -> label.  The key is what ebc_run_all prints (">>> ebc_<key>.py"), and the page
 # weights its overall progress bar by it, so these must stay in step with STAGES there.
-PHASE = {"locate": "finding the stimulator box", "stimulus": "reading the LEDs",
+PHASE = {"timeline": "putting the recordings in order",
+         "locate": "finding the stimulator box", "stimulus": "reading the LEDs",
          "triage": "checking the LED signal quality",
          "protocol": "building trials", "eyes": "tracking eyelids",
          "score": "scoring", "figures": "drawing figures",
@@ -328,6 +329,9 @@ PHASE_ADVICE = {
     "checking": "Making sure ffmpeg and the Python packages are here before anything "
                 "long starts.",
     "starting": "Writing the study file and starting the pipeline.",
+    "timeline": "Reading the camera clock out of each file - seconds, nothing is "
+                "decoded. This is what decides the order the recordings are analysed "
+                "in, and so where every block boundary falls.",
     "locate": "One quick survey pass per recording. Under a minute each.",
     "stimulus": "The slow part - roughly 3 minutes per GB of video. Safe to leave this "
                 "running and come back.",
@@ -381,6 +385,14 @@ def load_manual():
     with LOCK:
         if mr:
             STATE["manual"] = mr
+        # Step one of the reading order and the order check, taken from the same file
+        # for the same reason: the page, the console and the workbooks must not be able
+        # to disagree about what the CS alone did or about which order the recordings
+        # were analysed in.  Both may legitimately be absent - a study with no CS-only
+        # baseline, or a run whose recordings needed no reordering - and the page draws
+        # nothing rather than guessing at either.
+        STATE["baseline"] = m.get("cs_baseline")
+        STATE["order_changed"] = m.get("order_changed")
         # Where the CR window actually ended up, so the page reports the window the run
         # was scored against rather than the one the protocol panel predicted before the
         # US-only baseline had been read.
