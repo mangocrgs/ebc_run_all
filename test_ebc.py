@@ -31,12 +31,11 @@ def test_cr_before_the_puff():
 
 
 def test_ur_after_the_puff():
-    """Late enough that the puff could have caused it: 350 ms puff + 60 ms reflex."""
     assert S.classify(430.0, 350.0, False, False, True).startswith("UR")
 
 
 def test_alpha_is_not_a_cr():
-    assert S.classify(40.0, 350.0, False, False, True).startswith("alpha")
+    assert S.classify(25.0, 350.0, False, False, True).startswith("alpha")
 
 
 def test_late_response_on_a_probe_is_a_CR_not_a_UR():
@@ -53,17 +52,10 @@ def test_probe_and_paired_trials_differ_at_the_same_latency():
     assert paired.startswith("UR") and probe.startswith("CR")
 
 
-def test_the_old_boundary_would_have_called_this_a_UR():
-    """The regression A1 fixes: at the puff exactly, the old rule said UR.
-
-    350.4 ms is a real value - six of Carole's trials sit there, 0.4 ms after the puff,
-    and every one of them was scored UR by the line that used to be at us_onset_ms.
-    """
-    assert S.classify(350.4, 350.0, False, False, True, ur_latency_ms=67.0).startswith("CR")
 
 
 def test_alpha_still_wins_on_a_probe():
-    assert S.classify(40.0, 350.0, False, False, False).startswith("alpha")
+    assert S.classify(25.0, 350.0, False, False, False).startswith("alpha")
 
 
 def test_us_anchored_trial_is_always_unconditioned():
@@ -197,6 +189,63 @@ if __name__ == "__main__":
     sys.exit(1 if bad else 0)
 
 
+# ------------------------------------------------------------------ the response window
+def test_cr_window_runs_from_CS_plus_offset_to_US_plus_offset():
+    lo, hi = S.RESP_OFFSET_MS, 350.0 + S.RESP_OFFSET_MS
+    assert S.classify(lo + 1, 350.0, False, False, True).startswith("CR")
+    assert S.classify(hi - 1, 350.0, False, False, True).startswith("CR")
+    assert S.classify(hi + 1, 350.0, False, False, True).startswith("UR")
+
+
+def test_too_early_to_be_a_response_to_the_CS():
+    assert S.classify(S.RESP_OFFSET_MS - 1, 350.0, False, False, True).startswith("alpha")
+
+
+def test_the_offset_is_mean_minus_one_and_a_half_sd():
+    assert abs(S.RESP_OFFSET_MS - (S.REFLEX_MEAN_MS - 1.5 * S.REFLEX_SD_MS)) < 1e-9
+
+
+def test_the_same_window_applies_to_every_participant():
+    """One rule, not a per-person fit: classify() takes no latency argument."""
+    import inspect
+    assert "latency" not in str(inspect.signature(S.classify))
+
+
+def test_the_old_boundary_would_have_called_this_a_UR():
+    """350.4 ms - six of Carole's trials sit there, 0.4 ms after the puff."""
+    assert S.classify(350.4, 350.0, False, False, True).startswith("CR")
+
+
+def test_a_very_late_blink_is_neither_CR_nor_UR():
+    assert S.classify(950.0, 350.0, False, False, True).startswith("spontaneous")
+
+
+def test_a_late_but_plausible_probe_response_is_still_a_CR():
+    assert S.classify(370.0, 350.0, False, False, False).startswith("CR")
+
+
+def test_spontaneous_blink_in_a_us_only_trial_is_not_a_UR():
+    assert S.classify(901.0, 350.0, False, True, True).startswith("spontaneous")
+    assert S.classify(67.0, 350.0, False, True, True) == "UR to the puff"
+
+
+if __name__ == "__main__":
+    import traceback
+    fns = [(n, f) for n, f in sorted(globals().items())
+           if n.startswith("test_") and callable(f)]
+    bad = 0
+    for n, f in fns:
+        try:
+            f()
+            print("  ok    %s" % n)
+        except Exception:
+            bad += 1
+            print("  FAIL  %s" % n)
+            traceback.print_exc()
+    print("\n%d passed, %d failed, %d total" % (len(fns) - bad, bad, len(fns)))
+    sys.exit(1 if bad else 0)
+
+
 # ------------------------------------------------------------------ A1 / A3
 def test_response_between_puff_and_reflex_is_a_CR():
     """A1. The puff is at 350 ms and the reflex takes 67 ms, so nothing puff-driven can
@@ -236,10 +285,26 @@ def test_spontaneous_blink_in_a_us_only_trial_is_not_a_UR():
     assert S.classify(67.0, 350.0, False, True, True) == "UR to the puff"
 
 
-def test_latency_is_the_median_of_plausible_puff_responses():
+def test_latency_is_the_fast_end_of_plausible_puff_responses():
+    """The line asks whether the puff COULD have caused it, so it sits at the fastest
+    reflex the puff has produced, not the typical one."""
     lat, used, tot = S.measure_ur_latency([50.0, 67.0, 75.0, 66.0, 901.0, -50.0])
     assert used == 4 and tot == 6
-    assert 60.0 <= lat <= 71.0, lat
+    assert lat < 60.0, lat
+
+
+def test_the_median_would_mislabel_the_UR_population():
+    """Thomas. Reflex 33-125 ms, and 47 of 87 paired trials in one bin at 400-425 ms.
+
+    A line built on his median (75) sits at 425 and calls that whole spike a CR; a line
+    built on the fast end sits below it and leaves it as the UR population it is.
+    """
+    import numpy as np
+    reflex = [33.4, 33.4, 41.7, 58.4, 58.4, 58.4, 58.4, 66.7, 66.7, 75.1, 75.1, 75.1,
+              75.1, 83.4, 83.4, 125.1]
+    lat, _, _ = S.measure_ur_latency(reflex)
+    assert 350.0 + lat < 400.0, "the UR spike at 400-425 ms must fall above the line"
+    assert 350.0 + float(np.median(reflex)) > 415.0, "the median would swallow it"
 
 
 def test_latency_falls_back_when_the_baseline_is_too_thin():

@@ -25,35 +25,22 @@ MAIN, RESET, PARTIAL = 0.40, 0.20, 0.15
 BASE_FROM, BASE_TO = -300.0, -30.0
 SEARCH_MS = 1000.0
 
-# --- how long after a stimulus a response can still belong to it -------------------
-# A puff cannot drive a response that begins at the instant of the puff: the reflex
-# takes time.  UR_LATENCY_MS is that time - measured per participant from the US-only
-# baseline (see measure_ur_latency) and only falling back to this default when there is
-# no usable baseline to measure it from.
-UR_LATENCY_MS = 60.0
-# The window a genuine puff reflex may begin in, used both to MEASURE the latency and to
-# reject a spontaneous blink that happened to land in a US-only trial.  Thomas's 33
-# US-only onsets span -50 to 901 ms; without a window his median reflex latency is a
-# median over a contaminated set.
+# --- the response window -----------------------------------------------------------
+# A response belongs to a stimulus only after the blink reflex has had time to start.
+# That delay is measured from the US-only baselines of every participant pooled, not
+# fitted per person: n=34 puffs, mean 68.5 ms, SD 19.7 ms.
+REFLEX_MEAN_MS, REFLEX_SD_MS = 68.5, 19.7
+# The fastest a response can plausibly follow its stimulus.  The same offset applies to
+# the CS and to the US, so the CR window is simply the CS window shifted onto the US:
+#     CR:  CS + OFFSET  ..  US + OFFSET
+# Before the lower edge nothing has had time to react to the CS; past the upper edge the
+# puff could have caused it.
+RESP_OFFSET_MS = REFLEX_MEAN_MS - 1.5 * REFLEX_SD_MS          # 39.0 ms
+# Only onsets in this window after a puff count as a reflex when the constants above are
+# re-derived; a spontaneous blink 900 ms after a puff is not one.
 UR_MIN_MS, UR_MAX_MS = 20.0, 250.0
-# After this long, a blink is not time-locked to anything in the trial.  It is neither a
-# CR nor a UR, and it is excluded from the rate rather than counted as either.
+# After this long, a blink is not time-locked to anything in the trial.
 RESP_MAX_MS = 800.0
-
-
-def measure_ur_latency(onsets, default=UR_LATENCY_MS):
-    """How long this participant's blink reflex takes to start, from their own puffs.
-
-    US-only trials are anchored on the puff, so their onsets ARE reflex latencies - but
-    only the ones that fall in a plausible reflex window.  A spontaneous blink 900 ms
-    after the puff is not a reflex, and letting it into the median moves the CR/UR line
-    for every conditioning trial in the study.  Returns (latency_ms, n_used, n_total),
-    and falls back to the default when too few puffs survive to trust the median.
-    """
-    good = [o for o in onsets if o is not None and UR_MIN_MS <= o <= UR_MAX_MS]
-    if len(good) < 3:
-        return float(default), len(good), len(onsets)
-    return float(np.median(good)), len(good), len(onsets)
 
 
 def smooth(x):
@@ -101,19 +88,20 @@ def excursions(C_, t, thr):
     return out
 
 
-def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True,
-             ur_latency_ms=UR_LATENCY_MS):
-    """What a response at `onset_ms` after CS onset is, on THIS trial.
+def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
+    """What a response at `onset_ms` after CS onset is.
 
-    `us_delivered` is the part that used to be missing.  The CR/UR split asks whether a
-    response began before the puff - a question with no meaning on a trial that never
-    got one.  CS-only probes, extinction and the CS-only baseline were being sent through
-    the same 350 ms line and coming out labelled `UR (>=350ms)`, which is not merely a
-    wrong word: the summaries count a CR with `startswith("CR")`, so every late response
-    in extinction was excluded from the CR count by definition - and a late, small
-    response is exactly what a decaying CR looks like.  On a trial with no US, anything
-    past the alpha window is a conditioned response, because there is nothing else it
-    could be.
+    One rule, the same for every participant:
+
+        alpha / too early   before CS + OFFSET   - nothing has had time to react
+        CR                  CS + OFFSET  ..  US + OFFSET
+        UR                  at or after US + OFFSET
+        spontaneous         after RESP_MAX_MS, or outside the reflex window on a US-only
+                            trial - not time-locked, excluded from the rate
+
+    `us_delivered` matters because the upper edge is the US: a probe, an extinction trial
+    and a CS-only baseline never received one, so nothing about them may be judged
+    against it and any response in the window is a CR.
     """
     if moving:
         return "in-progress at stimulus"
@@ -123,22 +111,15 @@ def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True,
         if onset_ms > UR_MAX_MS:
             return "spontaneous blink (>%dms after the puff)" % round(UR_MAX_MS)
         return "UR to the puff"
-    if onset_ms < 100:
-        return "alpha/startle <100ms"
+    if onset_ms < RESP_OFFSET_MS:
+        return "alpha/startle <%dms" % round(RESP_OFFSET_MS)
     if onset_ms > RESP_MAX_MS:
         return "spontaneous blink (>%dms, not time-locked)" % round(RESP_MAX_MS)
     if not us_delivered:
         return "CR (no US on this trial)"
-    # The line between a conditioned and an unconditioned response is NOT the puff.  A
-    # puff-driven response cannot begin before the puff plus the reflex latency, so a
-    # response that started in between began too early for the puff to have caused it -
-    # it is a CR, and calling it a UR is a bias, not a rounding error.  With Carole's
-    # measured 67 ms that dead zone is 350-417 ms, and 21 of her 85 scoreable trials
-    # were sitting in it.
-    line = us_onset_ms + ur_latency_ms
-    if onset_ms < line:
-        return "CR (100-%dms)" % round(line)
-    return "UR (>=%dms)" % round(line)
+    if onset_ms < us_onset_ms + RESP_OFFSET_MS:
+        return "CR (%d-%dms)" % (round(RESP_OFFSET_MS), round(us_onset_ms + RESP_OFFSET_MS))
+    return "UR (>=%dms)" % round(us_onset_ms + RESP_OFFSET_MS)
 
 
 def main():
@@ -268,26 +249,14 @@ def main():
                                          for b in part))
         rows.append(row)
 
-    # ---- how long this participant's reflex takes, from their own US-only baseline ----
-    # This has to happen before anything is classified, because it is what sets the line
-    # between a conditioned and an unconditioned response on every conditioning trial.
-    UR_LAT, n_used, n_tot = measure_ur_latency([r["_b1"] for r in rows if r["_on_us"]])
-    measured = n_used >= 3
-    print("blink reflex latency = %.1f ms  (%s)"
-          % (UR_LAT, ("median of %d US-only trial(s) in the %d-%d ms window, of %d"
-                      % (n_used, round(UR_MIN_MS), round(UR_MAX_MS), n_tot)) if measured
-             else ("DEFAULT - only %d of %d US-only trial(s) gave a usable reflex, which "
-                   "is too few to measure it from" % (n_used, n_tot))))
-    print("  -> a response before %.0f ms began too early for the puff to have caused it, "
-          "so it is a CR" % (US_ONSET + UR_LAT))
-    if not measured:
-        print("  !! collect a proper US-only baseline for this participant: the CR/UR "
-              "line is resting on an assumed reflex latency, not a measured one")
+    print("CR window = %.0f-%.0f ms after CS onset  (CS+%.0f to US+%.0f, reflex %.1f +- %.1f ms pooled)"
+          % (RESP_OFFSET_MS, US_ONSET + RESP_OFFSET_MS, RESP_OFFSET_MS,
+             RESP_OFFSET_MS, REFLEX_MEAN_MS, REFLEX_SD_MS))
 
     for r in rows:
-        cls = (classify(r["_b1"], US_ONSET, r["_inprog"], r["_on_us"], r["_us_here"], UR_LAT)
+        cls = (classify(r["_b1"], US_ONSET, r["_inprog"], r["_on_us"], r["_us_here"])
                if r["_b1"] is not None else None)
-        sec = (classify(r["_b2"], US_ONSET, False, r["_on_us"], r["_us_here"], UR_LAT)
+        sec = (classify(r["_b2"], US_ONSET, False, r["_on_us"], r["_us_here"])
                if r["_b2"] is not None else None)
         r["response_class"] = cls
         r["secondary_class"] = sec
@@ -304,10 +273,8 @@ def main():
         r["group_index"] = seen[k]
 
     merged = dict(study=cfg["study"], protocol=proto, closed_ref=CLOSED,
-                  ur_latency_ms=round(UR_LAT, 1),
-                  ur_latency_measured=bool(measured),
-                  ur_latency_n=[n_used, n_tot],
-                  cr_ur_boundary_ms=round(US_ONSET + UR_LAT, 1),
+                  resp_offset_ms=round(RESP_OFFSET_MS, 1),
+                  cr_ur_boundary_ms=round(US_ONSET + RESP_OFFSET_MS, 1),
                   sessions=TR["sessions"], checks=TR["checks"], offsets=TR["offsets"],
                   traces=keep_traces,
                   recordings=[{k: rec[k] for k in ("tag", "label", "role", "order")}
