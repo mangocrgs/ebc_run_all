@@ -25,6 +25,13 @@ CR_C, GY, LINK = "#2C4C86", "#93A0AE", "#B9C2CE"
 CMAP = LinearSegmentedColormap.from_list("lid", ["#FBFCFD", "#DCE3EC", "#8FA3BD", "#4A5F7E", "#1B2432"])
 
 
+def excluded(cls):
+    """Classes that are not a scored response: the lid was already moving, or the blink
+    was too late to be time-locked to anything in the trial."""
+    c = str(cls)
+    return c == "in-progress at stimulus" or c.startswith("spontaneous")
+
+
 def colour(cls):
     if cls is None:
         return GY
@@ -112,7 +119,7 @@ def scatter(rows, key, role, sub, title, proto, odir, n_blocks, per_block):
         for b in blocks:
             g = [r["scored_onset_ms"] for r in rows if r["block"] == b
                  and r["scored_onset_ms"] is not None
-                 and r["scored_class"] != "in-progress at stimulus"]
+                 and not excluded(r["scored_class"])]
             if g:
                 bx.append((b - .5) * per_block + .5); by.append(float(np.mean(g)))
         ax.plot(bx, by, "-o", color=INK, lw=2.8, ms=9, zorder=6,
@@ -158,7 +165,7 @@ def scatter(rows, key, role, sub, title, proto, odir, n_blocks, per_block):
         ax.spines[s].set_visible(False)
 
     allo = [r["scored_onset_ms"] for r in rows if r["scored_onset_ms"] is not None
-            and r["scored_class"] != "in-progress at stimulus"]
+            and not excluded(r["scored_class"])]
     if allo:
         hx.hist(allo, bins=np.arange(-100, YMAX, 25), orientation="horizontal",
                 color=CR_C, alpha=.55, zorder=4)
@@ -200,7 +207,7 @@ def acquisition(rows, proto, title, odir, key="cond"):
     xs, cr_r, ur_r, ns = [], [], [], []
     for b in blocks:
         g = [r for r in rows if r["block"] == b
-             and r["scored_class"] not in (None, "in-progress at stimulus")]
+             and r["scored_class"] is not None and not excluded(r["scored_class"])]
         if not g:
             continue
         xs.append(b)

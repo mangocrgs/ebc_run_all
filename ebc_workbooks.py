@@ -38,10 +38,32 @@ for _r in ALLROWS:
     _r["cs_onset_block_s"] = _r.get("session_clock_s")
     _r["cs_duration_measured_ms"] = _r.get("cs_duration_ms")
 
-CR_LBL = "CR (100-%.0fms)" % NOM["us_onset_ms"]
-UR_LBL = "UR (>=%.0fms)" % NOM["us_onset_ms"]
+# The CR/UR line is where the reflex is, not where the puff is, and it is measured per
+# participant - so these headings are built from the boundary the scoring actually used
+# rather than from the nominal US onset.
+BOUNDARY = M.get("cr_ur_boundary_ms") or NOM["us_onset_ms"]
+CR_LBL = "CR (100-%.0fms)" % BOUNDARY
+UR_LBL = "UR (>=%.0fms)" % BOUNDARY
 ALPHA_LBL = "alpha/startle <100ms"
-MOVING_LBL = "in-progress at stimulus"
+MOVING_LBL = "excluded (lid moving, or not time-locked)"
+
+
+def kind_of(cls):
+    """Which column a response class belongs in.
+
+    Matched on the KIND, never on the exact wording.  The class strings carry measured
+    numbers now ("CR (100-417ms)") and one of them says no US was delivered at all, so a
+    dictionary keyed on reconstructed labels goes stale the moment a participant's reflex
+    latency differs - which is what it is there to express.
+    """
+    c = str(cls)
+    if c.startswith("CR"):
+        return "cr"
+    if c.startswith("alpha"):
+        return "alpha"
+    if c.startswith("UR"):
+        return "ur"
+    return "excluded"          # in-progress at stimulus, spontaneous blink
 
 
 def is_cr(r):
@@ -272,7 +294,8 @@ def widths(ws, w):
 
 
 def scoreable(rs):
-    return [r for r in rs if r["scored_class"] not in (None, MOVING_LBL)]
+    return [r for r in rs if r["scored_class"] is not None
+            and kind_of(r["scored_class"]) != "excluded"]
 
 
 def write_table(ws, rows):
@@ -320,11 +343,12 @@ def scatter_sheet(ws, rows, has_us, xlabel, title):
           "CS / US offset = %.0f ms" % NOM["cs_ms"], "Block mean onset"]
     for j, x in enumerate(hd, 1):
         ws.cell(row=1, column=j, value=x)
-    colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
+    colmap = {"cr": 4, "alpha": 5, "ur": 6, "excluded": 7}
     bmean = {}
     for b in sorted({r["block"] for r in rows if r["block"]}):
-        g = [r["scored_onset_ms"] for r in rows if r["block"] == b and r["scored_onset_ms"] is not None
-             and r["scored_class"] != MOVING_LBL]
+        g = [r["scored_onset_ms"] for r in rows if r["block"] == b
+             and r["scored_onset_ms"] is not None
+             and kind_of(r["scored_class"]) != "excluded"]
         if g:
             bmean[b] = float(np.mean(g))
     for i, r_ in enumerate(rows, 2):
@@ -332,7 +356,8 @@ def scatter_sheet(ws, rows, has_us, xlabel, title):
         ws.cell(row=i, column=2, value=r_["block"])
         ws.cell(row=i, column=3, value=r_["session_name"])
         if r_["scored_onset_ms"] is not None and r_["scored_class"]:
-            ws.cell(row=i, column=colmap[r_["scored_class"]], value=r_["scored_onset_ms"]).number_format = "0.0"
+            ws.cell(row=i, column=colmap[kind_of(r_["scored_class"])],
+                    value=r_["scored_onset_ms"]).number_format = "0.0"
         ws.cell(row=i, column=8, value=0)
         ws.cell(row=i, column=9, value=NOM["us_onset_ms"])
         ws.cell(row=i, column=10, value=NOM["cs_ms"])
