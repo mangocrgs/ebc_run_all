@@ -253,10 +253,14 @@ def natkey(name):
 
 
 def guess_role(stem):
-    for pat, role in C._PATTERNS:
-        if re.search(pat, stem, re.I):
-            return role
-    return "conditioning"
+    """The role the file name implies, or "" when it implies nothing.
+
+    Defaulting to "conditioning" here was a quiet way to mislabel a session: a file
+    straight off the card (`GX012908.MP4`) says nothing about what it is, and the CLI
+    refuses to guess for exactly that reason - see ebc_config.unrecognised().  The app
+    now refuses too, and asks instead: the row cannot be ticked until a role is chosen.
+    """
+    return C.role_of(stem) or ""
 
 
 def make_tag(stem, used):
@@ -317,6 +321,9 @@ def list_dir(path):
         for why in (M.flagged(stem), M.derived(meta, v["name"])):
             if why:
                 notes.append(why)
+        if not v["role"]:
+            notes.append("the name does not say what this recording is - choose a role "
+                         "before ticking it, or leave it out")
         v["notes"] = notes
         # do not pre-tick something the metadata says is a copy, a test or a failure
         v["skip"] = bool(notes) and not m.get("offline")
@@ -427,6 +434,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(409, {"error": "already running"})
             if not body.get("items"):
                 return self._send(400, {"error": "no videos selected"})
+            norole = [i.get("label") or i.get("tag") or "?" for i in body["items"]
+                      if not i.get("role")]
+            if norole:
+                return self._send(400, {"error": "no role chosen for " + ", ".join(norole)})
             threading.Thread(target=runner, args=(body,), daemon=True).start()
             return self._send(200, {"ok": True})
         if u.path == "/api/stop":

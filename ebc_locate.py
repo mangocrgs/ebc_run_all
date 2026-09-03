@@ -97,38 +97,76 @@ def main():
               % (tag, top["x"], top["y"], top["n_ok"], top["dur_med"], top["dur_cv"],
                  margin, "confident" if conf else "LOW CONFIDENCE"))
 
-    good = [v for v in res.values() if v and v["confident"]]
+    good = [dict(v, tag=t) for t, v in res.items() if v and v["confident"]]
     if not good:
         raise SystemExit("no recording gave a confident CS LED position; "
                          "set led_yellow in the study config")
-    cx = int(np.median([v["x"] for v in good]))
-    cy = int(np.median([v["y"] for v in good]))
-    print("\nstudy consensus box position: (%d,%d) from %d confident recording(s)"
-          % (cx, cy, len(good)))
+
+    # Where the box was, as one or more PLACES rather than one average.  A study where the
+    # camera was re-aimed between takes has two of them, and a median over both lands
+    # between them - where the box has never been - so every recording that inherits it
+    # inherits a position that is wrong for both takes.
+    groups = cluster(good)
+    cx, cy = groups[0]["x"], groups[0]["y"]
+    if len(groups) == 1:
+        print("\nstudy box position: (%d,%d) from %d confident recording(s)"
+              % (cx, cy, groups[0]["n"]))
+    else:
+        print("\nthe box was in %d different places in this study - a recording that "
+              "cannot find it inherits the one nearest it in time:" % len(groups))
+        for g in groups:
+            print("   (%4d,%4d)  %d recording(s): %s"
+                  % (g["x"], g["y"], g["n"], ", ".join(g["tags"])))
+
+    # When each recording was made, so "nearest" means nearest in time rather than
+    # nearest in the config file.  ebc_timeline puts elapsed_s there; without it (a study
+    # whose files carry no camera dates) fall back to the order they are listed in.
+    when = {}
+    for i, rec in enumerate(cfg["recordings"]):
+        e = rec.get("elapsed_s")
+        when[rec["tag"]] = float(e) if e is not None else float(i) * 600.0
+
+    def nearest_group(tag):
+        """The place the box was in, in the recording closest in time to this one."""
+        if len(groups) == 1 or tag not in when:
+            return groups[0]
+        best, best_dt = groups[0], None
+        for g in groups:
+            dts = [abs(when[tag] - when[t]) for t in g["tags"] if t in when]
+            if not dts:
+                continue
+            if best_dt is None or min(dts) < best_dt:
+                best, best_dt = g, min(dts)
+        return best
 
     for tag, v in res.items():
+        g = nearest_group(tag)
+        gx, gy = g["x"], g["y"]
+        why = "" if len(groups) == 1 else " (where it was in %s)" % ", ".join(g["tags"])
         if v is None:
-            res[tag] = dict(x=cx, y=cy, source="consensus", confident=False, candidates=[])
-            print("%-12s CS LED (%4d,%4d)  inherited from the study consensus" % (tag, cx, cy))
+            res[tag] = dict(x=gx, y=gy, source="consensus", confident=False,
+                            candidates=[], near_xy=[gx, gy])
+            print("%-12s CS LED (%4d,%4d)  inherited%s" % (tag, gx, gy, why))
             continue
+        v["near_xy"] = [gx, gy]
         if v["confident"] or v["source"] == "config":
             continue
         near = [c for c in v["candidates"]
-                if (c["x"] - cx) ** 2 + (c["y"] - cy) ** 2 <= CONSENSUS_RADIUS ** 2]
+                if (c["x"] - gx) ** 2 + (c["y"] - gy) ** 2 <= CONSENSUS_RADIUS ** 2]
         if near:
             best = max(near, key=lambda c: c["score"])
             if (best["x"], best["y"]) != (v["x"], v["y"]):
                 print("%-12s CS LED moved to (%4d,%4d): the better-scoring (%d,%d) is %d px "
                       "from the rest of the session" %
                       (tag, best["x"], best["y"], v["x"], v["y"],
-                       int(((v["x"] - cx) ** 2 + (v["y"] - cy) ** 2) ** .5)))
+                       int(((v["x"] - gx) ** 2 + (v["y"] - gy) ** 2) ** .5)))
             v.update(x=best["x"], y=best["y"], source="survey+consensus")
         else:
-            print("%-12s no candidate within %d px of the consensus; using the consensus"
-                  % (tag, CONSENSUS_RADIUS))
-            v.update(x=cx, y=cy, source="consensus")
+            print("%-12s no candidate within %d px of (%d,%d); using that position%s"
+                  % (tag, CONSENSUS_RADIUS, gx, gy, why))
+            v.update(x=gx, y=gy, source="consensus")
 
-    out = dict(study=cfg["study"], consensus=[cx, cy], leds=res)
+    out = dict(study=cfg["study"], consensus=[cx, cy], clusters=groups, leds=res)
     with open(os.path.join(wdir, "leds.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=1)
     print("\n-> leds.json")

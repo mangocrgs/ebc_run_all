@@ -287,7 +287,11 @@ function browse(path){
     document.querySelectorAll(".chip").forEach(c => c.onclick = () => browse(c.dataset.p));
     // Nothing is ticked by default - a folder can hold a dozen multi-GB files and
     // an accidental Run would be a multi-hour job.
-    VIDS = d.videos.map(v => ({...v, role: v.role || "conditioning", anchor: "auto", on: false}));
+    // A role the file name does not imply arrives empty and STAYS empty - the row cannot
+    // be ticked until a person chooses one.  Defaulting it to "conditioning" here is how
+    // a clip straight off the card (GX012908.MP4) used to be analysed as a conditioning
+    // chapter without anyone deciding that it was one.
+    VIDS = d.videos.map(v => ({...v, role: v.role || "", anchor: "auto", on: false}));
     renderVids();
   });
 }
@@ -308,18 +312,20 @@ function renderVids(){
       <th style="width:190px">Role</th><th style="width:150px">Trials from</th>
       <th style="width:96px">Order</th></tr></thead><tbody>` +
     VIDS.map((v,i) => `<tr>
-      <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
+      <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}
+                 ${v.role?"":"disabled title=\"choose a role first\""}></td>
       <td><span class="nm">${v.name}</span>${(v.chapter||"")?`<span class="note" style="margin-left:6px">${v.chapter}</span>`:""}
           ${(v.notes||[]).map(n=>`<div class="note" style="color:#9a5b00">&#9888; ${n}</div>`).join("")}</td>
       <td class="num" style="color:var(--muted)">${v.recorded ? v.recorded.slice(5) : "&mdash;"}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
-      <td><select data-i="${i}" class="rl">
+      <td><select data-i="${i}" class="rl" ${v.role?"":'style="border-color:#c98a00"'}>
+        <option value="" ${v.role?"":"selected"}>&mdash; choose a role &mdash;</option>
         <option value="conditioning" ${v.role==="conditioning"?"selected":""}>Conditioning chapter</option>
         <option value="extinction"   ${v.role==="extinction"?"selected":""}>Extinction</option>
         <option value="baseline_cs"  ${v.role==="baseline_cs"?"selected":""}>CS-only baseline</option>
         <option value="baseline_us"  ${v.role==="baseline_us"?"selected":""}>US-only baseline</option>
       </select></td>
-      <td><select data-i="${i}" class="an" ${(v.role==="extinction"||v.role==="baseline_cs")?"disabled":""}
+      <td><select data-i="${i}" class="an" ${(!v.role||v.role==="extinction"||v.role==="baseline_cs")?"disabled":""}
                   title="Automatic reads both LEDs first and picks. Override only if you know better than the LED check page.">
         <option value="auto" ${(!v.anchor||v.anchor==="auto")?"selected":""}>Automatic</option>
         <option value="cs" ${v.anchor==="cs"?"selected":""}>CS LED</option>
@@ -333,7 +339,8 @@ function renderVids(){
   if (all) { all.checked = VIDS.length > 0 && VIDS.every(v => v.on);
              // "select all" leaves out what the metadata says is a copy, a test or a
              // failed take; tick those one at a time if you really want them
-             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked && !v.skip);
+             all.onchange = e => { VIDS.forEach(v => v.on = e.target.checked && !v.skip
+                                                       && !!v.role);
                                    renderVids(); }; }
   document.querySelectorAll(".ck").forEach(c => c.onchange = e => {
     VIDS[e.target.dataset.i].on = e.target.checked; renderVids(); });
@@ -342,6 +349,7 @@ function renderVids(){
     v.role = e.target.value;
     // extinction and CS-only deliver no US, so there is nothing to anchor on
     if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "auto";
+    if (!v.role) v.on = false;          // back to no role: it cannot stay ticked
     renderVids(); });
   document.querySelectorAll(".an").forEach(c => c.onchange = e => {
     VIDS[e.target.dataset.i].anchor = e.target.value; renderVids(); });

@@ -78,7 +78,14 @@ def examine(stim, proto, role=None):
     if y.get("contrast") is not None and y["contrast"] < MIN_CONTRAST:
         reasons.append("contrast %.0f is below %.0f (rest %.0f, lit %.0f)"
                        % (y["contrast"], MIN_CONTRAST, y.get("rest_level", 0), y.get("lit_level", 0)))
-    if us_ok and n_ok < MIN_VS_US * us_ok:
+    # "fewer CS pulses than US pulses" only argues that the CS channel failed where a US
+    # is actually delivered.  In extinction or a CS-only baseline the protocol delivers
+    # none, so blue pulses there say something is wrong with the FILE - a mislabelled
+    # recording, or a reflection being read as a puff - and neither is evidence about the
+    # yellow channel.  Letting this fire on those roles excluded a readable extinction
+    # recording outright.  role_check() reports the disagreement instead; nothing here is
+    # re-scored on the strength of it.
+    if us_ok and n_ok < MIN_VS_US * us_ok and role not in C.NO_US_ROLES:
         reasons.append("%d CS pulses against %d clean US pulses - a US only fires inside a CS"
                        % (n_ok, us_ok))
 
@@ -286,6 +293,33 @@ def report(notes, excluded, kept, suspect=(), roles=(), geom=None):
 
   The rest of the study has been processed normally.  Open qc_leds_<tag>.png for these
   recordings to see the CS channel, then read the trial onsets off the video by hand.""")
+        print(BANNER)
+
+    # A role that the LEDs contradict, and a US LED that moved between recordings, are
+    # both facts about the session rather than about one channel, so they are reported
+    # last and on their own.  Nothing above has acted on them: a file is never re-scored
+    # or renamed here, because which of the two readings is right - wrong name, or wrong
+    # blue channel - is not something the numbers can settle.
+    if roles:
+        print("\n" + BANNER)
+        print("THE LEDS DISAGREE WITH THE ROLE in %d recording(s)." % len(roles))
+        print(BANNER)
+        for r in roles:
+            print("\n  %s (%s), labelled '%s'" % (r["label"], r["tag"], r["role"]))
+            print("      " + r["message"])
+        print("""
+  Nothing has been renamed or re-scored on the strength of this - the recording was
+  processed as the role it was given.  But if the name is wrong then so is everything
+  downstream of it, so open qc_leds_<tag>.png and settle it before reading the results:
+  either fix the role in the study file and re-run, or satisfy yourself that the blue
+  channel is picking up a reflection rather than a puff.""")
+        print(BANNER)
+
+    if geom:
+        print("\n" + BANNER)
+        print("THE US LED MOVED between recordings.")
+        print(BANNER)
+        print("\n  " + geom)
         print(BANNER)
 
 

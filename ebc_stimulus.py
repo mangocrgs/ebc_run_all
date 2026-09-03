@@ -209,7 +209,23 @@ def read_window(path, tag, wdir, sub, W, H, fps):
     """Full-rate, full-resolution signal: per frame, the strongest pixel in each sub-window."""
     f = os.path.join(wdir, tag + "_led.npz")
     if os.path.exists(f):
-        return np.load(f)
+        cached = np.load(f)
+        # The cache is keyed on the tag alone, but what it holds is one particular pair
+        # of windows.  They can legitimately differ between runs - a measured US offset
+        # aims the blue window, a re-run of ebc_locate moves the anchor - and reusing the
+        # old read while the log prints the new window is a quiet lie about what was
+        # measured.  So the windows are stored with the signal and checked here.
+        want = {k: [int(v) for v in b] for k, b in sub.items()}
+        got = {k[4:]: [int(v) for v in cached[k]] for k in cached.files
+               if k.startswith("req_")}
+        if not got:
+            log(tag, "  cached window read predates this check - reusing it; "
+                     "pass --force if the LED positions have changed")
+            return cached
+        if got == want:
+            return cached
+        log(tag, "  the window has changed since this recording was read "
+                 "(%s -> %s); reading it again" % (got, want))
     x0, y0, w, h = crop_box(min(b[0] for b in sub.values()), min(b[1] for b in sub.values()),
                             max(b[2] for b in sub.values()), max(b[3] for b in sub.values()), W, H)
     cols = {}
@@ -239,6 +255,8 @@ def read_window(path, tag, wdir, sub, W, H, fps):
         kw["pos_" + k] = np.array(pos[k], np.int32)
         kw["box_" + k] = np.array([x0 + sx.start, y0 + sy.start,
                                    sx.stop - sx.start, sy.stop - sy.start])
+    for k, b in sub.items():
+        kw["req_" + k] = np.array([int(v) for v in b])
     np.savez_compressed(f, x0=x0, y0=y0, w=w, h=h, fps=fps, n=n, **kw)
     return np.load(f)
 
@@ -328,10 +346,15 @@ def main():
 
     with open(os.path.join(wdir, "leds.json"), encoding="utf-8") as fh:
         _L = json.load(fh)
-    LOC, CONSENSUS = _L["leds"], _L.get("consensus")
+    LOC = _L["leds"]
     if tag not in LOC:
         raise SystemExit(tag + ": not in leds.json - run ebc_locate.py first")
     spot = LOC[tag]
+    # Widening the CS window has to reach towards where the box was in THIS recording's
+    # part of the session, not towards a study-wide average.  ebc_locate works that out
+    # per recording (`near_xy`, the nearest cluster in time); the study-wide figure is
+    # only the fallback for a leds.json written before it did.
+    CONSENSUS = spot.get("near_xy") or _L.get("consensus")
     anchor = (spot["x"], spot["y"])
     confident = bool(spot.get("confident")) or spot["source"] == "config"
     # The blue channel is read for every role, including the ones the protocol says
@@ -375,8 +398,18 @@ def main():
         if info.get("on_threshold") is not None:
             entry["position"] = lit_position(led, key, info["on_threshold"])
         if spot_xy:
+            # The spread has to be recomputed from the pulses that were KEPT.  The one
+            # lit_position() measured is over every lit pixel in the window, including
+            # the reflections the gate has just thrown out - carrying it over would
+            # describe a scatter that is no longer there and raise "not a point source"
+            # against an LED that is one.
+            kept = [q for q, e in zip(pos, ev) if e["ok"]]
             entry["position"] = dict(entry.get("position") or {},
-                                     x=spot_xy[0], y=spot_xy[1], source="accepted pulses")
+                                     x=spot_xy[0], y=spot_xy[1], source="accepted pulses",
+                                     spread_x=int(max(q[0] for q in kept) -
+                                                  min(q[0] for q in kept)) if kept else 0,
+                                     spread_y=int(max(q[1] for q in kept) -
+                                                  min(q[1] for q in kept)) if kept else 0)
             entry["n_off_spot"] = n_moved
         out["leds"][key] = entry
         out["events"][key] = [dict(frame=e["a"], t=round(e["t"], 4),

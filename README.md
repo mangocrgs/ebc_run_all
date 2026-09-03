@@ -20,6 +20,13 @@ Not everyone wants a terminal.  Double-click **`EBC Analyzer.bat`** (or run
 confirm what each one is, press Run.  Progress streams per recording; the workbooks,
 figures and CSVs appear as download links when it finishes.
 
+The folder is listed in **recording order** - the order the camera says, not the order the
+names imply - with the recorded time, the chapter number and any warning against each file.
+What the metadata says is a copy, a test or a failed take is left unticked, and a file whose
+name implies no role at all arrives with an empty **- choose a role -** box: it cannot be
+ticked, and the run is refused, until someone says what it is.  Nothing is guessed on your
+behalf.
+
 It is only a front end - it writes a study file from what you ticked and hands it to
 `ebc_run_all.py`.  The study file is left in the output folder as `<study>.json`, so
 anything done in the browser can be repeated, tweaked or scripted from the command line.
@@ -115,7 +122,7 @@ minutes of extinction between them no longer has the gap silently closed.
 | empty, damaged, or not a video | left out with the reason |
 | the frame rate, frame size or rotation changes mid-participant | reported - the box is located in pixels, so a shared position cannot cross that |
 | recordings in one folder spanning more than eight hours | reported: probably two sessions, or a stray file from another day |
-| a recording whose name says nothing (`GX012908.MP4`) | listed, with its date, as in the folder but not analysed |
+| a recording whose name says nothing (`GX012908.MP4`) | never given a role by guesswork.  A folder scan lists it, with its date, as in the folder but not analysed; the app shows it with an empty **&mdash; choose a role &mdash;** box and will not let it be ticked, or run, until a person picks one |
 | a recording that does not behave like its role - a `US` in an extinction file, no `US` at all in a conditioning file | reported by `ebc_triage.py`, and **nothing is renamed or re-scored on the strength of it**.  Fix the role and re-run |
 
 The blue channel is now read for *every* role, including the ones the protocol says
@@ -337,6 +344,17 @@ Classes: `alpha/startle` <100 ms · `CR` 100 ms–US onset (began before the puf
 US-only trials are anchored on the puff, so their latencies are measured from it and every
 response there is by definition unconditioned.
 
+> **The CR/UR line is knife-edge, and the CR rate inherits that.**  The split is made at
+> exactly the CS-US interval, but onsets are quantised to one video frame (8.34 ms at
+> 119.88 fps) and they pile up on the boundary: in Carole's 85 scoreable paired trials,
+> **12 sit within one frame of it** - 4 at 342.0 ms scored CR, 6 at 350.4 ms and 2 at
+> 358.7 ms scored UR.  Shifting the eyelid crop by a few pixels moved eight of them across
+> the line and the headline rate with them, 48% to 40%, on identical trials.  Neither
+> number is more correct than the other.  Before quoting a CR percentage, look at how many
+> trials sit in that band (`scored_onset_ms` in the trial CSVs) and say so; a response
+> beginning 0.4 ms after the puff is not meaningfully different from one beginning 8 ms
+> before it.
+
 ## Files
 
 | Script | What it does |
@@ -372,6 +390,14 @@ response there is by definition unconditioned.
   flagged, and the LED window is widened to cover both positions, but a very large move may
   still need `led_yellow` set by hand.
 - Trials whose window runs off the end of a recording are marked `truncated`.
+- **The CR rate is only as stable as the CR/UR boundary** - see the note under *How a
+  trial is scored*. Report the number of trials within one frame of the CS-US interval
+  alongside any CR percentage.
+- A pulse is rejected when it lights up away from where the rest of that LED's pulses did.
+  That is what makes the wide, side-agnostic US window safe, but a genuine pulse whose
+  brightest pixel is momentarily stolen by a reflection can be rejected with it: watch for
+  a `lit N px from where the ... LED is` reason on a pulse whose duration matches the
+  stimulus exactly.
 - A block is closed by its CS-only probe where one was recovered, and by the count of
   paired trials where none was. The protocol check reports how many boundaries came from
   each, and every trial carries `block_closed_by`. A counted boundary is an assumption
