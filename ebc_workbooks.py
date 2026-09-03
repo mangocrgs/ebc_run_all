@@ -45,7 +45,6 @@ BOUNDARY = M.get("cr_ur_boundary_ms") or NOM["us_onset_ms"]
 CR_LBL = "CR (100-%.0fms)" % BOUNDARY
 UR_LBL = "UR (>=%.0fms)" % BOUNDARY
 ALPHA_LBL = "alpha/startle <100ms"
-MOVING_LBL = "excluded (lid moving, or not time-locked)"
 
 
 def kind_of(cls):

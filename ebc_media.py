@@ -332,11 +332,6 @@ def derived(meta, name):
     return None
 
 
-def describe_take(rows, take):
-    part = [r for r in rows if r["take"] == take]
-    return "%d chapter(s): %s" % (len(part), " -> ".join(r["file"] for r in part))
-
-
 def main():
     folder = sys.argv[1] if len(sys.argv) > 1 else "."
     ext = (".mp4", ".mov", ".mkv", ".avi", ".m4v", ".mts")

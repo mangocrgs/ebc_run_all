@@ -207,12 +207,6 @@ def load(path=None, video_dir=None, study=None):
     return cfg
 
 
-def by_role(cfg, *roles):
-    order = {r: i for i, r in enumerate(ROLES)}
-    return sorted([r for r in cfg["recordings"] if r["role"] in roles],
-                  key=lambda r: (order[r["role"]], r.get("order", 0)))
-
-
 def expected_trials(proto):
     per = proto["paired_per_block"] + proto["cs_only_per_block"]
     return per * proto["n_blocks"]
