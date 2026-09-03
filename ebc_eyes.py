@@ -25,7 +25,10 @@ from ebc_video import probe, frames, still, crop_box
 
 warnings.filterwarnings("ignore")
 
-PRE_MS, POST_MS = 300.0, 1150.0
+# The trial window is not a constant.  It comes from ebc_config.window(), which reads it
+# off the protocol: a trace design has to keep tracking well past the CS to catch a US
+# that arrives half a second after it is over.  The lab's delay numbers give back
+# 300 / 1150 ms, which is what this app has always used, so nothing already tracked moves.
 FACE_MARGIN = 70
 LED_HALF = 26            # half-size of the LED patch carried inside the trial crop
 N_FACE_SAMPLES = 26
@@ -101,9 +104,12 @@ def main():
     path = rec["path"]
     W, H, fps, nfr = probe(path)
     MS = 1000.0 / fps
+    PRE_MS, POST_MS, _ = C.window(cfg["protocol"])
     PRE = int(round(PRE_MS / MS))
     POST = int(round(POST_MS / MS))
     NW = PRE + POST
+    log(tag, "trial window -%.0f to +%.0f ms  (%s)"
+        % (PRE_MS, POST_MS, C.design(cfg["protocol"])["label"].lower()))
 
     fb = face_box(path, tag, wdir, W, H, fps, nfr)
     log(tag, "face box x[%.0f,%.0f] y[%.0f,%.0f] from %d samples"

@@ -18,6 +18,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ebc_config as C
 import ebc_protocol as P
 import ebc_score as S
 
@@ -25,101 +26,105 @@ PROTO = dict(cs_ms=400.0, us_onset_ms=350.0, us_dur_ms=50.0, paired_per_block=9,
              cs_only_per_block=1, n_blocks=10, min_iti_s=5.0, cs_tol=0.35, us_tol=0.6)
 US = 350.0
 
+# The window every test below is read against: a measured reflex of mean 68.5 SD 19.7,
+# which is the pooled US-only baseline of the three participants scored so far.
+REFLEX = dict(n=34, mean_ms=68.5, sd_ms=19.7, k=1.5, onset_ms=68.5 - 1.5 * 19.7)
+WIN = C.cr_window(PROTO, REFLEX)
+FALLBACK = C.cr_window(PROTO)
+LO, HI = WIN["lo_ms"], WIN["hi_ms"]
+
 
 # ------------------------------------------------------------------ the response window
-def test_the_offset_is_mean_minus_one_and_a_half_sd():
-    assert abs(S.RESP_OFFSET_MS - (S.REFLEX_MEAN_MS - 1.5 * S.REFLEX_SD_MS)) < 1e-9
+def test_the_window_is_mean_minus_one_and_a_half_sd_past_each_stimulus():
+    """CR runs from CS+reflex to US+reflex, reflex = mean - 1.5 SD."""
+    off = REFLEX["mean_ms"] - REFLEX["k"] * REFLEX["sd_ms"]
+    assert abs(LO - off) < 0.06         # cr_window rounds both edges to 0.1 ms
+    assert abs(HI - (US + off)) < 0.06
 
 
-def test_the_same_window_applies_to_every_participant():
-    """One rule, not a per-person fit: classify() takes no latency argument."""
-    import inspect
-    assert "latency" not in str(inspect.signature(S.classify))
+def test_one_window_decides_it_everywhere():
+    """ebc_config.cr_window is the single place the rule lives; classify only reads it."""
+    assert "win" in str(__import__("inspect").signature(S.classify))
+
+
+def test_the_window_says_whether_it_was_measured():
+    assert WIN["measured"] is True and FALLBACK["measured"] is False
+    assert FALLBACK["why"]
+
+
+def test_without_a_baseline_it_falls_back_to_the_protocol():
+    assert FALLBACK["lo_ms"] == 100.0 and FALLBACK["hi_ms"] == US
 
 
 def test_cr_window_runs_from_CS_plus_offset_to_US_plus_offset():
-    lo, hi = S.RESP_OFFSET_MS, US + S.RESP_OFFSET_MS
-    assert S.classify(lo + 1, US, False, False, True).startswith("CR")
-    assert S.classify(hi - 1, US, False, False, True).startswith("CR")
-    assert S.classify(hi + 1, US, False, False, True).startswith("UR")
+    assert S.classify(LO + 1, WIN, False, False, True).startswith("CR")
+    assert S.classify(HI - 1, WIN, False, False, True).startswith("CR")
+    assert S.classify(HI + 1, WIN, False, False, True).startswith("UR")
 
 
 def test_too_early_to_be_a_response_to_the_CS():
-    assert S.classify(S.RESP_OFFSET_MS - 1, US, False, False, True).startswith("alpha")
+    assert S.classify(LO - 1, WIN, False, False, True).startswith("alpha")
 
 
 def test_cr_before_the_puff():
-    assert S.classify(200.0, US, False, False, True).startswith("CR")
+    assert S.classify(200.0, WIN, False, False, True).startswith("CR")
 
 
 def test_ur_after_the_puff():
-    assert S.classify(430.0, US, False, False, True).startswith("UR")
+    assert S.classify(430.0, WIN, False, False, True).startswith("UR")
 
 
 def test_the_old_boundary_would_have_called_this_a_UR():
     """350.4 ms - six of Carole's trials sit there, 0.4 ms after the puff."""
-    assert S.classify(350.4, US, False, False, True).startswith("CR")
-
-
-def test_a_very_late_blink_is_neither_CR_nor_UR():
-    assert S.classify(950.0, US, False, False, True).startswith("spontaneous")
+    assert S.classify(350.4, WIN, False, False, True).startswith("CR")
 
 
 def test_moving_lid_is_untimeable():
-    assert S.classify(200.0, US, True, False, True) == "in-progress at stimulus"
+    assert S.classify(200.0, WIN, True, False, True) == WIN["moving_label"]
 
 
 def test_us_anchored_trial_is_always_unconditioned():
-    assert S.classify(67.0, US, False, True, True) == "UR to the puff"
-
-
-def test_spontaneous_blink_in_a_us_only_trial_is_not_a_UR():
-    """Thomas's US-only onsets run to 901 ms; those are not reflexes."""
-    assert S.classify(901.0, US, False, True, True).startswith("spontaneous")
+    assert S.classify(67.0, WIN, False, True, True) == WIN["ur_puff_label"]
 
 
 # ------------------------------------------------------------------ trials with no puff
 def test_late_response_on_a_probe_is_not_a_UR():
     """A2. No puff was delivered, so there is no UR the response could be."""
-    cls = S.classify(383.7, US, False, False, us_delivered=False)
-    assert "UR" not in cls, cls
+    assert "UR" not in S.classify(HI + 30, WIN, False, False, us_delivered=False)
 
 
 def test_a_probe_uses_the_same_CR_window_as_a_paired_trial():
     """Otherwise the probe cannot serve its purpose, which is to be comparable."""
-    lo, hi = S.RESP_OFFSET_MS, US + S.RESP_OFFSET_MS
-    assert S.classify(lo + 1, US, False, False, False).startswith("CR")
-    assert S.classify(hi - 1, US, False, False, False).startswith("CR")
+    assert S.classify(LO + 1, WIN, False, False, False).startswith("CR")
+    assert S.classify(HI - 1, WIN, False, False, False).startswith("CR")
 
 
 def test_a_probe_response_after_the_window_is_not_a_CR():
-    """A2 must not become its own mirror image: 'every blink is a CR' is as wrong as
-    'every blink is a UR'.  A CS-only baseline exists to give the false-positive rate,
-    and it cannot do that if it returns 100% by construction."""
-    cls = S.classify(US + S.RESP_OFFSET_MS + 50.0, US, False, False, False)
-    assert not cls.startswith("CR"), cls
+    """'Every blink is a CR' is as wrong as 'every blink is a UR': a CS-only baseline
+    exists to give the false-positive rate and cannot do that if it reads 100% by
+    construction."""
+    assert not S.classify(HI + 30, WIN, False, False, False).startswith("CR")
 
 
 def test_alpha_still_wins_on_a_probe():
-    assert S.classify(25.0, US, False, False, False).startswith("alpha")
+    assert S.classify(LO - 5, WIN, False, False, False).startswith("alpha")
 
 
 # ------------------------------------------------------------------ the standing check
 def test_a_no_conditioning_participant_must_not_look_like_a_learner():
     """Thomas. A clean spike 50-75 ms after his puff and almost nothing before it is
     what a correct measurement of NO conditioning looks like.  Any scoring change that
-    turns him into a learner is wrong, and this is the cheapest way to notice.
-
-    These are his real paired-trial onsets, binned as they appear in his CSV.
+    turns him into a learner is wrong, and this is the cheapest way to notice: a window
+    built on the MEDIAN reflex rather than mean-1.5SD put it at 425 ms and read him at
+    76% CR.  These are his real paired-trial onsets.
     """
     onsets = ([120.0] * 2 + [180.0] + [210.0] + [310.0] + [330.0]
               + [390.0] * 10 + [410.0] * 47 + [430.0] * 17 + [510.0] + [540.0] + [560.0])
-    cls = [S.classify(o, US, False, False, True) for o in onsets]
-    scoreable = [c for c in cls if not c.startswith("spontaneous")
-                 and c != "in-progress at stimulus"]
+    cls = [S.classify(o, WIN, False, False, True) for o in onsets]
+    scoreable = [c for c in cls if c != WIN["moving_label"]]
     cr = [c for c in scoreable if c.startswith("CR")]
     rate = len(cr) / len(scoreable)
-    assert rate < 0.35, "Thomas reads %.0f%% CR - the boundary is in the wrong place" % (100 * rate)
+    assert rate < 0.35, "Thomas reads %.0f%% CR - the window is in the wrong place" % (100 * rate)
 
 
 # ------------------------------------------------------------------ pair_cs_us

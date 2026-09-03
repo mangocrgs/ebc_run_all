@@ -33,23 +33,60 @@ import numpy as np
 import openpyxl
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ebc_config as C
 import ebc_score as S
 
 V = r"C:/Users/marga/OneDrive/Bureau/Recherche/EBC/Video"
+# Where a study's results are is a fact about the study file, not about this script, so
+# the analyser output is looked for wherever that study writes - and the old layouts are
+# still tried, because results produced before the output folder moved are still valid.
 STUDIES = [
-    ("Carole", V + "/Carole/data Carole 08.09.xlsx", "Sheet1", V + "/analysis_EBC/Carole"),
-    ("Thomas", V + "/Thomas/data Thomas.xlsx", "Data brut", V + "/analysis_EBC/Thomas"),
-    ("Marie", V + "/Marie/data Marie.xlsx", "Data brut", V + "/Marie/analysis_EBC"),
+    ("Carole", V + "/Carole/data Carole 08.09.xlsx", "Sheet1",
+     ["studies/carole.json", V + "/analysis_EBC/Carole"]),
+    ("Thomas", V + "/Thomas/data Thomas.xlsx", "Data brut",
+     ["studies/thomas.json", V + "/analysis_EBC/Thomas"]),
+    ("Marie", V + "/Marie/data Marie.xlsx", "Data brut",
+     [V + "/Marie/analysis_EBC"]),
 ]
-US = 350.0
+
+
+def results_dir(where):
+    """First of `where` that holds a scored trial table: a study file, or a folder."""
+    import json
+    for w in where:
+        d = w
+        if w.endswith(".json") and os.path.exists(w):
+            try:
+                d = json.load(open(w, encoding="utf-8"))["out_dir"]
+            except (OSError, ValueError, KeyError):
+                continue
+        if os.path.exists(os.path.join(d, "trials_conditioning_CSUS.csv")):
+            return d
+    return None
 MATCH_TOL_S = 6.0
 
 
-def klass(onset, us_delivered):
+def window_for(d):
+    """The CR window this study was actually scored with, so both scorings share it.
+
+    ebc_score writes it into merged.json along with the reflex it was measured from.
+    Reading it back rather than rebuilding it means the hand onsets are judged by exactly
+    the rule the analyser used - which is the whole point of the comparison.
+    """
+    import json
+    p = os.path.join(d, "_work", "merged.json")
+    try:
+        m = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return m.get("cr_window") or C.cr_window(m["protocol"], m.get("reflex"))
+
+
+def klass(onset, win, us_delivered):
     """The pipeline's own rule, applied to a hand-read onset as well as a measured one."""
     if onset is None:
         return None
-    return S.classify(onset, US, False, False, us_delivered)
+    return S.classify(onset, win, False, False, us_delivered)
 
 
 def is_cr(cls):
@@ -57,8 +94,7 @@ def is_cr(cls):
 
 
 def scoreable(cls):
-    return (cls is not None and cls != "in-progress at stimulus"
-            and not cls.startswith("spontaneous"))
+    return cls is not None and cls != "in-progress at stimulus"
 
 
 def read_manual(path, sheet):
@@ -110,21 +146,21 @@ def match(man, auto):
     return pairs
 
 
-def curve(pairs, key):
+def curve(pairs, win, key):
     """CR rate per block, from one scorer's onsets, binned by the analyser's blocks."""
     per = {}
     for m, a in pairs:
         if a["block"] is None:
             continue
         onset = (m if key == "hand" else a)["onset"]
-        cls = klass(onset, a["paired"])
+        cls = klass(onset, win, a["paired"])
         if not scoreable(cls):
             continue
         per.setdefault(a["block"], []).append(is_cr(cls))
     return {b: (100.0 * sum(v) / len(v), len(v)) for b, v in sorted(per.items()) if v}
 
 
-def report(name, pairs):
+def report(name, pairs, win):
     both = [(m, a) for m, a in pairs if m["onset"] and a["onset"] is not None]
     print("=" * 76)
     print("%s   %d trials matched, %d scored by both" % (name, len(pairs), len(both)))
@@ -149,7 +185,7 @@ def report(name, pairs):
     resid = (c - h) - np.median(c - h)
     print("    scatter left after removing the constant offset:  SD %.1f ms" % resid.std(ddof=1))
 
-    ch, cc = curve(both, "hand"), curve(both, "auto")
+    ch, cc = curve(both, win, "hand"), curve(both, win, "auto")
     common = sorted(set(ch) & set(cc))
     print()
     print("  learning curve, CR%% per block")
@@ -167,8 +203,8 @@ def report(name, pairs):
               % ((a2 - a1).mean(), np.abs(a2 - a1).max(),
                  "" if r is None else ",  correlation r = %.2f" % r))
 
-    hs = [klass(m["onset"], a["paired"]) for m, a in both]
-    cs = [klass(a["onset"], a["paired"]) for m, a in both]
+    hs = [klass(m["onset"], win, a["paired"]) for m, a in both]
+    cs = [klass(a["onset"], win, a["paired"]) for m, a in both]
     hr = 100.0 * sum(is_cr(x) for x in hs) / sum(scoreable(x) for x in hs)
     cr = 100.0 * sum(is_cr(x) for x in cs) / sum(scoreable(x) for x in cs)
     print()
@@ -179,15 +215,23 @@ def report(name, pairs):
 
 def main():
     out = []
-    for name, xl, sheet, d in STUDIES:
-        if not (os.path.exists(xl) and os.path.exists(d)):
+    for name, xl, sheet, where in STUDIES:
+        d = results_dir(where)
+        if not (os.path.exists(xl) and d):
             print("%s: skipped, nothing to compare" % name)
             continue
         auto = read_auto(d)
         if not auto:
             print("%s: skipped, no analyser output yet" % name)
             continue
-        r = report(name, match(read_manual(xl, sheet), auto))
+        win = window_for(d)
+        if win is None:
+            print("%s: skipped, no scored window on disk" % name)
+            continue
+        print("  CR window %.0f-%.0f ms  (%s)"
+              % (win["lo_ms"], win["hi_ms"],
+                 "measured" if win.get("measured") else "protocol fallback"))
+        r = report(name, match(read_manual(xl, sheet), auto), win)
         if r:
             out.append(r)
 

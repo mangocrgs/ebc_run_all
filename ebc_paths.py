@@ -5,8 +5,13 @@ participants:  <out_dir>/ holds the workbooks, figures and CSVs, <out_dir>/_work
 cache (safe to delete, costs a re-run).
 """
 import os
+import sys
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+# Where the pipeline's own files are: the scripts, the page, the logo.  Packaged into an
+# .exe they are unpacked somewhere temporary instead, and _MEIPASS is where.  Nothing a
+# run produces is written here - that all goes to out_dir, next to the recordings - so
+# the app is happy installed read-only.
+BASE = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
 
 
 def out_dir(cfg):

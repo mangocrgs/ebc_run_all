@@ -1,6 +1,6 @@
 {
-  "study": "Carole_CSUS123",
-  "video_dir": "C:/Users/marga/OneDrive/Bureau/Recherche/EBC/Video/Carole",
+  "study": "Charles",
+  "video_dir": "C:/Users/marga/OneDrive/Bureau/Recherche/EBC/Video/Charles",
   "protocol": {
     "cs_ms": 400.0,
     "us_onset_ms": 350.0,
@@ -14,28 +14,36 @@
   },
   "recordings": [
     {
-      "tag": "csus1",
-      "file": "CSUS 1.MP4",
-      "label": "CSUS 1",
-      "role": "conditioning",
-      "order": 1
-    },
-    {
       "tag": "csus2",
-      "file": "CSUS 2.MP4",
+      "file": "csus 2.MP4",
       "label": "CSUS 2",
       "role": "conditioning",
       "order": 2,
+      "led_yellow": [
+        1336,
+        456
+      ],
       "anchor": "us"
     },
     {
       "tag": "csus3",
-      "file": "CSUS 3.MP4",
+      "file": "csus 3.MP4",
       "label": "CSUS 3",
       "role": "conditioning",
       "order": 3,
+      "led_yellow": [
+        1336,
+        456
+      ],
       "anchor": "us"
+    },
+    {
+      "tag": "usonly",
+      "file": "us only.MP4",
+      "label": "US-only baseline",
+      "role": "baseline_us",
+      "order": 1
     }
   ],
-  "out_dir": "C:/Users/marga/EBC Analyzer/results/Carole"
+  "out_dir": "C:/Users/marga/EBC Analyzer/results/Charles"
 }

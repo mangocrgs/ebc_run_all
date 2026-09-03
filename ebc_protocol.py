@@ -3,9 +3,14 @@
     python ebc_protocol.py <config.json>
 
 The protocol is used as a *test*, never as an instruction.  Trials are built from what
-the LEDs actually did; the expected structure - nine paired trials then one CS-only
-probe, ten times over - is then compared against the recovered sequence and the
-agreement (or the exact disagreement) is reported.  Nothing is renumbered to fit.
+the LEDs actually did; the expected structure - however many paired trials the study
+file says, closed by however many CS-only probes - is then compared against the
+recovered sequence and the agreement (or the exact disagreement) is reported.  Nothing
+is renumbered to fit.
+
+Every number the block recovery uses comes from cfg["protocol"], so a lab running a
+different design - a trace protocol whose US arrives long after the CS is over, blocks
+of a different length, or none at all - is analysed by this same code.
 
 Writes <out>/_work/trials.json and prints the protocol report.
 """
@@ -37,12 +42,14 @@ def load_stim(cfg, wdir):
 def pair_cs_us(cs, us, proto):
     """Attach to each CS the US that falls inside its window, if any.
 
-    The window runs from CS onset to CS offset plus a little slack, so a US that is
-    delivered at the nominal 350 ms, or anywhere else inside the CS, is found - and a
-    blue flash seconds later is not mistaken for one.
+    The window runs from CS onset to the end of the stimulus pair plus a little slack,
+    so a US delivered at the nominal interval is found wherever the protocol puts it -
+    inside the CS for a delay design, or after a trace interval with the CS long over -
+    and a blue flash seconds later is still not mistaken for one.  The window is capped
+    at half the minimum ITI, so it can never reach into the following trial.
     """
     slack = 0.12
-    lim = (proto["cs_ms"] + 120.0) / 1000.0
+    lim = C.pair_window_s(proto)
     free = [u for u in us if u["ok"]]
     used = set()
     pairs = []
@@ -67,6 +74,7 @@ def pair_cs_us(cs, us, proto):
 def build(cfg):
     wdir = work_dir(cfg)
     proto = cfg["protocol"]
+    pre_ms, post_ms, _ = C.window(proto)
     stim = load_stim(cfg, wdir)
     by_tag = {s["tag"]: s for s in stim}
 
@@ -149,11 +157,17 @@ def build(cfg):
                                  us_duration_ms=u["dur_ms"] if u else None,
                                  isi_ms=round((u["t"] - c["t"]) * 1000, 1) if u else None,
                                  anchor_frame=c["frame"], anchor_s=round(c["t"], 4)))
+        # A trial is truncated when the recording does not hold the whole window the
+        # analysis will ask for.  That window follows the protocol - a trace design needs
+        # far more room after CS onset than a delay one - so the test does too.
+        need_after = (post_ms + 50.0) / 1000.0
+        need_before = (pre_ms + 50.0) / 1000.0
         for r in rows:
             r["cs_timing"] = "inferred from US" if us_anchored else "measured from CS LED"
             if s["tag"] in offset:
                 r["session_clock_s"] = round(r["anchor_s"] + offset[s["tag"]], 3)
-            r["truncated"] = bool(r["anchor_s"] + 1.2 > dur or r["anchor_s"] < 0.35)
+            r["truncated"] = bool(r["anchor_s"] + need_after > dur
+                                  or r["anchor_s"] < need_before)
         trials += rows
         report.append(dict(tag=s["tag"], label=s["label"], role=s["role"],
                            duration_s=dur, fps=fps, anchor="us" if us_anchored else "cs",
@@ -168,22 +182,29 @@ def build(cfg):
     # ---- block structure over the conditioning group, in the order it was run --------
     cond = [t for t in trials if t["role"] == "conditioning"]
     cond.sort(key=lambda t: t.get("session_clock_s", t["anchor_s"]))
-    # A block is what the protocol says it is: a run of paired trials closed by a CS-only
-    # probe.  Numbering by the probes rather than by counting off ten trials at a time means
-    # a block that came up short does not shift every block after it.
-    # A block normally ends at its CS-only probe.  When the probe was never recovered - a
-    # US-anchored recording cannot see one - the count closes the block instead: the
-    # protocol says nine paired trials to a block, so a tenth consecutive paired trial is
-    # a boundary even with no probe to mark it.  Which rule closed each block is recorded,
-    # because a counted boundary is an assumption and a probe is an observation.
+    # A block is what the protocol says it is: a run of paired trials closed by the
+    # CS-only probe(s) that end it.  Numbering by the probes rather than by counting off
+    # a fixed number of trials at a time means a block that came up short does not shift
+    # every block after it.
+    # When the probes were never recovered - a US-anchored recording cannot see one - the
+    # count closes the block instead: the protocol says how many paired trials a block
+    # holds, so one more consecutive paired trial than that is a boundary even with no
+    # probe to mark it.  Which rule closed each block is recorded, because a counted
+    # boundary is an assumption and a probe is an observation.
+    # A protocol may also declare no probes at all (cs_only_per_block = 0); then the
+    # count is the only rule there is, and nothing here needs a probe to exist.
+    want_paired = int(proto["paired_per_block"])
+    want_probes = int(proto["cs_only_per_block"])
     b, k = 1, 0
-    runs, run = [], 0
+    runs, run, probes = [], 0, 0
     closed_by = {}
     for i, t in enumerate(cond):
-        if t["trial_type"] == "CS-US" and run >= proto["paired_per_block"]:
+        # a paired trial arriving once the block is already full - or once a probe has
+        # been seen but the block's remaining probes never came - is the next block
+        if t["trial_type"] == "CS-US" and (probes > 0 or run >= want_paired):
             runs.append(run)
             closed_by[b] = "count"
-            run = 0
+            run = probes = 0
             b, k = b + 1, 0
         k += 1
         t["global_trial"] = i + 1
@@ -192,14 +213,23 @@ def build(cfg):
         if t["trial_type"] == "CS-US":
             run += 1
         else:
-            runs.append(run)
-            closed_by[b] = "probe"
-            run = 0
-            b, k = b + 1, 0
+            probes += 1
+            if want_probes and probes >= want_probes:
+                runs.append(run)
+                closed_by[b] = "probe"
+                run = probes = 0
+                b, k = b + 1, 0
+    # With no probes in the protocol there is nothing left to close the final block, so
+    # the count closes it too - otherwise a perfectly run probe-less session would always
+    # report one block short with a trailing run.
+    if not want_probes and run:
+        runs.append(run)
+        closed_by[b] = "count"
+        run = 0
     tail = run
     for t in cond:
         t["block_closed_by"] = closed_by.get(t["block"], "open")
-    want_runs = [proto["paired_per_block"]] * proto["n_blocks"]
+    want_runs = [want_paired] * int(proto["n_blocks"])
     strict = (runs == want_runs and tail == 0)
 
     for role in ("extinction", "baseline_cs", "baseline_us"):
@@ -228,7 +258,7 @@ def build(cfg):
                       for i, n in enumerate(runs) if n != proto["paired_per_block"]],
         blocks_found=len(runs),
     )
-    out = dict(study=cfg["study"], protocol=proto, offsets=offset, session_clock=clock,
+    out = dict(study=cfg["study"], protocol=proto, design=C.design(proto), offsets=offset, session_clock=clock,
                sessions=report, checks=check, trials=trials)
     with open(os.path.join(wdir, "trials.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=1)
@@ -249,11 +279,14 @@ def print_report(res):
                "-" if s["isi_ms"] is None else "%.1f" % s["isi_ms"]))
     c = res["checks"]
     p = res["protocol"]
+    d = res.get("design") or C.design(p)
     if res.get("session_clock"):
         print("\n  conditioning trials are placed on one session clock from %s"
               % res["session_clock"])
     print("\nProtocol check  (%d blocks of %d paired + %d CS-only)" %
           (p["n_blocks"], p["paired_per_block"], p["cs_only_per_block"]))
+    print("  %s: CS %.0f ms, US %.0f ms at %.0f ms - %s"
+          % (d["label"], p["cs_ms"], p["us_dur_ms"], p["us_onset_ms"], d["short"]))
     print("  conditioning trials   %d found / %d expected" %
           (c["found_conditioning_trials"], c["expected_trials"]))
     print("  paired CS-US          %d found / %d expected" % (c["found_paired"], c["expected_paired"]))
@@ -273,6 +306,9 @@ def print_report(res):
     print("  strict %d+%d x %d structure: %s" %
           (p["paired_per_block"], p["cs_only_per_block"], p["n_blocks"],
            "YES" if c["strict_block_structure"] else "NO - the deviations are listed above"))
+    if d["kind"] == "trace":
+        print("  trace design: a US %.0f ms after CS onset is paired with the CS that "
+              "precedes it, up to %.2f s away" % (p["us_onset_ms"], C.pair_window_s(p)))
 
 
 if __name__ == "__main__":

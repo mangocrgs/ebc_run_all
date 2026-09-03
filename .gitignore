@@ -10,3 +10,13 @@ diag/
 *_stim.json
 *_eyes.npz
 out/
+
+# Participant results: data, not code. Hundreds of MB of workbooks, figures and
+# caches, regenerated from the recordings by the pipeline.
+results/
+
+# The built app and everything on the way to it
+app/
+build/
+dist/
+Setup EBC Analyzer *.exe
