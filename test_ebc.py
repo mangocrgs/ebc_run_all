@@ -31,7 +31,8 @@ def test_cr_before_the_puff():
 
 
 def test_ur_after_the_puff():
-    assert S.classify(400.0, 350.0, False, False, True).startswith("UR")
+    """Late enough that the puff could have caused it: 350 ms puff + 60 ms reflex."""
+    assert S.classify(430.0, 350.0, False, False, True).startswith("UR")
 
 
 def test_alpha_is_not_a_cr():
@@ -47,9 +48,18 @@ def test_late_response_on_a_probe_is_a_CR_not_a_UR():
 
 def test_probe_and_paired_trials_differ_at_the_same_latency():
     """The same onset means different things depending on whether a puff arrived."""
-    paired = S.classify(383.7, 350.0, False, False, True)
-    probe = S.classify(383.7, 350.0, False, False, False)
+    paired = S.classify(430.0, 350.0, False, False, True)
+    probe = S.classify(430.0, 350.0, False, False, False)
     assert paired.startswith("UR") and probe.startswith("CR")
+
+
+def test_the_old_boundary_would_have_called_this_a_UR():
+    """The regression A1 fixes: at the puff exactly, the old rule said UR.
+
+    350.4 ms is a real value - six of Carole's trials sit there, 0.4 ms after the puff,
+    and every one of them was scored UR by the line that used to be at us_onset_ms.
+    """
+    assert S.classify(350.4, 350.0, False, False, True, ur_latency_ms=67.0).startswith("CR")
 
 
 def test_alpha_still_wins_on_a_probe():
@@ -185,3 +195,62 @@ if __name__ == "__main__":
             traceback.print_exc()
     print("\n%d passed, %d failed, %d total" % (len(fns) - bad, bad, len(fns)))
     sys.exit(1 if bad else 0)
+
+
+# ------------------------------------------------------------------ A1 / A3
+def test_response_between_puff_and_reflex_is_a_CR():
+    """A1. The puff is at 350 ms and the reflex takes 67 ms, so nothing puff-driven can
+    begin before 417 ms.  A response at 383 ms started too early to be a UR."""
+    cls = S.classify(383.0, 350.0, False, False, True, ur_latency_ms=67.0)
+    assert cls.startswith("CR"), cls
+
+
+def test_response_after_the_reflex_latency_is_a_UR():
+    assert S.classify(430.0, 350.0, False, False, True, ur_latency_ms=67.0).startswith("UR")
+
+
+def test_the_boundary_moves_with_the_measured_latency():
+    onset = 400.0
+    assert S.classify(onset, 350.0, False, False, True, ur_latency_ms=67.0).startswith("CR")
+    assert S.classify(onset, 350.0, False, False, True, ur_latency_ms=20.0).startswith("UR")
+
+
+def test_a_very_late_blink_is_neither_CR_nor_UR():
+    cls = S.classify(950.0, 350.0, False, False, True, ur_latency_ms=67.0)
+    assert cls.startswith("spontaneous"), cls
+
+
+def test_a_very_late_blink_on_a_probe_is_also_spontaneous():
+    cls = S.classify(950.0, 350.0, False, False, False, ur_latency_ms=67.0)
+    assert cls.startswith("spontaneous"), cls
+
+
+def test_a_late_but_plausible_probe_response_is_still_a_CR():
+    """A2 must survive A1: a decaying CR is late, but not spontaneous."""
+    assert S.classify(500.0, 350.0, False, False, False, ur_latency_ms=67.0).startswith("CR")
+
+
+def test_spontaneous_blink_in_a_us_only_trial_is_not_a_UR():
+    """A3. Thomas's US-only onsets run to 901 ms; those are not reflexes."""
+    assert S.classify(901.0, 350.0, False, True, True).startswith("spontaneous")
+    assert S.classify(67.0, 350.0, False, True, True) == "UR to the puff"
+
+
+def test_latency_is_the_median_of_plausible_puff_responses():
+    lat, used, tot = S.measure_ur_latency([50.0, 67.0, 75.0, 66.0, 901.0, -50.0])
+    assert used == 4 and tot == 6
+    assert 60.0 <= lat <= 71.0, lat
+
+
+def test_latency_falls_back_when_the_baseline_is_too_thin():
+    lat, used, tot = S.measure_ur_latency([901.0, -50.0], default=60.0)
+    assert used == 0 and lat == 60.0
+
+
+def test_contaminated_baseline_would_have_moved_the_boundary():
+    """Why the window matters: without it the median is dragged by spontaneous blinks."""
+    onsets = [50.0, 67.0, 75.0, 66.0, 901.0, 880.0, 870.0]
+    windowed, _, _ = S.measure_ur_latency(onsets)
+    import numpy as np
+    naive = float(np.median([o for o in onsets]))
+    assert windowed < 100.0 < naive

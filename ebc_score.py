@@ -25,6 +25,36 @@ MAIN, RESET, PARTIAL = 0.40, 0.20, 0.15
 BASE_FROM, BASE_TO = -300.0, -30.0
 SEARCH_MS = 1000.0
 
+# --- how long after a stimulus a response can still belong to it -------------------
+# A puff cannot drive a response that begins at the instant of the puff: the reflex
+# takes time.  UR_LATENCY_MS is that time - measured per participant from the US-only
+# baseline (see measure_ur_latency) and only falling back to this default when there is
+# no usable baseline to measure it from.
+UR_LATENCY_MS = 60.0
+# The window a genuine puff reflex may begin in, used both to MEASURE the latency and to
+# reject a spontaneous blink that happened to land in a US-only trial.  Thomas's 33
+# US-only onsets span -50 to 901 ms; without a window his median reflex latency is a
+# median over a contaminated set.
+UR_MIN_MS, UR_MAX_MS = 20.0, 250.0
+# After this long, a blink is not time-locked to anything in the trial.  It is neither a
+# CR nor a UR, and it is excluded from the rate rather than counted as either.
+RESP_MAX_MS = 800.0
+
+
+def measure_ur_latency(onsets, default=UR_LATENCY_MS):
+    """How long this participant's blink reflex takes to start, from their own puffs.
+
+    US-only trials are anchored on the puff, so their onsets ARE reflex latencies - but
+    only the ones that fall in a plausible reflex window.  A spontaneous blink 900 ms
+    after the puff is not a reflex, and letting it into the median moves the CR/UR line
+    for every conditioning trial in the study.  Returns (latency_ms, n_used, n_total),
+    and falls back to the default when too few puffs survive to trust the median.
+    """
+    good = [o for o in onsets if o is not None and UR_MIN_MS <= o <= UR_MAX_MS]
+    if len(good) < 3:
+        return float(default), len(good), len(onsets)
+    return float(np.median(good)), len(good), len(onsets)
+
 
 def smooth(x):
     x = np.array([np.nan if v is None else v for v in x], float)
@@ -71,7 +101,8 @@ def excursions(C_, t, thr):
     return out
 
 
-def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
+def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True,
+             ur_latency_ms=UR_LATENCY_MS):
     """What a response at `onset_ms` after CS onset is, on THIS trial.
 
     `us_delivered` is the part that used to be missing.  The CR/UR split asks whether a
@@ -87,14 +118,27 @@ def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
     if moving:
         return "in-progress at stimulus"
     if anchored_on_us:
-        return "UR to the puff" if onset_ms >= 20 else "alpha/startle <20ms"
+        if onset_ms < UR_MIN_MS:
+            return "alpha/startle <%dms" % round(UR_MIN_MS)
+        if onset_ms > UR_MAX_MS:
+            return "spontaneous blink (>%dms after the puff)" % round(UR_MAX_MS)
+        return "UR to the puff"
     if onset_ms < 100:
         return "alpha/startle <100ms"
+    if onset_ms > RESP_MAX_MS:
+        return "spontaneous blink (>%dms, not time-locked)" % round(RESP_MAX_MS)
     if not us_delivered:
         return "CR (no US on this trial)"
-    if onset_ms < us_onset_ms:
-        return "CR (100-%dms)" % round(us_onset_ms)
-    return "UR (>=%dms)" % round(us_onset_ms)
+    # The line between a conditioned and an unconditioned response is NOT the puff.  A
+    # puff-driven response cannot begin before the puff plus the reflex latency, so a
+    # response that started in between began too early for the puff to have caused it -
+    # it is a CR, and calling it a UR is a bias, not a rounding error.  With Carole's
+    # measured 67 ms that dead zone is 350-417 ms, and 21 of her 85 scoreable trials
+    # were sitting in it.
+    line = us_onset_ms + ur_latency_ms
+    if onset_ms < line:
+        return "CR (100-%dms)" % round(line)
+    return "UR (>=%dms)" % round(line)
 
 
 def main():
@@ -159,12 +203,10 @@ def main():
         # and nothing about them may be judged against the US onset.
         us_here = tr["trial_type"] in ("CS-US", "US-only")
 
-        cls = classify(b1["on"], US_ONSET, inprog, on_us, us_here) if b1 else None
         # if the first event is an alpha blink or the lid was already moving, look for a
         # later blink in the same window - a real CR or UR may sit behind the artefact
         obscured = bool(b1 and (inprog or (not on_us and b1["on"] < 100)))
         b2 = full[1] if (obscured and len(full) > 1) else None
-        sec = classify(b2["on"], US_ONSET, False, on_us, us_here) if b2 else None
 
         def at(ms):
             return float(Cl[min(max(k0 + int(round(ms / MS)), 0), len(Cl) - 1)])
@@ -208,14 +250,16 @@ def main():
             closed_at_US=bool(at(US_ONSET) >= 0.50) if us_here else None,
             reopened_before_US=(bool(b1 is not None and at(US_ONSET) < 0.30)
                                 if us_here else None),
-            response_class=cls,
+            response_class=None,               # filled in below, once the reflex
             first_response_obscured="yes" if obscured else "",
             secondary_onset_ms=None if not b2 else round(b2["on"], 1),
             secondary_peak_pct=None if not b2 else round(b2["amp"] * 100, 1),
-            secondary_class=sec,
+            secondary_class=None,              # latency has been measured
             scored_onset_ms=(round(b2["on"], 1) if b2 else
                              (None if not b1 else round(b1["on"], 1))),
-            scored_class=(sec if b2 else cls),
+            scored_class=None,
+            _b1=None if not b1 else b1["on"], _b2=None if not b2 else b2["on"],
+            _inprog=inprog, _on_us=on_us, _us_here=us_here,
             all_blink_onsets_ms=";".join("%.0f" % b["on"] for b in full),
             all_blink_amps_pct=";".join("%.0f" % (b["amp"] * 100) for b in full),
             inter_blink_ms=";".join("%.0f" % (full[k + 1]["on"] - full[k]["on"])
@@ -223,6 +267,33 @@ def main():
             partial_movement_ms=";".join("%.0f(%.0f%%)" % (b["on"], b["amp"] * 100)
                                          for b in part))
         rows.append(row)
+
+    # ---- how long this participant's reflex takes, from their own US-only baseline ----
+    # This has to happen before anything is classified, because it is what sets the line
+    # between a conditioned and an unconditioned response on every conditioning trial.
+    UR_LAT, n_used, n_tot = measure_ur_latency([r["_b1"] for r in rows if r["_on_us"]])
+    measured = n_used >= 3
+    print("blink reflex latency = %.1f ms  (%s)"
+          % (UR_LAT, ("median of %d US-only trial(s) in the %d-%d ms window, of %d"
+                      % (n_used, round(UR_MIN_MS), round(UR_MAX_MS), n_tot)) if measured
+             else ("DEFAULT - only %d of %d US-only trial(s) gave a usable reflex, which "
+                   "is too few to measure it from" % (n_used, n_tot))))
+    print("  -> a response before %.0f ms began too early for the puff to have caused it, "
+          "so it is a CR" % (US_ONSET + UR_LAT))
+    if not measured:
+        print("  !! collect a proper US-only baseline for this participant: the CR/UR "
+              "line is resting on an assumed reflex latency, not a measured one")
+
+    for r in rows:
+        cls = (classify(r["_b1"], US_ONSET, r["_inprog"], r["_on_us"], r["_us_here"], UR_LAT)
+               if r["_b1"] is not None else None)
+        sec = (classify(r["_b2"], US_ONSET, False, r["_on_us"], r["_us_here"], UR_LAT)
+               if r["_b2"] is not None else None)
+        r["response_class"] = cls
+        r["secondary_class"] = sec
+        r["scored_class"] = sec if r["_b2"] is not None else cls
+        for k in ("_b1", "_b2", "_inprog", "_on_us", "_us_here"):
+            del r[k]
 
     order = {r: i for i, r in enumerate(C.ROLES)}
     rows.sort(key=lambda r: (order[r["role"]], r["session"], r["session_trial"]))
@@ -233,6 +304,10 @@ def main():
         r["group_index"] = seen[k]
 
     merged = dict(study=cfg["study"], protocol=proto, closed_ref=CLOSED,
+                  ur_latency_ms=round(UR_LAT, 1),
+                  ur_latency_measured=bool(measured),
+                  ur_latency_n=[n_used, n_tot],
+                  cr_ur_boundary_ms=round(US_ONSET + UR_LAT, 1),
                   sessions=TR["sessions"], checks=TR["checks"], offsets=TR["offsets"],
                   traces=keep_traces,
                   recordings=[{k: rec[k] for k in ("tag", "label", "role", "order")}
@@ -249,7 +324,9 @@ def main():
         rs = [r for r in rows if r["role"] == role and r["trial_type"] == tt]
         if not rs:
             continue
-        sc = [r for r in rs if r["scored_class"] not in (None, "in-progress at stimulus")]
+        sc = [r for r in rs if r["scored_class"] is not None
+              and r["scored_class"] != "in-progress at stimulus"
+              and not str(r["scored_class"]).startswith("spontaneous")]
         cr = [r for r in sc if str(r["scored_class"]).startswith("CR")]
         rec = [r for r in rs if r["first_response_obscured"] == "yes"
                and r["secondary_onset_ms"] is not None]

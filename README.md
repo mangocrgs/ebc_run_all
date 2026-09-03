@@ -339,10 +339,26 @@ accepted or rejected. If that page is right, the numbers are right.
 **Analyse the `scored_onset_ms` / `scored_class` columns.** They already apply the
 second-look rule; `blink_onset_ms` keeps the unmodified first event for transparency.
 
-Classes: `alpha/startle` <100 ms · `CR` 100 ms–US onset (began before the puff) ·
-`UR` at or after US onset · `in-progress at stimulus` (untimeable, excluded from summaries).
-US-only trials are anchored on the puff, so their latencies are measured from it and every
-response there is by definition unconditioned.
+Classes: `alpha/startle` <100 ms · `CR` 100 ms to **US onset + the reflex latency** ·
+`UR` after that · `spontaneous blink` >800 ms (not time-locked to anything in the trial)
+· `in-progress at stimulus` (untimeable).  The last two are excluded from the rate rather
+than counted as either kind of response.  A trial that delivered **no** US is never judged
+against the US at all: its classes are `alpha/startle` and `CR (no US on this trial)`.
+
+**The CR/UR line is not the puff.**  A puff-driven response cannot begin at the instant of
+the puff - the reflex takes time - so the line sits at `US onset + reflex latency`, and a
+response in between began too early for the puff to have caused it.  That is a CR.  With
+Carole's measured 67 ms the old line at 350 ms was putting 21 of her 85 scoreable trials
+on the wrong side; Thomas is the proof, with 47 of his 87 trials landing in one bin at
+400-425 ms, which is 350 + 67.
+
+The latency is **measured per participant** from their own US-only baseline, where trials
+are anchored on the puff and the onsets therefore *are* reflex latencies - but only those
+inside a 20-250 ms window, because a spontaneous blink 900 ms after a puff is not a reflex
+and letting it into the median moves the CR/UR line for every conditioning trial in the
+study.  Fewer than three usable puffs and the run says so loudly and falls back to a
+default: the line is then resting on an assumption, and a participant with no proper
+US-only baseline needs one collected before their CR rate means anything.
 
 > **The CR/UR line is knife-edge, and the CR rate inherits that.**  The split is made at
 > exactly the CS-US interval, but onsets are quantised to one video frame (8.34 ms at
