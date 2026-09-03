@@ -99,9 +99,14 @@ def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
         spontaneous         after RESP_MAX_MS, or outside the reflex window on a US-only
                             trial - not time-locked, excluded from the rate
 
-    `us_delivered` matters because the upper edge is the US: a probe, an extinction trial
-    and a CS-only baseline never received one, so nothing about them may be judged
-    against it and any response in the window is a CR.
+    `us_delivered` says whether a puff arrived.  A probe, an extinction trial and a
+    CS-only baseline never received one, so nothing about them may be judged against the
+    US - but they are judged against the SAME window, because a probe exists to be
+    comparable with the paired trials around it.  A response after that window is a late
+    response, not a CR: the mirror of the bug this replaced, where every blink on a
+    no-US trial became a UR, is one where every blink becomes a CR.  A CS-only baseline
+    would then report a 100% false-positive rate by construction, and extinction - whose
+    whole job is to show responding decay - could only ever read 100%.
     """
     if moving:
         return "in-progress at stimulus"
@@ -116,7 +121,9 @@ def classify(onset_ms, us_onset_ms, moving, anchored_on_us, us_delivered=True):
     if onset_ms > RESP_MAX_MS:
         return "spontaneous blink (>%dms, not time-locked)" % round(RESP_MAX_MS)
     if not us_delivered:
-        return "CR (no US on this trial)"
+        if onset_ms < us_onset_ms + RESP_OFFSET_MS:
+            return "CR (no US on this trial)"
+        return "late response (no US on this trial)"
     if onset_ms < us_onset_ms + RESP_OFFSET_MS:
         return "CR (%d-%dms)" % (round(RESP_OFFSET_MS), round(us_onset_ms + RESP_OFFSET_MS))
     return "UR (>=%dms)" % round(us_onset_ms + RESP_OFFSET_MS)
