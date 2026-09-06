@@ -57,12 +57,12 @@
       "order": 1
     },
     {
-      "tag": "csus4",
-      "file": "CSUS 4.MP4",
+      "tag": "extinction2",
+      "file": "extinction 2.MP4",
       "label": "Extinction (chapter 2)",
       "role": "extinction",
       "order": 2,
-      "note": "chapter 2 of the extinction take - same creation time as extinction.MP4 and the timecodes butt together. Recorded AFTER extinction, not as a fourth conditioning block; confirmed by the experimenter. Scored as extinction so the trials are kept, and kept out of conditioning where they would contaminate acquisition."
+      "note": "chapter 2 of 2 of the extinction take - same camera take id as extinction.MP4, continues_previous, and its timecode picks up where extinction.MP4 ends. Recorded AFTER extinction. The file was renamed from CSUS 4.MP4 on 2026-09-06 because its old name claimed it was a conditioning block; see Video/RENAMES_20260906.json."
     }
   ],
   "out_dir": "C:/Users/marga/EBC Analyzer/results/Marie"

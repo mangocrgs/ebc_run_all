@@ -15,7 +15,7 @@ import re
 # Stamped on the page, on the console banner and on every workbook cover, because a
 # number that reaches a paper has to be traceable to the thing that produced it.  Raise
 # it whenever the scoring changes.
-VERSION = "1.1"
+VERSION = "1.2"
 LAB = "Cerebral Dynamics, Plasticity & Learning"
 
 # ------------------------------------------------------------------------ house style

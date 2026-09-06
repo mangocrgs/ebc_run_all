@@ -8,9 +8,10 @@
     "paired_per_block": 9,
     "cs_only_per_block": 1,
     "n_blocks": 10,
-    "min_iti_s": 5.0,
+    "min_iti_s": 2.0,
     "cs_tol": 0.35,
-    "us_tol": 0.6
+    "us_tol": 0.6,
+    "cr_window_mode": "standard"
   },
   "recordings": [
     {

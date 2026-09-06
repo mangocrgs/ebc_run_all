@@ -15,11 +15,12 @@
   },
   "recordings": [
     {
-      "tag": "csonly",
-      "file": "cs only.MP4",
-      "label": "CS-only baseline",
-      "role": "baseline_cs",
-      "order": 1
+      "tag": "extinction2",
+      "file": "extinction 2.MP4",
+      "label": "Extinction (chapter 2)",
+      "role": "extinction",
+      "order": 2,
+      "note": "chapter 2 of 2 of the extinction take - same camera take id as extinction.MP4, continues_previous, and its timecode picks up where extinction.MP4 ends. Recorded AFTER extinction. The file was renamed from cs only.MP4 on 2026-09-06 because its old name claimed it was a CS-only baseline block; see Video/RENAMES_20260906.json."
     },
     {
       "tag": "usonly",

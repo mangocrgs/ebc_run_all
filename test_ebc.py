@@ -400,6 +400,76 @@ def test_every_test_defined_in_this_file_is_collected():
     assert collected == defined, "%d tests defined, %d collected" % (defined, collected)
 
 
+# ------------------------------------------------- names that contradict the camera
+import ebc_app as A
+
+
+def _take(files, take="t1"):
+    """rows as ebc_media.timeline writes them: one take, chapters in the order given."""
+    return {f: dict(file=f, take=["t", take], chapter=i, n_chapters=len(files),
+                    continues_previous=(i > 1))
+            for i, f in enumerate(files, 1)}
+
+
+def _vids(files):
+    return [dict(name=f, path="C:/v/" + f) for f in files]
+
+
+def test_a_chapter_named_for_another_role_is_flagged():
+    """Carole's CSUS fin.MP4 - chapter 2 of the extinction take, named for conditioning."""
+    files = ["extinction.MP4", "CSUS fin.MP4"]
+    c = A.name_conflicts(_vids(files), _take(files))
+    assert len(c) == 1, c
+    assert c[0]["name"] == "CSUS fin.MP4"
+    assert c[0]["claims"] == "conditioning" and c[0]["actual"] == "extinction"
+
+
+def test_the_suggested_name_follows_the_chapter_it_belongs_to():
+    files = ["extinction.MP4", "CSUS fin.MP4"]
+    assert A.name_conflicts(_vids(files), _take(files))[0]["suggest"] == "extinction 2.MP4"
+
+
+def test_a_baseline_name_on_an_extinction_chapter_is_flagged():
+    """Marie retest's cs only.MP4, which was being used as her CS-only baseline."""
+    files = ["extinction.MP4", "cs only.MP4"]
+    c = A.name_conflicts(_vids(files), _take(files))
+    assert len(c) == 1 and c[0]["actual"] == "extinction"
+    assert c[0]["claims"] == "baseline_cs"
+
+
+def test_chapters_that_agree_with_their_take_are_not_flagged():
+    """CSUS 1/2/3 are three chapters of one conditioning take and are perfectly named."""
+    files = ["CSUS 1.MP4", "CSUS 2.MP4", "CSUS 3.MP4"]
+    assert A.name_conflicts(_vids(files), _take(files)) == []
+
+
+def test_a_name_that_claims_nothing_is_left_alone():
+    """A camera's own numbering asserts no role, so there is nothing to contradict."""
+    files = ["extinction.MP4", "GX012908.MP4"]
+    assert A.name_conflicts(_vids(files), _take(files)) == []
+
+
+def test_a_take_whose_first_chapter_says_nothing_is_left_alone():
+    """With no role on chapter 1 there is no evidence about what the take is."""
+    files = ["GX012908.MP4", "CSUS fin.MP4"]
+    assert A.name_conflicts(_vids(files), _take(files)) == []
+
+
+def test_single_file_takes_are_never_flagged():
+    rows = {"CSUS 4.MP4": dict(file="CSUS 4.MP4", take=["t", "t9"], chapter=1, n_chapters=1)}
+    assert A.name_conflicts(_vids(["CSUS 4.MP4"]), rows) == []
+
+
+def test_a_suggested_name_never_collides_with_a_file_already_there():
+    files = ["extinction.MP4", "CSUS fin.MP4"]
+    vids = _vids(files + ["extinction 2.MP4"])
+    rows = _take(files)
+    rows["extinction 2.MP4"] = dict(file="extinction 2.MP4", take=["t", "z"], chapter=1,
+                                    n_chapters=1)
+    s = A.name_conflicts(vids, rows)[0]["suggest"]
+    assert s != "extinction 2.MP4" and s.startswith("extinction ")
+
+
 if __name__ == "__main__":
     import traceback
     fns = [(n, f) for n, f in sorted(globals().items())

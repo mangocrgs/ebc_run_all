@@ -23,6 +23,16 @@ press Run.  Progress streams per recording; the workbooks, figures and CSVs are 
 when it finishes, and a click on any of them opens the output folder with that file
 selected.
 
+**Between picking the videos and setting the protocol the app checks the names against the
+camera.** If a file's name claims a role the camera's own take and chapter metadata
+contradict, a panel says so before anything else can be set — what the name claims, what
+the recording actually is, the evidence, and a proposed new name that can be edited. You
+either rename the ticked files or press *Keep these names*; the protocol step stays shut
+until one of the two is chosen. It is placed there deliberately: the protocol panel is
+where people stop reading the file list, and a wrong role is invisible from that point on.
+Renaming writes `RENAMES.json` beside the recordings, which records every rename and
+reverses it. See *Names that lie* below for why this exists.
+
 It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
 away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
 Edge and is on every current Windows machine; the interface it shows is served by a server
@@ -46,7 +56,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.1.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.2.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
@@ -209,7 +219,7 @@ offset and US onset, and the whole pipeline follows:
 |---|---|
 | pairing a US to its CS | the window runs to the end of the stimulus pair, not to the end of the CS, capped at half the minimum ITI so it can never reach the next trial |
 | the trial window | `ebc_config.window()` — a trace design tracks further past CS onset, so the US and the response to it are inside the window |
-| the CR window | both of its edges sit one measured reflex latency after their own stimulus, so a trace protocol's window moves with the US wherever the protocol puts it |
+| the CR window | `alpha_ms` to `us_onset_ms`, with the `?CR` band running on to `cs_ms`; a trace protocol's CS ends before the puff, so it has no `?CR` band. Under `cr_window_mode: "measured"` both edges instead sit one measured reflex latency after their own stimulus and move with the US wherever the protocol puts it |
 | block recovery | `paired_per_block`, `cs_only_per_block` (0 is allowed — then the count closes each block) and `n_blocks` |
 | figures | the US band is drawn where the US is; a trace interval is shaded and labelled, and the CS offset gets its own marker |
 | workbooks | the read-me names the design and states the interval; a trace study gains a *closure mid-gap* column |
@@ -286,8 +296,9 @@ detector will fire on noise long before it fails outright.
   "protocol": {
     "cs_ms": 400.0, "us_onset_ms": 350.0, "us_dur_ms": 50.0,
     "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10,
-    "min_iti_s": 5.0, "cs_tol": 0.35, "us_tol": 0.60,
-    "alpha_ms": 100.0, "pre_ms": 300.0, "post_ms": 0.0
+    "min_iti_s": 2.0, "cs_tol": 0.35, "us_tol": 0.60,
+    "alpha_ms": 100.0, "pre_ms": 300.0, "post_ms": 0.0,
+    "cr_window_mode": "standard"
   },
   "recordings": [
     {"tag": "csus1", "file": "CSUS 1.MP4", "label": "CSUS 1", "role": "conditioning", "order": 1},
@@ -304,8 +315,36 @@ A recording's **role** decides what is expected of it and how it is scored:
 |---|---|---|
 | `conditioning` | paired CS–US trials plus the CS-only probe that closes each block | chapters of one session; they concatenate onto one clock and carry the block structure |
 | `extinction` | CS alone after conditioning | scored against the *learned* US window; no US is delivered |
-| `baseline_cs` | CS alone, outside conditioning | gives the false-positive rate for the CR window |
+| `baseline_cs` | CS alone, outside conditioning | gives the false-positive rate the CR rate has to be read against |
 | `baseline_us` | US alone | no CS exists, so every window is anchored on the US instead |
+
+### Names that lie
+
+**A file name is not evidence of what a recording is.** Three of the recordings analysed so
+far were named for a block they are not, and in every case the camera's own metadata says
+so plainly: the file shares a take id with the recording before it, is chapter 2 of 2, and
+its timecode picks up exactly where the previous chapter ends. It is the tail of a take the
+camera split at 4 GB, not a new block.
+
+| participant | was called | is | renamed to |
+|---|---|---|---|
+| Carole | `CSUS fin.MP4` | chapter 2/2 of the extinction take (`1730368347`) | `extinction 2.MP4` |
+| Marie | `CSUS 4.MP4` | chapter 2/2 of the extinction take (`1729944729`) | `extinction 2.MP4` |
+| Marie retest | `cs only.MP4` | chapter 2/2 of the extinction take (`1731158050`) | `extinction 2.MP4` |
+
+Renamed on 2026-09-06; `Video/RENAMES_20260906.json` records every rename and reverses it.
+**The app now raises this itself**, between choosing the videos and setting the protocol,
+and offers the rename — see *Point and click*. The check is the same one, run over the
+folder as listed.
+Marie's was found and re-roled first, and the other two went on being scored as a fourth
+conditioning block and as a CS-only baseline until the same check was run over everybody.
+
+This is what the `timeline` stage exists for, and why it runs first and unconditionally.
+It reads the container metadata of every file — no decoding, a second for a whole study —
+and prints the take, the chapter and what continues what, so the study file can be argued
+with before an hour of video is decoded against it. **Read that table before trusting a
+role**, particularly for anything called `fin`, `final`, `bis` or a number one past the end
+of the protocol.
 
 Omit `recordings` and the folder is scanned: `CSUS *`, `extinction*`, `CS ONLY`, `US ONLY`
 map onto the four roles. Add `"led_yellow": [x, y]` to a recording to pin the CS LED by
@@ -418,25 +457,53 @@ accepted or rejected. If that page is right, the numbers are right.
 4. **Blink criterion.** Five robust SDs above the trial's own pre-CS baseline, floor 15%
    closure, then walked back along the rising edge to the true onset. A separate blink must
    re-reach 40% closure after first returning below 20%.
-5. **The CR window, measured.** Neither the eye nor the brainstem responds instantly, so
-   the window a CR is counted in is not the bare interval between the two stimuli. The
-   **US-only baseline is scored first**, and the reflex latency is measured from it: the
-   mean of the unconditioned blink onsets minus 1.5 SD is the soonest a stimulus can have
-   caused a blink. Both edges of the CR window then sit that far after *their own*
-   stimulus:
+5. **The CR window.** By default every study is scored on the **same** window, so two
+   participants' rates are numbers about the same thing:
+
+   ```
+   alpha/startle   < alpha_ms                    (100 ms)
+   CR              alpha_ms  ->  us_onset_ms     (100-350 ms)   begins before the puff
+   ?CR             us_onset_ms  ->  cs_ms        (350-400 ms)   cannot be called either
+   UR              at or after cs_ms             (>= 400 ms)
+   ```
+
+   **`?CR` is the band between the puff and the end of the CS**, and it is counted as
+   **neither a CR nor a UR**. A blink that begins there cannot be a definitive conditioned
+   response — the puff has already arrived, so it may be a reaction to it — but calling it
+   a UR asserts the opposite on exactly the same absent evidence. Naming it is the honest
+   option: it gets its own class, its own workbook columns, and it is printed beside the CR
+   rate, so a rate can never be quoted without showing how much was set aside to reach it.
+   The band exists only where the CS outlasts the window, so a trace protocol has none.
+
+   Its label begins with `?` on purpose. Every module in the pipeline recognises a class by
+   its first characters, so a name that began `CR` would have been silently counted as one.
+
+   `ebc_config.cr_window()` is the one place all of this is decided, and it writes the class
+   labels every other module matches on.
+
+   **The measured alternative.** Set `"cr_window_mode": "measured"` in a study's protocol
+   and the window is derived from that participant's own reflex instead. The **US-only
+   baseline is scored first**, and the mean of the unconditioned blink onsets minus 1.5 SD
+   is the soonest a stimulus can have caused a blink; both edges then sit that far after
+   *their own* stimulus:
 
    ```
    CR window  =  [ CS onset + reflex ,  US onset + reflex ]
    ```
 
-   A blink before the lower edge began too soon after the CS for the CS to have caused it;
-   one after the upper edge began late enough that the puff could have. In between, the
-   blink was already under way before the puff could have driven it — which is what a
-   conditioned response is. `ebc_config.cr_window()` is the one place this is decided, and
-   it writes the class labels every other module matches on.
+   It is the better-founded window for one participant read alone, and it is what this app
+   used until 2026-09-06. It was made opt-in because it is **not comparable across
+   participants** — each person gets a different boundary, so their CR rates are not
+   measurements of the same quantity — and because its upper edge is built from the spread
+   of the baseline block, which is about half the spread the same reflex shows during
+   conditioning, so it lands too late and calls genuine reflexes conditioned responses.
+   There is no `?CR` band in this mode: the window already states where the puff's influence
+   is taken to begin, and a second boundary inside it would answer the same question twice.
 
-   Only trials the scorer stands behind feed the measurement, and a mean and an SD have no
-   defence against one bad trial. Two filters, both of which name what they set aside:
+   The reflex is measured, printed and recorded either way — the mode only decides which
+   window *scores*. Only trials the scorer stands behind feed the measurement, and a mean
+   and an SD have no defence against one bad trial. Two filters, both of which name what
+   they set aside:
 
    - a US-only trial with the lid already moving at the puff, or whose response was
      recovered behind an artefact, is left out — its "onset" is not the reflex;
@@ -446,14 +513,12 @@ accepted or rejected. If that page is right, the numbers are right.
 
    Both matter in practice. In Thomas's 35-trial US-only baseline a single onset of 826 ms
    — a spontaneous blink scored long after the reflex had been missed — took the SD from
-   11 ms to 152 and drove `mean − 1.5 SD` to −129 ms, i.e. no window at all. With the
-   outlier set aside the same baseline gives 70 ± 11 ms over 21 trials and a 54 ms reflex.
+   11 ms to 152 and drove `mean - 1.5 SD` to -129 ms, i.e. no window at all. With the
+   outlier set aside the same baseline gives 70 +- 11 ms over 21 trials and a 54 ms reflex.
 
-   With **no US-only recording** in the study there is nothing to measure, and the window
-   falls back to the protocol's `alpha_ms` startle cut-off and the bare US onset — which is
-   how this app scored before, so nothing already analysed moves. The fallback is also what
-   happens if the measurement comes out impossible (`mean − 1.5 SD` at or before the puff),
-   and the reason is printed, put on the results card and written into every read-me.
+   In `measured` mode with **no US-only recording** there is nothing to measure and the
+   window falls back to the standard one. The reason is printed, put on the results card
+   and written into every read-me.
 6. **Second look.** If the first event began too soon to be a response to anything — before
    the CR window's lower edge — or the lid was already moving at onset, the window is
    searched for a *later* blink, because a real CR or UR may sit behind the artefact. Where
@@ -462,10 +527,13 @@ accepted or rejected. If that page is right, the numbers are right.
 **Analyse the `scored_onset_ms` / `scored_class` columns.** They already apply the
 second-look rule; `blink_onset_ms` keeps the unmodified first event for transparency.
 
-Classes, with `reflex` the measured latency and `us` the US onset: `alpha/startle`
-< reflex · `CR` reflex–(us + reflex) · `UR` at or after us + reflex ·
-`in-progress at stimulus` (untimeable, excluded from summaries). The class *names* carry
-their own boundaries — `CR (43-393ms)` — so a column always says which window produced it.
+Classes on the standard window: `alpha/startle <100ms` · `CR (100-350ms)` ·
+`?CR (350-400ms)` · `UR (>=400ms)` · `in-progress at stimulus` (untimeable, excluded
+from summaries). `?CR` counts as neither a CR nor a UR, and the three of them partition the
+latency axis, so `CR n + ?CR n + UR n + alpha n` equals the scoreable count in every
+summary sheet. The class *names* carry their own boundaries — `CR (100-350ms)` — so a
+column always says which window produced it, and under `measured` mode they say something
+different, such as `CR (43-393ms)`, with no `?CR` among them.
 US-only trials are anchored on the puff, so their latencies are measured from it and every
 response there is by definition unconditioned; they are never classified against the window
 they are used to build.

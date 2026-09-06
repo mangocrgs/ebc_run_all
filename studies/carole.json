@@ -36,12 +36,12 @@
       "order": 3
     },
     {
-      "tag": "csusfin",
-      "file": "CSUS fin.MP4",
-      "label": "CSUS fin",
+      "tag": "extinction2",
+      "file": "extinction 2.MP4",
+      "label": "Extinction (chapter 2)",
       "role": "extinction",
       "order": 2,
-      "note": "chapter 2 of 2 of the extinction take - same camera take id (1730368347) as extinction.MP4, continues_previous, and its timecode picks up exactly where extinction.MP4's 531.5 s end. Recorded AFTER extinction, not as a fourth conditioning block. Marie's identical CSUS 4.MP4 was confirmed by the experimenter and fixed on 3 Sep; this one was missed. Scored as extinction so the trials are kept, and kept out of conditioning where they would contaminate acquisition."
+      "note": "chapter 2 of 2 of the extinction take - same camera take id as extinction.MP4, continues_previous, and its timecode picks up where extinction.MP4 ends. Recorded AFTER extinction. The file was renamed from CSUS fin.MP4 on 2026-09-06 because its old name claimed it was a conditioning block; see Video/RENAMES_20260906.json."
     },
     {
       "tag": "usonly",
