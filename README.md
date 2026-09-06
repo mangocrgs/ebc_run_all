@@ -24,14 +24,23 @@ when it finishes, and a click on any of them opens the output folder with that f
 selected.
 
 **Between picking the videos and setting the protocol the app checks the names against the
-camera.** If a file's name claims a role the camera's own take and chapter metadata
-contradict, a panel says so before anything else can be set — what the name claims, what
-the recording actually is, the evidence, and a proposed new name that can be edited. You
-either rename the ticked files or press *Keep these names*; the protocol step stays shut
-until one of the two is chosen. It is placed there deliberately: the protocol panel is
-where people stop reading the file list, and a wrong role is invisible from that point on.
-Renaming writes `RENAMES.json` beside the recordings, which records every rename and
-reverses it. See *Names that lie* below for why this exists.
+camera.** A panel appears before anything else can be set, with two kinds of finding:
+
+- **the name contradicts the camera** — it claims a role the take and chapter metadata
+  say it is not. These are ticked for renaming by default, and **the protocol step stays
+  shut** until you either rename them or press *Keep these names*. It is placed there
+  deliberately: the protocol panel is where people stop reading the file list, and a wrong
+  role is invisible from that point on.
+- **the name says nothing at all** — a camera's own `GX012908.MP4` sitting in a take whose
+  other chapters do carry a role. There is nothing to contradict, so this blocks nothing
+  and is not ticked by default; it is simply offered, because the take can say what the
+  file is and nobody should have to work it out again later.
+
+Either way the panel shows what the name claims, what the recording actually is, the
+evidence, and a proposed new name that can be edited. Renaming writes `RENAMES.json`
+beside the recordings, which records every rename and reverses it. A take where **no**
+chapter names a role is left entirely alone — chaptering says which files belong together,
+never what they are. See *Names that lie* below for why this exists.
 
 It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
 away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
@@ -335,7 +344,8 @@ camera split at 4 GB, not a new block.
 Renamed on 2026-09-06; `Video/RENAMES_20260906.json` records every rename and reverses it.
 **The app now raises this itself**, between choosing the videos and setting the protocol,
 and offers the rename — see *Point and click*. The check is the same one, run over the
-folder as listed.
+folder as listed, and it runs in both directions: it catches a name that contradicts the
+camera, and it offers a name to a chapter whose own name says nothing while its take does.
 Marie's was found and re-roled first, and the other two went on being scored as a fourth
 conditioning block and as a CS-only baseline until the same check was run over everybody.
 

@@ -418,7 +418,7 @@ def _vids(files):
 def test_a_chapter_named_for_another_role_is_flagged():
     """Carole's CSUS fin.MP4 - chapter 2 of the extinction take, named for conditioning."""
     files = ["extinction.MP4", "CSUS fin.MP4"]
-    c = A.name_conflicts(_vids(files), _take(files))
+    c = A.name_findings(_vids(files), _take(files))
     assert len(c) == 1, c
     assert c[0]["name"] == "CSUS fin.MP4"
     assert c[0]["claims"] == "conditioning" and c[0]["actual"] == "extinction"
@@ -426,13 +426,13 @@ def test_a_chapter_named_for_another_role_is_flagged():
 
 def test_the_suggested_name_follows_the_chapter_it_belongs_to():
     files = ["extinction.MP4", "CSUS fin.MP4"]
-    assert A.name_conflicts(_vids(files), _take(files))[0]["suggest"] == "extinction 2.MP4"
+    assert A.name_findings(_vids(files), _take(files))[0]["suggest"] == "extinction 2.MP4"
 
 
 def test_a_baseline_name_on_an_extinction_chapter_is_flagged():
     """Marie retest's cs only.MP4, which was being used as her CS-only baseline."""
     files = ["extinction.MP4", "cs only.MP4"]
-    c = A.name_conflicts(_vids(files), _take(files))
+    c = A.name_findings(_vids(files), _take(files))
     assert len(c) == 1 and c[0]["actual"] == "extinction"
     assert c[0]["claims"] == "baseline_cs"
 
@@ -440,24 +440,53 @@ def test_a_baseline_name_on_an_extinction_chapter_is_flagged():
 def test_chapters_that_agree_with_their_take_are_not_flagged():
     """CSUS 1/2/3 are three chapters of one conditioning take and are perfectly named."""
     files = ["CSUS 1.MP4", "CSUS 2.MP4", "CSUS 3.MP4"]
-    assert A.name_conflicts(_vids(files), _take(files)) == []
+    assert A.name_findings(_vids(files), _take(files)) == []
 
 
-def test_a_name_that_claims_nothing_is_left_alone():
-    """A camera's own numbering asserts no role, so there is nothing to contradict."""
+def test_a_name_that_claims_nothing_is_offered_one():
+    """Nothing to contradict, but the take still says what it is, so offer a name."""
     files = ["extinction.MP4", "GX012908.MP4"]
-    assert A.name_conflicts(_vids(files), _take(files)) == []
+    c = A.name_findings(_vids(files), _take(files))
+    assert len(c) == 1 and c[0]["kind"] == "unnamed"
+    assert c[0]["name"] == "GX012908.MP4" and c[0]["suggest"] == "extinction 2.MP4"
+    assert c[0]["actual"] == "extinction" and c[0]["claims"] is None
 
 
-def test_a_take_whose_first_chapter_says_nothing_is_left_alone():
-    """With no role on chapter 1 there is no evidence about what the take is."""
+def test_a_contradicted_name_and_an_absent_one_are_told_apart():
+    files = ["extinction.MP4", "CSUS fin.MP4", "GX012908.MP4"]
+    kinds = {c["name"]: c["kind"] for c in A.name_findings(_vids(files), _take(files))}
+    assert kinds == {"CSUS fin.MP4": "conflict", "GX012908.MP4": "unnamed"}
+
+
+def test_the_chapter_that_names_the_take_need_not_be_the_first():
+    """An unnamed chapter 1 still gets a name from the chapter that does say one."""
+    files = ["GX012907.MP4", "extinction 2.MP4"]
+    c = A.name_findings(_vids(files), _take(files))
+    assert len(c) == 1 and c[0]["name"] == "GX012907.MP4"
+    assert c[0]["suggest"] == "extinction 1.MP4" and c[0]["actual"] == "extinction"
+
+
+def test_a_take_no_chapter_names_is_left_entirely_alone():
+    """Chaptering says these belong together, never what they are."""
+    files = ["GX012888.MP4", "GX022888.MP4", "GX032888.MP4"]
+    assert A.name_findings(_vids(files), _take(files)) == []
+
+
+def test_the_chapter_number_is_stripped_before_a_name_is_built():
+    """Otherwise chapter 3 of a take headed 'CSUS 1' would be offered 'CSUS 1 3'."""
+    assert A.base_stem("CSUS 1") == "CSUS" and A.base_stem("extinction") == "extinction"
+    assert A.base_stem("CSUS3") == "CSUS" and A.base_stem("csus 2") == "csus"
+
+
+def test_a_role_on_a_later_chapter_still_speaks_for_the_take():
     files = ["GX012908.MP4", "CSUS fin.MP4"]
-    assert A.name_conflicts(_vids(files), _take(files)) == []
+    c = A.name_findings(_vids(files), _take(files))
+    assert len(c) == 1 and c[0]["name"] == "GX012908.MP4" and c[0]["actual"] == "conditioning"
 
 
 def test_single_file_takes_are_never_flagged():
     rows = {"CSUS 4.MP4": dict(file="CSUS 4.MP4", take=["t", "t9"], chapter=1, n_chapters=1)}
-    assert A.name_conflicts(_vids(["CSUS 4.MP4"]), rows) == []
+    assert A.name_findings(_vids(["CSUS 4.MP4"]), rows) == []
 
 
 def test_a_suggested_name_never_collides_with_a_file_already_there():
@@ -466,7 +495,7 @@ def test_a_suggested_name_never_collides_with_a_file_already_there():
     rows = _take(files)
     rows["extinction 2.MP4"] = dict(file="extinction 2.MP4", take=["t", "z"], chapter=1,
                                     n_chapters=1)
-    s = A.name_conflicts(vids, rows)[0]["suggest"]
+    s = A.name_findings(vids, rows)[0]["suggest"]
     assert s != "extinction 2.MP4" and s.startswith("extinction ")
 
 

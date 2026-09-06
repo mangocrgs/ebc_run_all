@@ -891,22 +891,33 @@ ROLE_WORD = {"conditioning": "a conditioning block", "extinction": "extinction",
              "baseline_cs": "a CS-only baseline", "baseline_us": "a US-only baseline"}
 
 
-def name_conflicts(vids, rows):
-    """Recordings whose NAME contradicts what the camera wrote into them.
+def base_stem(stem):
+    """A take's name without the chapter number somebody put on the end of it."""
+    return re.sub(r"[\s_\-]*\d+\s*$", "", stem).strip() or stem
 
-    A camera splits a long take at 4 GB and numbers the pieces; whoever empties the SD
-    card names them.  When those two disagree the name wins by default, and it has been
-    wrong three times out of the five sessions analysed here: `CSUS fin.MP4` and
-    `CSUS 4.MP4` were each chapter 2 of that participant's EXTINCTION take, and
-    `cs only.MP4` was too while being used as a CS-only baseline.  Every one of them put
-    post-extinction trials into a conditioning set, or scored extinction as a baseline,
-    and nothing said so - the numbers came out looking ordinary.
 
-    The test is not a guess.  A chapter after the first belongs to the same take as the
-    chapter before it: same take id, and a timecode that continues to the second.  So its
-    role is whatever chapter 1 is, and if the name claims a different one the name is
-    wrong.  Only files whose names actually state a role are compared; a camera-numbered
-    name like GX012908.MP4 claims nothing and is left alone.
+def name_findings(vids, rows):
+    """Recordings the camera can name, and recordings whose name it contradicts.
+
+    A camera splits a long take at 4 GB and writes into every piece which take it belongs
+    to and where in that take it sits; whoever empties the SD card types the names
+    afterwards.  Where the two disagree the name has been wrong three times out of the
+    five sessions analysed here - `CSUS fin.MP4` and `CSUS 4.MP4` were each chapter 2 of
+    that participant's EXTINCTION take, and `cs only.MP4` was too while being used as a
+    CS-only baseline.  Each put post-extinction trials into a conditioning set, and
+    nothing said so: the numbers came out looking ordinary.
+
+    The evidence is the same in both directions.  A chapter shares a take id with the
+    other chapters of that take and a timecode that continues to the second, so its role
+    is whatever the chapter that names one says.  Two findings come out of that:
+
+      "conflict"  the name states a DIFFERENT role.  The name is wrong.
+      "unnamed"   the name states no role at all - a camera's own `GX012908.MP4`.  There
+                  is nothing to contradict, but the take can still say what it is, so a
+                  name is offered rather than left for somebody to guess later.
+
+    A take where NO chapter names a role is left entirely alone: chaptering says these
+    files belong together, never what they are.
     """
     by_take = {}
     for v in vids:
@@ -917,34 +928,45 @@ def name_conflicts(vids, rows):
     out = []
     for take, items in sorted(by_take.items()):
         items.sort(key=lambda x: x[0])
-        head_v = items[0][1]
-        head_stem, _ = os.path.splitext(head_v["name"])
-        head_role = guess_role(head_stem)
-        if not head_role:
+        # whichever chapter names a role speaks for the take; usually the first
+        role, base, spoke = None, None, None
+        for ch, v, r in items:
+            g = guess_role(os.path.splitext(v["name"])[0])
+            if g:
+                role, base, spoke = g, base_stem(os.path.splitext(v["name"])[0]), v["name"]
+                break
+        if not role:
             continue
-        for ch, v, r in items[1:]:
-            stem, ext = os.path.splitext(v["name"])
-            role = guess_role(stem)
-            if not role or role == head_role:
+        for ch, v, r in items:
+            if v["name"] == spoke:
                 continue
-            want = "%s %d%s" % (head_stem, ch, ext)
+            stem, ext = os.path.splitext(v["name"])
+            mine = guess_role(stem)
+            if mine == role:
+                continue
+            want = "%s %d%s" % (base, ch, ext)
             n = ch
             while want.lower() in taken:
                 n += 1
-                want = "%s %d%s" % (head_stem, n, ext)
+                want = "%s %d%s" % (base, n, ext)
             taken.add(want.lower())
+            word = ROLE_WORD.get(role, role)
             out.append({
+                "kind": "conflict" if mine else "unnamed",
                 "name": v["name"], "path": v["path"], "suggest": want,
-                "claims": role, "claims_word": ROLE_WORD.get(role, role),
-                "actual": head_role, "actual_word": ROLE_WORD.get(head_role, head_role),
-                "chapter": ch, "n_chapters": r.get("n_chapters"),
-                "head": head_v["name"],
-                "why": ("It is chapter %d of %d of the same take as %s - same camera take "
-                        "id, and its timecode picks up where the previous chapter ends. "
-                        "So it is %s, recorded after it, not %s."
-                        % (ch, r.get("n_chapters"), head_v["name"],
-                           ROLE_WORD.get(head_role, head_role),
-                           ROLE_WORD.get(role, role))),
+                "claims": mine, "claims_word": ROLE_WORD.get(mine, mine) if mine else "",
+                "actual": role, "actual_word": word,
+                "chapter": ch, "n_chapters": r.get("n_chapters"), "head": spoke,
+                "why": (("It is chapter %d of %d of the same take as %s - same camera take "
+                         "id, and its timecode runs continuously with it. So it is %s, "
+                         "not %s."
+                         % (ch, r.get("n_chapters"), spoke, word,
+                            ROLE_WORD.get(mine, mine)))
+                        if mine else
+                        ("Its name says nothing about what it is. It is chapter %d of %d "
+                         "of the same take as %s - same camera take id, and its timecode "
+                         "runs continuously with it - so it is %s."
+                         % (ch, r.get("n_chapters"), spoke, word))),
             })
     return out
 
@@ -1127,7 +1149,7 @@ def list_dir(path):
                 v["skip"] = bool(notes)
             # A name that contradicts the camera is not a note on one row - it changes
             # what the study IS, so it is raised before the protocol is even set.
-            base["conflicts"] = name_conflicts(vids, rows)
+            base["conflicts"] = name_findings(vids, rows)
         except Exception as e:                  # metadata is a courtesy, never a blocker
             base["warn"] = ("The recording times could not be read (%s), so the list is "
                             "in name order rather than the order they were filmed." % e)

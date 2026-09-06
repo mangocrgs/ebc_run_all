@@ -234,6 +234,12 @@ td.r,th.r{text-align:right}
 .nm .claim{color:var(--us);font-weight:600}
 .nm .real{color:var(--ink);font-weight:600}
 #namebtns{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+/* nothing is wrong here, something is merely unsaid - so it does not shout */
+#namecard.mild{border-color:var(--rule);background:var(--surface)}
+#namecard.mild h2 .n{background:var(--muted)}
+.nmh{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.04em;margin:16px 0 0}
+.nmh:first-child{margin-top:4px}
 
 /* ---------------------------------------------------------------- protocol
    The protocol used to be three loose number boxes with a warning under them that
@@ -992,8 +998,8 @@ async function browse(path, quiet){
   VIDS = (d.videos || []).map(v => ({...v, role: v.role || "conditioning",
                                      anchor: "auto", on: false}));
   // A folder is a fresh question: what was decided about the last one does not carry.
-  CONFLICTS = (d.conflicts || []).map(c => ({...c, on: true}));
-  if (!quiet || CONFLICTS.length) NAMES_OK = CONFLICTS.length === 0;
+  CONFLICTS = (d.conflicts || []).map(c => ({...c, on: c.kind === "conflict"}));
+  if (!quiet || CONFLICTS.length) NAMES_OK = !CONFLICTS.some(c => c.kind === "conflict");
   if (!$("#study").value.trim() && d.suggest) $("#study").value = d.suggest;
   renderVids(d);
   renderConflicts();
@@ -1008,38 +1014,66 @@ async function browse(path, quiet){
 let CONFLICTS = [], NAMES_OK = true;
 
 function renderConflicts(){
-  const card = $("#namecard"), n = CONFLICTS.length;
-  card.classList.toggle("hide", n === 0 || NAMES_OK);
-  if (!n || NAMES_OK) return;
-  $("#todoname").innerHTML = n === 1
-    ? `One recording&rsquo;s name says it is something the camera says it is not.
-       <b>Rename it</b>, or keep the name and set its role by hand in step 1.`
-    : `${n} recordings have names the camera contradicts. <b>Rename them</b>, or keep the
-       names and set their roles by hand in step 1.`;
-  $("#namewrap").innerHTML = `<table class="nm"><thead><tr>
+  const card = $("#namecard");
+  const bad = CONFLICTS.filter(c => c.kind === "conflict");
+  const nu  = CONFLICTS.filter(c => c.kind !== "conflict");
+  const pending = bad.length > 0 && !NAMES_OK;
+  // Suggestions alone are an offer, not a question: once the offer has been answered
+  // there is nothing to keep showing.
+  card.classList.toggle("hide", CONFLICTS.length === 0 || (NAMES_OK && !pending));
+  if (card.classList.contains("hide")) return;
+  card.classList.toggle("mild", bad.length === 0);
+  $("#namecard h2").innerHTML = bad.length
+    ? `<span class="n">!</span> These names disagree with the camera`
+    : `<span class="n">i</span> The camera can name these for you`;
+  $("#todoname").innerHTML = bad.length
+    ? (bad.length === 1
+        ? `One recording&rsquo;s name says it is something the camera says it is not.
+           <b>Rename it</b>, or keep the name and set its role by hand in step 1.`
+        : `${bad.length} recordings have names the camera contradicts. <b>Rename them</b>,
+           or keep the names and set their roles by hand in step 1.`)
+    : `${nu.length === 1 ? "One recording carries" : nu.length + " recordings carry"} no
+       role in ${nu.length === 1 ? "its" : "their"} name, but the camera says what
+       ${nu.length === 1 ? "it is" : "they are"}. Renaming is optional.`;
+
+  const rows = list => list.map(c => {
+    const i = CONFLICTS.indexOf(c);
+    return `<tr>
+      <td><input type="checkbox" class="cx" data-i="${i}" ${c.on ? "checked" : ""}></td>
+      <td class="f">${esc(c.name)}</td>
+      <td>${c.kind === "conflict"
+            ? `<span class="claim">called ${esc(c.claims_word)}</span>,
+               actually <span class="real">${esc(c.actual_word)}</span>`
+            : `<span class="real">${esc(c.actual_word)}</span>`}
+          <div class="why">${esc(c.why)}</div></td>
+      <td><input type="text" class="tx" data-i="${i}" value="${esc(c.suggest)}"></td>
+    </tr>`;
+  }).join("");
+  const table = (list, head) => !list.length ? "" : `${head}<table class="nm"><thead><tr>
       <th style="width:34px"></th><th>Called</th><th>What the camera says</th>
-      <th style="width:34%">Rename to</th></tr></thead><tbody>`
-    + CONFLICTS.map((c, i) => `<tr>
-        <td><input type="checkbox" class="cx" data-i="${i}" ${c.on ? "checked" : ""}></td>
-        <td class="f">${esc(c.name)}</td>
-        <td><span class="claim">called ${esc(c.claims_word)}</span>,
-            actually <span class="real">${esc(c.actual_word)}</span>
-            <div class="why">${esc(c.why)}</div></td>
-        <td><input type="text" class="tx" data-i="${i}" value="${esc(c.suggest)}"></td>
-      </tr>`).join("") + `</tbody></table>`;
+      <th style="width:34%">Rename to</th></tr></thead><tbody>${rows(list)}</tbody></table>`;
+
+  $("#namewrap").innerHTML =
+      table(bad, bad.length && nu.length ? `<h3 class="nmh">The name contradicts the camera</h3>` : "")
+    + table(nu, bad.length && nu.length
+        ? `<h3 class="nmh">No role in the name &mdash; the camera has one</h3>` : "");
+
   document.querySelectorAll("#namewrap .cx").forEach(b =>
     b.onchange = () => { CONFLICTS[b.dataset.i].on = b.checked; refreshNameBtns(); });
   document.querySelectorAll("#namewrap .tx").forEach(t =>
     t.oninput = () => { CONFLICTS[t.dataset.i].suggest = t.value; refreshNameBtns(); });
+  $("#keepnames").textContent = bad.length ? "Keep these names" : "Not now";
   refreshNameBtns();
 }
 
 function refreshNameBtns(){
   const on = CONFLICTS.filter(c => c.on && (c.suggest || "").trim());
   const dup = new Set(on.map(c => c.suggest.trim().toLowerCase())).size !== on.length;
+  const bad = CONFLICTS.some(c => c.kind === "conflict");
   $("#dorename").disabled = !on.length || dup;
   $("#namehint").textContent = dup ? "Two of those would end up with the same name."
-    : !on.length ? "Nothing ticked - press Keep these names to go on."
+    : !on.length ? (bad ? "Nothing ticked - press Keep these names to go on."
+                        : "Nothing ticked - press Not now to go on.")
     : on.length === 1 ? "1 file will be renamed on disk."
     : on.length + " files will be renamed on disk.";
 }
@@ -1429,7 +1463,7 @@ function initProtocol(hello){
    so the page always has an answer to "and now what?". */
 function refreshGuide(){
   const on = picked();
-  const namesPending = CONFLICTS.length > 0 && !NAMES_OK;
+  const namesPending = CONFLICTS.some(c => c.kind === "conflict") && !NAMES_OK;
   const step1done = on.length > 0 && !namesPending;
   $("#n1").className = "n" + (step1done ? " done" : "");
   $("#n2").className = "n" + (step1done ? "" : " wait");
