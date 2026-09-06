@@ -13,9 +13,13 @@ file was run - the suite reported "19 passed" out of 38, and the twenty that nev
 included every test defending the scoring boundary.  A test suite that silently shrinks
 is worse than no test suite, because it reports success either way.
 """
+import io
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ebc_config as C
@@ -497,6 +501,69 @@ def test_a_suggested_name_never_collides_with_a_file_already_there():
                                     n_chapters=1)
     s = A.name_findings(vids, rows)[0]["suggest"]
     assert s != "extinction 2.MP4" and s.startswith("extinction ")
+
+
+# ---------------------------------------------------------- the app page
+# ebc_app_ui.html ships as one <script>, so a single unterminated string takes the WHOLE
+# page down: no button is wired, and the app opens looking perfectly normal and does
+# nothing at all.  That shipped in 1.2 - a newline escape that had become a real
+# newline inside a string literal - and no test could see it, because nothing here
+# had ever read the page.
+UI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ebc_app_ui.html")
+
+
+def _chrome():
+    """Any Chrome on this machine.  Counting quotes by hand cannot do this job - a quote
+    inside a regex literal is legal and a naive count calls it an error - so the page is
+    handed to a real JavaScript parser instead."""
+    for p in (os.environ.get("CHROME"),
+              r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+              r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"):
+        if p and os.path.exists(p):
+            return p
+    return shutil.which("chrome") or shutil.which("google-chrome") or shutil.which("chromium")
+
+
+def test_the_page_script_parses():
+    """The page is one <script>: one syntax error anywhere in it and NOTHING is wired -
+    no Browse button, no Run button - while the app still opens and looks entirely
+    normal.  That is exactly how 1.2 shipped.  The script is wrapped in a function that
+    is never called, so this asks the parser about syntax and never runs the page."""
+    chrome = _chrome()
+    if not chrome:
+        return                      # no parser here; the check is skipped, not faked
+    src = io.open(UI, encoding="utf-8").read()
+    body = src[src.index("<script>") + 8:src.rindex("</script>")]
+    d = tempfile.mkdtemp()
+    page = os.path.join(d, "syntax.html")
+    with io.open(page, "w", encoding="utf-8") as fh:
+        fh.write("<!doctype html><meta charset=utf-8><script>\nfunction __never__(){\n")
+        fh.write(body)
+        fh.write("\n}\n</script>")
+    r = subprocess.run([chrome, "--headless", "--disable-gpu", "--no-sandbox",
+                        "--virtual-time-budget=2000", "--dump-dom",
+                        "--enable-logging=stderr", "--v=0", "file:///" + page.replace("\\", "/")],
+                       capture_output=True, text=True, timeout=120)
+    shutil.rmtree(d, ignore_errors=True)
+    bad = [ln for ln in (r.stderr or "").splitlines()
+           if "SyntaxError" in ln or "Uncaught" in ln]
+    assert not bad, "the page's script does not parse:\n  " + "\n  ".join(bad[:3])
+
+
+def test_every_id_the_script_reaches_for_exists_in_the_markup():
+    """$("#foo") on an element that is not there returns null, and the next property
+    access throws - which again takes the whole page with it."""
+    src = io.open(UI, encoding="utf-8").read()
+    have = set(re.findall(r'id="([A-Za-z0-9_-]+)"', src))
+    want = set(re.findall(r'\$\("#([A-Za-z0-9_-]+)"\)', src))
+    assert want <= have, "referenced but never defined: %s" % sorted(want - have)
+
+
+def test_the_buttons_the_page_promises_are_wired():
+    src = io.open(UI, encoding="utf-8").read()
+    for b in ("again", "again2", "dorename", "keepnames", "pick", "run", "stop"):
+        assert 'id="%s"' % b in src, "no #%s in the markup" % b
+        assert ('$("#%s").onclick' % b) in src, "#%s is never wired" % b
 
 
 if __name__ == "__main__":

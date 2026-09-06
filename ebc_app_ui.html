@@ -773,6 +773,10 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   <div id="notes"></div>
   <div id="vids"></div>
   <div id="triage"></div>
+  <div class="row hide" id="againrow" style="margin-top:12px">
+    <button class="ghost" id="again2">Start another analysis</button>
+    <span class="hint">Clears the page for the next participant. Nothing on disk is touched.</span>
+  </div>
 
   <details class="guide">
     <summary>What is happening, and how long it takes</summary>
@@ -805,6 +809,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
      below it.</p>
   <div class="row" style="margin-bottom:12px">
     <button class="primary" id="openf" data-magnet>Open output folder</button>
+    <button class="ghost" id="again" title="Clears the page for the next participant. Nothing on disk is touched.">Start another analysis</button>
     <span class="mono" style="font-size:12px;color:var(--muted)" id="outpath"></span>
   </div>
   <div id="resmsg"></div>
@@ -1089,8 +1094,7 @@ async function doRename(){
   const d = r.data || {};
   if ((d.failed || []).length)
     show("#browsemsg", "warn", {error: "Some files could not be renamed.",
-      detail: d.failed.join("
-"),
+      detail: d.failed.join("\n"),
       hint: "They may be open in another program, or already renamed. The rest were done."});
   NAMES_OK = true;                 // whatever is left after this, the question was answered
   await browse(CUR, true);         // re-read the folder so roles follow the new names
@@ -1744,6 +1748,8 @@ $("#pick").onclick = async () => {
   if (r.data.cancelled) return;
   browse(r.data.path);
 };
+$("#again").onclick = startAnother;
+$("#again2").onclick = startAnother;
 $("#dorename").onclick = doRename;
 $("#keepnames").onclick = keepNames;
 $("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
@@ -1978,6 +1984,33 @@ function renderTriage(t){
 }
 
 let pollTimer = null;
+/* ------------------------------------------------------------- start another one */
+/* A finished run left the page pinned to it: the progress and results cards stayed, the
+   recordings stayed ticked, and the only way to the next participant was to close the
+   window and start the app again. This clears the PAGE and the server's run state, and
+   touches nothing on disk - the workbooks and figures of the run just finished stay
+   exactly where they are, which is why it does not ask for confirmation. */
+async function startAnother(){
+  const r = await api("/api/reset", {method:"POST", body:"{}"});
+  if (!r.ok){ show("#resmsg", "bad", r.fail); return; }
+  clearTimeout(pollTimer);
+  RUNNING = false;
+  $("#progcard").classList.add("hide");
+  $("#rescard").classList.add("hide");
+  $("#againrow").classList.add("hide");
+  $("#log").textContent = "";
+  $("#allbar").firstElementChild.style.width = "0";
+  clear("#statemsg"); clear("#resmsg"); clear("#runerr");
+  // Step 1 goes back to a blank question: nothing ticked, no study name. The folder
+  // itself is kept, because the next participant is usually the folder next door.
+  VIDS = VIDS.map(v => ({...v, on: false}));
+  $("#study").value = "";
+  if (VIDS.length) renderVids(LAST);
+  await poll();                       // re-reads the now-blank state, so the pill says ready
+  refreshGuide();
+  $("#card1").scrollIntoView({behavior: "smooth", block: "start"});
+}
+
 async function poll(){
   clearTimeout(pollTimer);
   const r = await api("/api/status");
@@ -1996,6 +2029,9 @@ async function poll(){
       : s.running ? phaseName(s) : s.phase === "done" ? "done" : "ready";
   $("#run").classList.toggle("hide", false);
   $("#stop").classList.toggle("hide", !s.running);
+  // offered as soon as a run is over, finished or stopped, and whether or not it got as
+  // far as producing anything to show in step 4
+  $("#againrow").classList.toggle("hide", s.running || !(s.phase === "done" || s.error));
 
   if ((s.order || []).length) $("#progcard").classList.remove("hide");
   $("#phase").textContent = phaseName(s);
