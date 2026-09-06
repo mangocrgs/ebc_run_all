@@ -26,6 +26,9 @@ P = C.PALETTE
 CS_C, US_C, AL = P["cs"], P["us"], P["ur"]
 INK, MUT, GY, LINK = P["ink"], P["muted"], P["faint"], P["link"]
 CR_C, GRID, RULE = P["cr"], P["grid"], P["rule"]
+# The uncertain band sits between the CR and the UR in meaning, so it is drawn between
+# them in colour too - a reader should not be able to mistake it for either.
+QCR_C = P.get("cr_soft") or MUT
 C.mpl_font(plt)
 # The closure ramp runs from the page to the ink through the US hue, so a raster and a
 # scatter drawn side by side are made of the same colours.
@@ -44,6 +47,9 @@ def excluded(cls):
 def colour(cls):
     if cls is None:
         return GY
+    # Checked before "CR": the uncertain band is not a CR and must not be drawn as one.
+    if cls.startswith("?CR"):
+        return QCR_C
     if cls.startswith("CR"):
         return CR_C
     if cls.startswith("alpha"):

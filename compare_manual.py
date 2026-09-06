@@ -90,7 +90,13 @@ def klass(onset, win, us_delivered):
 
 
 def is_cr(cls):
+    """A definitive CR only.  "?CR ..." deliberately fails this test - the uncertain band
+    is counted as neither a CR nor a UR, on the hand scoring and the analyser alike."""
     return cls is not None and cls.startswith("CR")
+
+
+def is_qcr(cls):
+    return cls is not None and cls.startswith("?CR")
 
 
 def scoreable(cls):
@@ -205,11 +211,19 @@ def report(name, pairs, win):
 
     hs = [klass(m["onset"], win, a["paired"]) for m, a in both]
     cs = [klass(a["onset"], win, a["paired"]) for m, a in both]
-    hr = 100.0 * sum(is_cr(x) for x in hs) / sum(scoreable(x) for x in hs)
-    cr = 100.0 * sum(is_cr(x) for x in cs) / sum(scoreable(x) for x in cs)
+    nh, nc = sum(scoreable(x) for x in hs), sum(scoreable(x) for x in cs)
+    hr = 100.0 * sum(is_cr(x) for x in hs) / nh
+    cr = 100.0 * sum(is_cr(x) for x in cs) / nc
+    hq = 100.0 * sum(is_qcr(x) for x in hs) / nh
+    cq = 100.0 * sum(is_qcr(x) for x in cs) / nc
     print()
     print("  overall CR rate     hand %.0f%%     analyser %.0f%%     (%+.0f pts)" % (hr, cr, cr - hr))
+    if hq or cq:
+        # The band is where the two scorers are allowed to be unsure.  Printed beside the
+        # rate because a CR rate quoted without it hides how much was set aside to get it.
+        print("  uncertain (?CR)     hand %.0f%%     analyser %.0f%%     (%+.0f pts)" % (hq, cq, cq - hq))
     return dict(name=name, sd_ratio=sd_ratio, r=r, hand=hr, auto=cr,
+                hand_q=hq, auto_q=cq,
                 bias=float(np.median(c - h)), n=len(both))
 
 
@@ -238,12 +252,14 @@ def main():
     if not out:
         return
     print("=" * 76)
-    print("%-9s %6s %10s %10s %9s %9s %8s" %
-          ("", "n", "SD ratio", "curve r", "hand CR", "auto CR", "offset"))
+    print("%-9s %6s %10s %10s %9s %9s %9s %9s %8s" %
+          ("", "n", "SD ratio", "curve r", "hand CR", "auto CR", "hand ?CR", "auto ?CR",
+           "offset"))
     for r in out:
-        print("%-9s %6d %10.2f %10s %8.0f%% %8.0f%% %7.0fms" %
+        print("%-9s %6d %10.2f %10s %8.0f%% %8.0f%% %8.0f%% %8.0f%% %7.0fms" %
               (r["name"], r["n"], r["sd_ratio"],
-               "-" if r["r"] is None else "%.2f" % r["r"], r["hand"], r["auto"], r["bias"]))
+               "-" if r["r"] is None else "%.2f" % r["r"], r["hand"], r["auto"],
+               r["hand_q"], r["auto_q"], r["bias"]))
     print()
     print("Read the SD ratio and the curve correlation.  A constant offset is a difference")
     print("of definition between the two scorers and subtracts out; a spread that does not")

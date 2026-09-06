@@ -110,6 +110,13 @@ def classify(onset_ms, win, moving, anchored_on_us, us_delivered=True):
         return win["alpha_label"]
     if onset_ms < win["hi_ms"]:
         return win["cr_label"] if us_delivered else win["cr_no_us_label"]
+    # Between the window's upper edge and CS offset the two explanations cannot be told
+    # apart: the puff has arrived, so this may be a reflex to it, but the CS is still
+    # running and an anticipatory blink this late is exactly what a slow learner looks
+    # like.  Neither call is defensible from the latency alone, so it gets its own class
+    # and is counted as neither a CR nor a UR.
+    if win.get("qcr_hi_ms") and onset_ms < win["qcr_hi_ms"]:
+        return win["qcr_label"] if us_delivered else win["qcr_no_us_label"]
     return win["ur_label"] if us_delivered else win["late_no_us_label"]
 
 
@@ -478,17 +485,21 @@ def summarise(rows, role, tt, win, label):
         return None
     sc = [r for r in rs if r["scored_class"] not in (None, win["moving_label"])]
     cr = [r for r in sc if str(r["scored_class"]).startswith("CR")]
+    qcr = [r for r in sc if str(r["scored_class"]).startswith("?CR")]
     rec = [r for r in rs if r["first_response_obscured"] == "yes"
            and r["secondary_onset_ms"] is not None]
     o = [r["scored_onset_ms"] for r in cr if r["scored_onset_ms"] is not None]
     line = "  %-32s %3d trials, %3d scoreable, %3d CR" % (label, len(rs), len(sc), len(cr))
+    if qcr:
+        line += ", %3d ?CR" % len(qcr)
     if o and sc:
         line += " (%.0f%%), mean onset %.0f ms" % (len(cr) / len(sc) * 100,
                                                    float(np.mean(o)))
         if len(o) > 1:
             line += " +- %.0f SD" % float(np.std(o, ddof=1))
     print(line + "   [%d recovered behind an artefact]" % len(rec))
-    return dict(role=role, trial_type=tt, n=len(rs), n_scoreable=len(sc), n_cr=len(cr))
+    return dict(role=role, trial_type=tt, n=len(rs), n_scoreable=len(sc), n_cr=len(cr),
+                n_qcr=len(qcr))
 
 
 def build_row(m, win, study, proto, des):

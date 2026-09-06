@@ -29,9 +29,15 @@ US = 350.0
 # The window every test below is read against: a measured reflex of mean 68.5 SD 19.7,
 # which is the pooled US-only baseline of the three participants scored so far.
 REFLEX = dict(n=34, mean_ms=68.5, sd_ms=19.7, k=1.5, onset_ms=68.5 - 1.5 * 19.7)
-WIN = C.cr_window(PROTO, REFLEX)
+# Scoring runs on the standard window now (see cr_window_mode), so a test that means to
+# exercise the measured one has to ask for it by name rather than inherit it.
+WIN = C.cr_window(dict(PROTO, cr_window_mode="measured"), REFLEX)
 FALLBACK = C.cr_window(PROTO)
 LO, HI = WIN["lo_ms"], WIN["hi_ms"]
+# The standard window: the same two numbers for every participant, with the uncertain
+# band between the puff and CS offset.
+STD = C.cr_window(PROTO)
+SLO, SHI, SQ = STD["lo_ms"], STD["hi_ms"], STD["qcr_hi_ms"]
 
 
 # ------------------------------------------------------------------ the response window
@@ -77,6 +83,71 @@ def test_ur_after_the_puff():
 def test_the_old_boundary_would_have_called_this_a_UR():
     """350.4 ms - six of Carole's trials sit there, 0.4 ms after the puff."""
     assert S.classify(350.4, WIN, False, False, True).startswith("CR")
+
+
+# ------------------------------------------------------- the standard window and ?CR
+def test_the_standard_window_ignores_the_measured_reflex():
+    """Comparability is the point: two participants must be scored on the same numbers."""
+    w = C.cr_window(PROTO, REFLEX)
+    assert (w["lo_ms"], w["hi_ms"]) == (100.0, US) and w["standard"] is True
+    assert w["measured"] is False
+
+
+def test_the_standard_window_still_records_what_the_reflex_would_have_been():
+    """Discarding the measurement would make the choice of window unreviewable."""
+    w = C.cr_window(PROTO, REFLEX)
+    assert w["reflex"] and abs(w["reflex"]["mean_ms"] - REFLEX["mean_ms"]) < 0.01
+    assert "%.0f" % REFLEX["mean_ms"] in w["why"]
+
+
+def test_the_uncertain_band_runs_from_the_puff_to_CS_offset():
+    assert (SHI, SQ) == (US, PROTO["cs_ms"])
+
+
+def test_a_blink_after_the_puff_is_not_a_definitive_CR():
+    """The whole point of the band: the puff has arrived, so a CR cannot be asserted."""
+    c = S.classify(SHI + 1, STD, False, False, True)
+    assert c.startswith("?CR") and not c.startswith("CR")
+
+
+def test_the_uncertain_band_is_not_a_UR_either():
+    """Calling it a UR asserts the opposite with no more evidence."""
+    assert not S.classify(SQ - 1, STD, False, False, True).startswith("UR")
+
+
+def test_past_CS_offset_it_is_a_UR_again():
+    assert S.classify(SQ + 1, STD, False, False, True).startswith("UR")
+
+
+def test_a_blink_before_the_puff_is_still_a_plain_CR():
+    assert S.classify(SHI - 1, STD, False, False, True) == STD["cr_label"]
+
+
+def test_the_uncertain_band_exists_on_a_probe_too():
+    """A probe delivers no puff, so the band cannot mean "may be a UR" - but a rate that
+    counted it would not be comparable with the paired trials it exists to be read
+    against, which is the only reason a probe is scored on the paired window at all."""
+    c = S.classify(SHI + 1, STD, False, False, us_delivered=False)
+    assert c.startswith("?CR") and "UR" not in c
+
+
+def test_the_measured_window_has_no_uncertain_band():
+    """It already states where the puff's influence begins; a second band would contradict it."""
+    assert WIN.get("qcr_hi_ms") is None
+    assert S.classify(HI + 1, WIN, False, False, True).startswith("UR")
+
+
+def test_a_trace_protocol_has_no_uncertain_band():
+    """The CS is over before the puff arrives, so there is nothing between the two."""
+    w = C.cr_window(dict(PROTO, us_onset_ms=900.0))
+    assert w["qcr_hi_ms"] is None
+
+
+def test_the_three_classes_do_not_overlap():
+    """Every latency gets exactly one name, and no name is a prefix of another's test."""
+    seen = [S.classify(x, STD, False, False, True)
+            for x in (SLO - 1, SLO + 1, SHI - 1, SHI + 1, SQ - 1, SQ + 1)]
+    assert [s[:4] for s in seen] == ["alph", "CR (", "CR (", "?CR ", "?CR ", "UR ("], seen
 
 
 def test_moving_lid_is_untimeable():

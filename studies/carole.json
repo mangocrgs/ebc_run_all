@@ -8,9 +8,10 @@
     "paired_per_block": 9,
     "cs_only_per_block": 1,
     "n_blocks": 10,
-    "min_iti_s": 5.0,
+    "min_iti_s": 2.0,
     "cs_tol": 0.35,
-    "us_tol": 0.6
+    "us_tol": 0.6,
+    "cr_window_mode": "standard"
   },
   "recordings": [
     {
@@ -38,8 +39,9 @@
       "tag": "csusfin",
       "file": "CSUS fin.MP4",
       "label": "CSUS fin",
-      "role": "conditioning",
-      "order": 4
+      "role": "extinction",
+      "order": 2,
+      "note": "chapter 2 of 2 of the extinction take - same camera take id (1730368347) as extinction.MP4, continues_previous, and its timecode picks up exactly where extinction.MP4's 531.5 s end. Recorded AFTER extinction, not as a fourth conditioning block. Marie's identical CSUS 4.MP4 was confirmed by the experimenter and fixed on 3 Sep; this one was missed. Scored as extinction so the trials are kept, and kept out of conditioning where they would contaminate acquisition."
     },
     {
       "tag": "usonly",

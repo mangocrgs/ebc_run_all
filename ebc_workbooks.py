@@ -49,6 +49,7 @@ ALPHA = CR_LO
 # The response labels have to be the exact strings ebc_score.classify() wrote into the
 # rows, so every one of them comes out of the same window rather than being spelled out.
 CR_LBL, UR_LBL, ALPHA_LBL = WIN["cr_label"], WIN["ur_label"], WIN["alpha_label"]
+QCR_LBL, QCR_HI = WIN.get("qcr_label"), WIN.get("qcr_hi_ms")
 MOVING_LBL = WIN["moving_label"]
 # what ebc_score.classify() emits for a recording anchored on the US instead of the CS
 UR_PUFF_LBL, ALPHA_US_LBL = WIN["ur_puff_label"], WIN["alpha_us_label"]
@@ -78,6 +79,11 @@ def at_in_video(r):
 
 def is_cr(r):
     return str(r["scored_class"]).startswith("CR")
+
+
+def is_qcr(r):
+    """After the US onset but still inside the CS - a CR and a UR are equally arguable."""
+    return str(r["scored_class"]).startswith("?CR")
 
 
 def is_ur(r):
@@ -759,7 +765,7 @@ def build(block):
         ws = wb.create_sheet("Trial summary")
         hd = ["Session", "Video file", "Duration (s)", "%s trials" % main_type,
               "Clean (unflagged)", "To score by hand", "Scoreable", "With a blink",
-              "CR n", "CR % of scoreable",
+              "CR n", "CR % of scoreable", "?CR n",
               # a US-anchored book has no CS to be startled by, so its own cut-off is the
               # one the scorer used there, not the CR window's lower edge
               ("alpha <20 ms" if main_type == "US-only" else "alpha <%.0f ms" % ALPHA),
@@ -791,6 +797,7 @@ def build(block):
                     len(sc),
                     n,
                     len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+                    sum(1 for r in sc if is_qcr(r)),
                     sum(1 for r in sc if is_alpha(r)),
                     sum(1 for r in sc if is_ur(r)),
                     round(float(np.mean(o)), 1) if o else None,
@@ -826,7 +833,8 @@ def build(block):
         ws = wb.create_sheet("Session summary")
         hd = ["Session", "Video file", "Duration (s)", "Paired CS-US trials",
               "To score by hand", "Scoreable", "CR n",
-              "CR % of scoreable", "alpha <%.0f ms" % ALPHA, "UR only", "no later blink",
+              "CR % of scoreable", "?CR n", "alpha <%.0f ms" % ALPHA, "UR only",
+              "no later blink",
               "Mean CR onset (ms)",
               "SD (ms)", "Median CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)",
               "Recovered behind artefact"]
@@ -846,6 +854,7 @@ def build(block):
                     else round(sum(SESSMETA[t]["duration_s"] for t in sess), 1),
                     len(rs), sum(1 for r in rs if r["needs_manual_scoring"]),
                     len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+                    sum(1 for r in sc if is_qcr(r)),
                     sum(1 for r in sc if is_alpha(r)),
                     sum(1 for r in sc if is_ur(r)),
                     len(rs) - len(sc),
@@ -865,13 +874,14 @@ def build(block):
                 c.alignment = Alignment(horizontal="left" if j <= 2 else "right")
             ri += 1
         style_header(ws)
-        widths(ws, [13, 26, 11, 12, 13, 10, 8, 12, 11, 9, 11, 13, 9, 13, 13, 14, 13])
+        widths(ws, [13, 26, 11, 12, 13, 10, 8, 12, 9, 11, 9, 11, 13, 9, 13, 13, 14, 13])
         ws.freeze_panes = "C2"
         ws.sheet_view.showGridLines = False
 
         # ---------------- Block summary ----------------
         ws = wb.create_sheet("Block summary")
         hd = ["Block", "Paired trials", "To score by hand", "Scoreable", "CR n", "CR %",
+              "?CR n", "?CR %",
               "UR only n", "UR only %", "alpha n", "Mean scored onset (ms)", "SD (ms)",
               "Mean CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)"]
         for j, x in enumerate(hd, 1):
@@ -884,6 +894,8 @@ def build(block):
             o = [r["scored_onset_ms"] for r in cr]
             vals = [b, len(g), sum(1 for r in g if r["needs_manual_scoring"]),
                     len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
+                    sum(1 for r in sc if is_qcr(r)),
+                    round(100 * sum(1 for r in sc if is_qcr(r)) / len(sc), 1) if sc else None,
                     sum(1 for r in sc if is_ur(r)),
                     round(100 * sum(1 for r in sc if is_ur(r)) / len(sc), 1) if sc else None,
                     sum(1 for r in sc if is_alpha(r)),
@@ -898,7 +910,7 @@ def build(block):
                 c.border = Border(bottom=thin)
                 c.alignment = Alignment(horizontal="right")
         style_header(ws)
-        widths(ws, [8, 11, 13, 10, 8, 9, 10, 10, 8, 15, 9, 15, 14, 15])
+        widths(ws, [8, 11, 13, 10, 8, 9, 9, 9, 10, 10, 8, 15, 9, 15, 14, 15])
         ws.sheet_view.showGridLines = False
         n = len(set(r["block"] for r in paired)) + 1
         ws.conditional_formatting.add("F2:F" + str(n), ColorScaleRule(
@@ -910,7 +922,7 @@ def build(block):
         lc.y_axis.title = "CR % / mean onset (ms)"
         lc.height, lc.width = 10, 20
         lc.add_data(Reference(ws, min_col=6, min_row=1, max_row=n), titles_from_data=True)
-        lc.add_data(Reference(ws, min_col=12, min_row=1, max_row=n), titles_from_data=True)
+        lc.add_data(Reference(ws, min_col=14, min_row=1, max_row=n), titles_from_data=True)
         lc.set_categories(Reference(ws, min_col=1, min_row=2, max_row=n))
         ws.add_chart(lc, "P2")
 

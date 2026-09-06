@@ -87,9 +87,6 @@ def main():
     rec = next(r for r in cfg["recordings"] if r["tag"] == tag)
     wdir = work_dir(cfg)
     out_f = os.path.join(wdir, tag + "_traces.json")
-    if os.path.exists(out_f) and "--force" not in sys.argv:
-        log(tag, "traces already present")
-        return
 
     with open(os.path.join(wdir, "trials.json"), encoding="utf-8") as fh:
         TR = json.load(fh)
@@ -98,6 +95,28 @@ def main():
         log(tag, "no trials")
         json.dump({}, open(out_f, "w"))
         return
+
+    # The cache is keyed by trial NUMBER, so reusing it on the strength of the file name
+    # alone is only safe while trial n is still the same event.  It is not: re-roling a
+    # recording, or a change to min_iti_s or the tolerances, re-segments the session and
+    # trial 1 becomes a different moment in the video.  Every entry carries the frame it
+    # was cut around, so the check is exact - and it has to be made here rather than
+    # trusted, because a stale trace is scored silently and reads as a real result.
+    if os.path.exists(out_f) and "--force" not in sys.argv:
+        try:
+            with open(out_f, encoding="utf-8") as fh:
+                have = json.load(fh)
+        except (OSError, ValueError):
+            have = None
+        if isinstance(have, dict):
+            stale = [i for i, t in enumerate(trials, 1)
+                     if (have.get(str(i)) or {}).get("anchor_frame") != t["anchor_frame"]]
+            if not stale and len(have) == len(trials):
+                log(tag, "traces already present (%d trials, anchors match)" % len(trials))
+                return
+            log(tag, "traces on disk are for a different set of trials "
+                     "(%d cached vs %d now, %d anchor(s) moved) - recutting"
+                % (len(have), len(trials), len(stale)))
     with open(os.path.join(wdir, tag + "_stim.json"), encoding="utf-8") as fh:
         stim = json.load(fh)
 
