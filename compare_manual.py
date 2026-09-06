@@ -46,7 +46,7 @@ STUDIES = [
     ("Thomas", V + "/Thomas/data Thomas.xlsx", "Data brut",
      ["studies/thomas.json", V + "/analysis_EBC/Thomas"]),
     ("Marie", V + "/Marie/data Marie.xlsx", "Data brut",
-     [V + "/Marie/analysis_EBC"]),
+     ["studies/marie.json", V + "/Marie/analysis_EBC"]),
 ]
 
 
