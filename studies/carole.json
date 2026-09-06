@@ -8,9 +8,10 @@
     "paired_per_block": 9,
     "cs_only_per_block": 1,
     "n_blocks": 10,
-    "min_iti_s": 5.0,
+    "min_iti_s": 2.0,
     "cs_tol": 0.35,
-    "us_tol": 0.6
+    "us_tol": 0.6,
+    "cr_window_mode": "standard"
   },
   "recordings": [
     {
@@ -35,11 +36,12 @@
       "order": 3
     },
     {
-      "tag": "csusfin",
-      "file": "CSUS fin.MP4",
-      "label": "CSUS fin",
-      "role": "conditioning",
-      "order": 4
+      "tag": "extinction2",
+      "file": "extinction 2.MP4",
+      "label": "Extinction (chapter 2)",
+      "role": "extinction",
+      "order": 2,
+      "note": "chapter 2 of 2 of the extinction take - same camera take id as extinction.MP4, continues_previous, and its timecode picks up where extinction.MP4 ends. Recorded AFTER extinction. The file was renamed from CSUS fin.MP4 on 2026-09-06 because its old name claimed it was a conditioning block; see Video/RENAMES_20260906.json."
     },
     {
       "tag": "usonly",

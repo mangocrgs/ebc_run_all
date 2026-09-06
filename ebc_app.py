@@ -887,6 +887,119 @@ def guess_role(stem):
     return None
 
 
+ROLE_WORD = {"conditioning": "a conditioning block", "extinction": "extinction",
+             "baseline_cs": "a CS-only baseline", "baseline_us": "a US-only baseline"}
+
+
+def name_conflicts(vids, rows):
+    """Recordings whose NAME contradicts what the camera wrote into them.
+
+    A camera splits a long take at 4 GB and numbers the pieces; whoever empties the SD
+    card names them.  When those two disagree the name wins by default, and it has been
+    wrong three times out of the five sessions analysed here: `CSUS fin.MP4` and
+    `CSUS 4.MP4` were each chapter 2 of that participant's EXTINCTION take, and
+    `cs only.MP4` was too while being used as a CS-only baseline.  Every one of them put
+    post-extinction trials into a conditioning set, or scored extinction as a baseline,
+    and nothing said so - the numbers came out looking ordinary.
+
+    The test is not a guess.  A chapter after the first belongs to the same take as the
+    chapter before it: same take id, and a timecode that continues to the second.  So its
+    role is whatever chapter 1 is, and if the name claims a different one the name is
+    wrong.  Only files whose names actually state a role are compared; a camera-numbered
+    name like GX012908.MP4 claims nothing and is left alone.
+    """
+    by_take = {}
+    for v in vids:
+        r = rows.get(v["name"]) or {}
+        if r.get("n_chapters", 1) > 1 and r.get("take"):
+            by_take.setdefault(tuple(r["take"]), []).append((r.get("chapter", 1), v, r))
+    taken = {v["name"].lower() for v in vids}
+    out = []
+    for take, items in sorted(by_take.items()):
+        items.sort(key=lambda x: x[0])
+        head_v = items[0][1]
+        head_stem, _ = os.path.splitext(head_v["name"])
+        head_role = guess_role(head_stem)
+        if not head_role:
+            continue
+        for ch, v, r in items[1:]:
+            stem, ext = os.path.splitext(v["name"])
+            role = guess_role(stem)
+            if not role or role == head_role:
+                continue
+            want = "%s %d%s" % (head_stem, ch, ext)
+            n = ch
+            while want.lower() in taken:
+                n += 1
+                want = "%s %d%s" % (head_stem, n, ext)
+            taken.add(want.lower())
+            out.append({
+                "name": v["name"], "path": v["path"], "suggest": want,
+                "claims": role, "claims_word": ROLE_WORD.get(role, role),
+                "actual": head_role, "actual_word": ROLE_WORD.get(head_role, head_role),
+                "chapter": ch, "n_chapters": r.get("n_chapters"),
+                "head": head_v["name"],
+                "why": ("It is chapter %d of %d of the same take as %s - same camera take "
+                        "id, and its timecode picks up where the previous chapter ends. "
+                        "So it is %s, recorded after it, not %s."
+                        % (ch, r.get("n_chapters"), head_v["name"],
+                           ROLE_WORD.get(head_role, head_role),
+                           ROLE_WORD.get(role, role))),
+            })
+    return out
+
+
+def do_renames(pairs):
+    """Rename recordings the user has ticked, and leave a manifest that reverses it.
+
+    Renaming somebody's raw data is the most irreversible thing this app does, so it is
+    only ever done from an explicit tick, one file at a time, never over an existing
+    name, and always with a record of what was moved and why.
+    """
+    done, failed = [], []
+    for pr in pairs:
+        src, dst = pr.get("from") or "", pr.get("to") or ""
+        folder = os.path.dirname(src)
+        dst = os.path.join(folder, os.path.basename(dst))
+        if not os.path.isfile(src):
+            failed.append("%s is no longer there" % os.path.basename(src)); continue
+        if os.path.exists(dst):
+            failed.append("%s already exists" % os.path.basename(dst)); continue
+        try:
+            os.rename(src, dst)
+        except OSError as e:
+            failed.append("%s could not be renamed (%s)" % (os.path.basename(src), e))
+            continue
+        done.append({"from": src, "to": dst, "why": pr.get("why", "")})
+        # the little sidecars a GoPro leaves beside a clip follow their video
+        for ext in (".THM", ".LRV", ".thm", ".lrv"):
+            a = os.path.splitext(src)[0] + ext
+            b = os.path.splitext(dst)[0] + ext
+            for d2 in (folder, os.path.join(folder, "no")):
+                a2 = os.path.join(d2, os.path.basename(a))
+                b2 = os.path.join(d2, os.path.basename(b))
+                if os.path.isfile(a2) and not os.path.exists(b2):
+                    try:
+                        os.rename(a2, b2)
+                        done.append({"from": a2, "to": b2, "why": "sidecar"})
+                    except OSError:
+                        pass
+    if done:
+        folder = os.path.dirname(done[0]["from"])
+        man = os.path.join(folder, "RENAMES.json")
+        try:
+            old = json.load(open(man, encoding="utf-8")) if os.path.exists(man) else {}
+        except (OSError, ValueError):
+            old = {}
+        hist = old.get("renames", [])
+        hist.append({"when": time.strftime("%Y-%m-%dT%H:%M:%S"), "renames": done})
+        with open(man, "w", encoding="utf-8") as fh:
+            json.dump({"why": "Files renamed because their names contradicted the camera's "
+                              "own take and chapter metadata. Swap from/to to reverse.",
+                       "renames": hist}, fh, indent=1)
+    return {"renamed": len(done), "failed": failed}
+
+
 def make_tag(stem, used):
     t = C._slug(stem)
     base, i = t, 2
@@ -1012,6 +1125,9 @@ def list_dir(path):
                 v["notes"] = notes
                 # do not pre-tick what the metadata says is a copy, a test or a failure
                 v["skip"] = bool(notes)
+            # A name that contradicts the camera is not a note on one row - it changes
+            # what the study IS, so it is raised before the protocol is even set.
+            base["conflicts"] = name_conflicts(vids, rows)
         except Exception as e:                  # metadata is a courtesy, never a blocker
             base["warn"] = ("The recording times could not be read (%s), so the list is "
                             "in name order rather than the order they were filmed." % e)
@@ -1284,6 +1400,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         "Reload the page and try again."))
         if u.path == "/api/pick_folder":
             return self._send(200, pick_folder(body.get("initial") or start_dir()))
+        if u.path == "/api/rename":
+            pairs = body.get("renames") or []
+            if not pairs:
+                return self._send(400, fail(
+                    "Nothing was ticked to rename.", "",
+                    "Tick the files to rename, or press Keep these names."))
+            if STATE["running"]:
+                return self._send(409, fail(
+                    "A run is going, so the recordings must not be renamed now.", "",
+                    "Wait for it to finish, then rename."))
+            return self._send(200, {"ok": True, "data": do_renames(pairs)})
         if u.path == "/api/run":
             if STATE["running"]:
                 return self._send(409, fail(

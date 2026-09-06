@@ -26,12 +26,27 @@ from ebc_paths import work_dir
 
 
 def load_stim(cfg, wdir):
+    """The LED reads for this study, each one re-labelled from the CONFIG.
+
+    `<tag>_stim.json` is a cache of an expensive video pass, and it stores the role,
+    order and label the recording had when that pass was made.  Those three are facts
+    about the study file, not about the video, and they change without the pixels
+    changing - re-roling a recording is the whole point of a study file.  Taking them
+    from the cache meant a corrected role was read back as the old one, the recording
+    was segmented as whatever it used to be, and nothing said so: Carole's `CSUS fin`
+    was moved to `extinction` and the protocol stage went on calling it conditioning.
+    The LED events come from the cache; everything the config decides comes from the
+    config."""
     out = []
     for rec in cfg["recordings"]:
         f = os.path.join(wdir, rec["tag"] + "_stim.json")
         if os.path.exists(f):
             with open(f, encoding="utf-8") as fh:
-                out.append(json.load(fh))
+                d = json.load(fh)
+            for k in ("role", "order", "label", "anchor"):
+                if k in rec:
+                    d[k] = rec[k]
+            out.append(d)
         else:
             print("-- %s: no _stim.json, skipped" % rec["tag"])
     order = {r: i for i, r in enumerate(C.ROLES)}

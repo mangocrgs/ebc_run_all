@@ -215,6 +215,26 @@ td.r,th.r{text-align:right}
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .settings label{display:flex;flex-direction:column;gap:4px}
 
+/* -------------------------------------------------- names that contradict the camera
+   Deliberately loud, and deliberately in the way: it sits between choosing the videos
+   and setting the protocol, because a wrong name is not a detail to fix later - it
+   decides what the study IS, and every number downstream inherits it.  Three of the
+   five sessions analysed so far had one. */
+#namecard{border-color:var(--us);background:var(--flag_soft)}
+#namecard h2 .n{background:var(--us);color:#fff}
+.nm{width:100%;border-collapse:collapse;margin:10px 0 4px}
+.nm th{font-size:11.5px;color:var(--muted);text-align:left;font-weight:600;
+  padding:0 10px 5px 0;border-bottom:1px solid var(--rule)}
+.nm td{padding:9px 10px 9px 0;border-bottom:1px solid var(--rule);vertical-align:top;
+  font-size:13px}
+.nm td.f{font-family:"Cascadia Mono",Consolas,monospace;color:var(--ink);white-space:nowrap}
+.nm .why{color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:4px}
+.nm input[type=text]{font-family:"Cascadia Mono",Consolas,monospace;font-size:12.5px;
+  padding:5px 8px;width:100%;min-width:180px}
+.nm .claim{color:var(--us);font-weight:600}
+.nm .real{color:var(--ink);font-weight:600}
+#namebtns{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+
 /* ---------------------------------------------------------------- protocol
    The protocol used to be three loose number boxes with a warning under them that
    fired whenever they did not add up to a delay design.  That was the app telling the
@@ -565,6 +585,42 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
       <p><b>Nothing is uploaded and nothing is copied.</b> The recordings are read where they
       sit, so a 4&nbsp;GB file costs no extra disk and never leaves this computer.</p>
+    </div>
+  </details>
+</div>
+
+<!-- ================================================= names vs the camera clock -->
+<div class="card hide" id="namecard">
+  <h2><span class="n">!</span> These names disagree with the camera</h2>
+  <p class="todo" id="todoname"></p>
+  <div id="namewrap"></div>
+  <div id="namebtns">
+    <button type="button" id="dorename">Rename the ticked files</button>
+    <button type="button" class="ghost" id="keepnames">Keep these names</button>
+    <span class="hint" id="namehint"></span>
+  </div>
+  <details>
+    <summary>Why the camera is the better witness</summary>
+    <div class="body">
+      <p>A camera splits a long recording into chapters at 4&nbsp;GB and writes into each
+      piece which take it belongs to and where in that take it sits. Whoever empties the
+      SD card types the names afterwards, from memory.</p>
+      <p>When the two disagree the app has to pick one, and until now it picked the name.
+      That was wrong in <b>three of the five sessions analysed here</b>: two files called
+      <code>CSUS&nbsp;fin</code> and <code>CSUS&nbsp;4</code> were each chapter&nbsp;2 of that
+      participant&rsquo;s <b>extinction</b> take, and one called <code>cs&nbsp;only</code> was too,
+      while being used as the CS-only baseline. Each put post-extinction trials into a
+      conditioning set. Nothing looked wrong afterwards &mdash; the rates simply came out
+      different from the truth.</p>
+      <p>This is not a guess about the name. A chapter after the first carries the same take
+      id as the chapter before it and a timecode that continues to the second, so it was
+      recorded <i>as part of</i> that take. Only files whose names actually claim a role are
+      compared; a camera-numbered name such as <code>GX012908.MP4</code> claims nothing and is
+      left alone.</p>
+      <p><b>Renaming is optional.</b> You can keep the names and set the roles by hand in
+      step&nbsp;1 instead &mdash; the roles are what the analysis reads. Renaming just stops the
+      next person having this argument. Every rename is written to <code>RENAMES.json</code>
+      beside the recordings, which says what was renamed and reverses it.</p>
     </div>
   </details>
 </div>
@@ -935,10 +991,78 @@ async function browse(path, quiet){
   // accidental Run would be a multi-hour job.
   VIDS = (d.videos || []).map(v => ({...v, role: v.role || "conditioning",
                                      anchor: "auto", on: false}));
+  // A folder is a fresh question: what was decided about the last one does not carry.
+  CONFLICTS = (d.conflicts || []).map(c => ({...c, on: true}));
+  if (!quiet || CONFLICTS.length) NAMES_OK = CONFLICTS.length === 0;
   if (!$("#study").value.trim() && d.suggest) $("#study").value = d.suggest;
   renderVids(d);
+  renderConflicts();
   refreshGuide();
 }
+
+/* ------------------------------------------------- names that contradict the camera */
+/* CONFLICTS is what the server found; NAMES_OK is whether the user has dealt with it.
+   Step 2 stays shut until they have - not to nag, but because the protocol panel is
+   where somebody stops reading the file list, and a wrong role is invisible from there
+   onwards. Answering it takes one click either way. */
+let CONFLICTS = [], NAMES_OK = true;
+
+function renderConflicts(){
+  const card = $("#namecard"), n = CONFLICTS.length;
+  card.classList.toggle("hide", n === 0 || NAMES_OK);
+  if (!n || NAMES_OK) return;
+  $("#todoname").innerHTML = n === 1
+    ? `One recording&rsquo;s name says it is something the camera says it is not.
+       <b>Rename it</b>, or keep the name and set its role by hand in step 1.`
+    : `${n} recordings have names the camera contradicts. <b>Rename them</b>, or keep the
+       names and set their roles by hand in step 1.`;
+  $("#namewrap").innerHTML = `<table class="nm"><thead><tr>
+      <th style="width:34px"></th><th>Called</th><th>What the camera says</th>
+      <th style="width:34%">Rename to</th></tr></thead><tbody>`
+    + CONFLICTS.map((c, i) => `<tr>
+        <td><input type="checkbox" class="cx" data-i="${i}" ${c.on ? "checked" : ""}></td>
+        <td class="f">${esc(c.name)}</td>
+        <td><span class="claim">called ${esc(c.claims_word)}</span>,
+            actually <span class="real">${esc(c.actual_word)}</span>
+            <div class="why">${esc(c.why)}</div></td>
+        <td><input type="text" class="tx" data-i="${i}" value="${esc(c.suggest)}"></td>
+      </tr>`).join("") + `</tbody></table>`;
+  document.querySelectorAll("#namewrap .cx").forEach(b =>
+    b.onchange = () => { CONFLICTS[b.dataset.i].on = b.checked; refreshNameBtns(); });
+  document.querySelectorAll("#namewrap .tx").forEach(t =>
+    t.oninput = () => { CONFLICTS[t.dataset.i].suggest = t.value; refreshNameBtns(); });
+  refreshNameBtns();
+}
+
+function refreshNameBtns(){
+  const on = CONFLICTS.filter(c => c.on && (c.suggest || "").trim());
+  const dup = new Set(on.map(c => c.suggest.trim().toLowerCase())).size !== on.length;
+  $("#dorename").disabled = !on.length || dup;
+  $("#namehint").textContent = dup ? "Two of those would end up with the same name."
+    : !on.length ? "Nothing ticked - press Keep these names to go on."
+    : on.length === 1 ? "1 file will be renamed on disk."
+    : on.length + " files will be renamed on disk.";
+}
+
+async function doRename(){
+  const pairs = CONFLICTS.filter(c => c.on && (c.suggest || "").trim())
+    .map(c => ({from: c.path, to: c.suggest.trim(), why: c.why}));
+  $("#dorename").disabled = true;
+  $("#namehint").textContent = "renaming...";
+  const r = await api("/api/rename", {method:"POST",
+    body: JSON.stringify({renames: pairs})});
+  if (!r.ok){ show("#browsemsg", "bad", r.fail); refreshNameBtns(); return; }
+  const d = r.data || {};
+  if ((d.failed || []).length)
+    show("#browsemsg", "warn", {error: "Some files could not be renamed.",
+      detail: d.failed.join("
+"),
+      hint: "They may be open in another program, or already renamed. The rest were done."});
+  NAMES_OK = true;                 // whatever is left after this, the question was answered
+  await browse(CUR, true);         // re-read the folder so roles follow the new names
+}
+
+function keepNames(){ NAMES_OK = true; renderConflicts(); refreshGuide(); }
 
 function chapterOf(i){
   let n = 0;
@@ -1305,10 +1429,11 @@ function initProtocol(hello){
    so the page always has an answer to "and now what?". */
 function refreshGuide(){
   const on = picked();
-  const step1done = on.length > 0;
+  const namesPending = CONFLICTS.length > 0 && !NAMES_OK;
+  const step1done = on.length > 0 && !namesPending;
   $("#n1").className = "n" + (step1done ? " done" : "");
   $("#n2").className = "n" + (step1done ? "" : " wait");
-  $("#card1").classList.toggle("lead", !step1done && !RUNNING);
+  $("#card1").classList.toggle("lead", !step1done && !namesPending && !RUNNING);
   $("#card2").classList.toggle("lead", step1done && !RUNNING);
 
   if (!VIDS.length)
@@ -1323,7 +1448,9 @@ function refreshGuide(){
       chapter order, then move on to step 2.`;
 
   const study = $("#study").value.trim();
-  if (!step1done) $("#todo2").innerHTML = `Finish step 1 first.`;
+  if (namesPending) $("#todo2").innerHTML = `Settle the <b>file names</b> above first &mdash;
+      rename them, or keep them as they are.`;
+  else if (!step1done) $("#todo2").innerHTML = `Finish step 1 first.`;
   else if (!study) $("#todo2").innerHTML = `Type a <b>study name</b> &mdash; it goes into every
       output file name, so use the participant&rsquo;s name or code.`;
   else if (ENV && !ENV.ok) $("#todo2").innerHTML = `This computer is missing something the
@@ -1333,7 +1460,8 @@ function refreshGuide(){
   else $("#todo2").innerHTML = `Check that the <b>protocol</b> matches how this session was
       actually run, then press <b>Run analysis</b>.`;
 
-  const why = !step1done ? "Tick at least one recording in step 1."
+  const why = namesPending ? "Settle the file names flagged above first."
+            : !step1done ? "Tick at least one recording in step 1."
             : !study ? "Give the study a name first."
             : PROTO_BAD.length ? "The protocol in step 2 cannot be analysed."
             : RUNNING ? "A run is already going."
@@ -1582,6 +1710,8 @@ $("#pick").onclick = async () => {
   if (r.data.cancelled) return;
   browse(r.data.path);
 };
+$("#dorename").onclick = doRename;
+$("#keepnames").onclick = keepNames;
 $("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
 $("#study").addEventListener("input", refreshGuide);
 $("#openf").onclick = async () => {

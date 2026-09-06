@@ -15,7 +15,7 @@ import re
 # Stamped on the page, on the console banner and on every workbook cover, because a
 # number that reaches a paper has to be traceable to the thing that produced it.  Raise
 # it whenever the scoring changes.
-VERSION = "1.1"
+VERSION = "1.2"
 LAB = "Cerebral Dynamics, Plasticity & Learning"
 
 # ------------------------------------------------------------------------ house style
@@ -159,6 +159,11 @@ DEFAULT_PROTOCOL = {
     "alpha_ms": 100.0,       # a blink sooner than this after CS onset is startle, not a CR
     "pre_ms": 300.0,         # trial window before the anchor
     "post_ms": 0.0,          # trial window after the anchor; 0 = derived from the design
+    # "standard" scores every study on the same two numbers - the startle cut-off and the
+    # US onset - so participants can be put beside each other.  "measured" restores the
+    # per-participant window derived from that study's own US-only baseline.  The reflex
+    # is measured and recorded either way; the mode only decides which window SCORES.
+    "cr_window_mode": "standard",
 }
 
 # name -> role, applied to the file stem, case-insensitive, first match wins.
@@ -310,9 +315,10 @@ def cr_window(proto, reflex=None):
     """
     p = fill(proto)
     us0 = float(p["us_onset_ms"])
+    standard = str(p.get("cr_window_mode", "standard")).lower() != "measured"
     r = dict(reflex or {})
     ms = r.get("onset_ms")
-    if ms is not None and 0.0 < float(ms) < us0:
+    if not standard and ms is not None and 0.0 < float(ms) < us0:
         lo, hi = float(ms), us0 + float(ms)
         why = ("Measured from the US-only baseline: %d unconditioned blinks began "
                "%.0f +- %.0f ms after the puff, so mean - %.1f SD = %.0f ms is the "
@@ -325,13 +331,39 @@ def cr_window(proto, reflex=None):
     else:
         lo, hi = float(p["alpha_ms"]), us0
         measured = False
-        why = ("Not measured - %s. The protocol's startle cut-off (%.0f ms) is used "
-               "instead and the window ends at the US onset, so a blink in the first "
-               "%.0f ms after the puff is still counted as a reaction to it."
-               % (r.get("why") or "this study has no US-only baseline",
-                  lo, us0 - lo if us0 > lo else 0.0))
+        if standard:
+            why = ("Standard window: every study is scored on the same two numbers, the "
+                   "protocol's startle cut-off (%.0f ms) and the US onset (%.0f ms), so "
+                   "participants can be compared with each other. Nothing after the puff "
+                   "is called a definitive CR."
+                   % (lo, us0))
+            if ms is not None:
+                why += (" This study's own US-only baseline was still measured (%d blinks "
+                        "at %.0f +- %.0f ms, which would have given %.0f-%.0f ms) and is "
+                        "recorded beside the results, but it did not score them."
+                        % (r.get("n", 0), r.get("mean_ms", 0.0), r.get("sd_ms", 0.0),
+                           float(ms), us0 + float(ms)))
+        else:
+            why = ("Not measured - %s. The protocol's startle cut-off (%.0f ms) is used "
+                   "instead and the window ends at the US onset, so a blink in the first "
+                   "%.0f ms after the puff is still counted as a reaction to it."
+                   % (r.get("why") or "this study has no US-only baseline",
+                      lo, us0 - lo if us0 > lo else 0.0))
+    # The uncertain band.  A blink that begins after the US onset but while the CS is
+    # still running cannot be a definitive CR - the puff has already arrived, so the
+    # response may be to it - yet calling it a UR asserts the same thing in the other
+    # direction.  It is reported as its own class and counted as neither, so a rate that
+    # depends on the call can be seen to depend on it.  The band exists only where the
+    # CS outlasts the window, and only under the standard window: a measured window is
+    # already built from this study's own reflex latency and states where it thinks the
+    # puff's influence begins, so a second band inside it would be asserting two answers
+    # to one question.  On a trace protocol the CS is over before the puff and there is
+    # nothing between the two, so the band is absent there as well.
+    qhi = float(p["cs_ms"]) if standard else None
+    qhi = qhi if (qhi and qhi > hi) else None
     out = dict(lo_ms=round(lo, 1), hi_ms=round(hi, 1), measured=measured, why=why,
                reflex_ms=round(lo, 1) if measured else None,
+               standard=standard, qcr_hi_ms=round(qhi, 1) if qhi else None,
                us_onset_ms=round(us0, 1), reflex=r or None)
     # The class names are built here, once, from these two numbers.  Every module that
     # has to recognise a class string reads them from here rather than spelling them out,
@@ -339,7 +371,11 @@ def cr_window(proto, reflex=None):
     # exists.
     out["cr_label"] = "CR (%d-%dms)" % (round(lo), round(hi))
     out["alpha_label"] = "alpha/startle <%dms" % round(lo)
-    out["ur_label"] = "UR (>=%dms)" % round(hi)
+    out["ur_label"] = "UR (>=%dms)" % round(qhi if qhi else hi)
+    # Deliberately not starting with "CR" or "UR": every module recognises a class by its
+    # first two characters, so a name that began either way would be silently counted in.
+    out["qcr_label"] = "?CR (%d-%dms)" % (round(hi), round(qhi)) if qhi else None
+    out["qcr_no_us_label"] = "?CR (no US on this trial)" if qhi else None
     # A US-only recording has no CS, so its trials are timed from the puff and carry
     # their own two labels.
     # A trial that delivered no puff is bounded by the same window - that is what makes a
