@@ -29,6 +29,7 @@
   --accent:#2E6BA8;                /* the same hue, dark enough to read as text */
   --action:#A85408;                /* the complement at 30 deg: press this, read this */
   --action-soft:#FBF1E6;           /* the same, as a background you can put text on */
+  --flag_soft:#FBF1E6;             /* PALETTE's flag_soft: a row somebody has to look at */
   --cs:#9B6530; --us:#30669B;      /* the two LEDs: warm 30, cool 210 */
   --cr:#24466F;                    /* a conditioned response: the US hue, driven darker */
   --ur:#A6332F;                    /* the reflex to the puff */
@@ -90,6 +91,12 @@ h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
   background:currentColor;vertical-align:middle}
 .pill.on .dot{animation:pulse 1.3s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+/* Starting over lives in the bar, not at the bottom of a card: it used to be reachable
+   only by scrolling to the end of a finished run, which is the one place you are not
+   when you want it.  The bar is sticky, so it is one click away from anywhere on the
+   page.  It appears the moment there is something to clear and hides itself while a run
+   is going, when the button that matters is Stop. */
+#againtop{flex:none;font-size:12.5px;padding:5px 12px;white-space:nowrap}
 
 /* ---------------------------------------------------------------- cards */
 /* The cards float.  Three shadows stacked rather than one, because a single blur reads
@@ -204,12 +211,36 @@ td.r,th.r{text-align:right}
 /* Said under a file whose name carried no role at all, so a value the app picked
    because it had to pick one never looks like a value it read. */
 .guessed{font-size:11px;color:var(--warn);display:block}
+/* Said under a file whose ROLE goes backwards down the session clock.  It is the loudest
+   thing the row can say, because it is the one mistake in this table that no later step
+   can see: the run finishes, the workbooks fill, and the numbers are simply wrong. */
+.outoforder{font-size:11px;color:var(--alert);font-weight:600;display:block}
+tbody tr.bad{background:var(--alert-bg)}
+tbody tr.bad:hover{background:var(--alert-bg)}
 .empty{font-size:13.5px;color:var(--muted);text-align:center;padding:22px 10px;
   border:1px dashed var(--rule);border-radius:7px}
 .summary{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:12px;
   padding:10px 13px;background:var(--sunken);border-radius:6px;font-size:13px}
 .summary b{color:var(--ink)}
 .summary .k{color:var(--muted)}
+
+/* ------------------------------------------- roles against the session's own clock
+   This sits under the table it is about, in step 1, because that is where the Role
+   column is and the whole point is to be answered before anything is read.  It is the
+   only warning in the app allowed the alert colour in step 1: a wrong role does not
+   make the run fail, it makes it succeed and be wrong, and nothing downstream can tell.
+   It never blocks - a session filmed out of the usual order is unusual, not
+   impossible, and the person who filmed it is the one reading this. */
+.tlw{border:1px solid var(--alert);border-left-width:3px;border-radius:6px;
+  background:var(--alert-bg);padding:12px 15px;margin-top:14px;font-size:13.5px;
+  line-height:1.55}
+.tlw h4{margin:0 0 4px;font-size:14px;font-weight:600;color:var(--alert)}
+.tlw .one{margin:10px 0;padding-left:12px;border-left:2px solid var(--alert)}
+.tlw .one b{color:var(--ink)}
+.tlw .why{color:var(--muted);font-size:12.5px;margin-top:2px}
+.tlw .what{margin:11px 0 0;padding-top:9px;border-top:1px solid var(--rule);
+  font-size:12.5px;color:var(--muted)}
+.tlw .stages{font-size:12.5px;color:var(--muted);margin:0}
 
 /* ---------------------------------------------------------------- env check */
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -529,6 +560,9 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <p class="sub">Eyeblink conditioning, scored from video</p>
     </div>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="topelapsed"></span>
+    <button class="ghost hide" id="againtop" title="Clears the page for the next
+      participant: unticks the recordings, empties the study name and puts away the run
+      just finished. Nothing on disk is touched.">Start another</button>
     <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">starting up</span></span>
     <div class="crests">
       <img class="upc" src="/assets/logo_upcite.png" width="86" height="25"
@@ -561,6 +595,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
 
   <div id="browsemsg"></div>
   <div id="vidwrap"></div>
+  <div id="tlwarn"></div>
   <div id="selsummary"></div>
 
   <details class="guide">
@@ -773,10 +808,9 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
   <div id="notes"></div>
   <div id="vids"></div>
   <div id="triage"></div>
-  <div class="row hide" id="againrow" style="margin-top:12px">
-    <button class="ghost" id="again2">Start another analysis</button>
-    <span class="hint">Clears the page for the next participant. Nothing on disk is touched.</span>
-  </div>
+  <!-- "Start another analysis" stood here too, for a run that ended without producing
+       anything to show in step 4.  It is in the top bar now, which is sticky and covers
+       that case from anywhere on the page, so this one was only another thing to read. -->
 
   <details class="guide">
     <summary>What is happening, and how long it takes</summary>
@@ -1108,6 +1142,91 @@ function chapterOf(i){
   return VIDS[i].on ? "chapter " + n : "—";
 }
 
+/* ------------------------------------------- the roles against the session's own clock
+   ebc_app.stage_findings() is the authority on this rule: it runs again inside Run
+   analysis, on the same three stages, and writes what it finds into the run's notes.
+   What follows is that rule done in the page, so the answer arrives while the Role
+   column is still being set - which is the only moment it costs nothing to act on.
+   Keep the two in step: if the stages change there, they change here.
+
+   The rule is that a session cannot go backwards.  A baseline measures somebody who has
+   not been conditioned yet, and extinction is what follows conditioning, so a baseline
+   filmed after conditioning started, or a conditioning chapter filmed after extinction,
+   is a role the recording itself denies.  Which of the two baselines was filmed first
+   means nothing, so they are one stage.
+
+   The order is the camera's, taken from `rank` - not the row order in the table, which
+   the arrows change, and not the file names.  A recording the camera never dated has no
+   place on that clock and takes no part in the check; neither does one whose Role is
+   still the placeholder the app had to put in the dropdown for a name that says nothing
+   (`v.guessed`), because that label is the app's own and accusing somebody of it would
+   be wrong every time. */
+const STAGE = {baseline_cs:0, baseline_us:0, conditioning:1, extinction:2};
+const STAGE_WORD = ["a baseline", "conditioning", "extinction"];
+const ROLE_NAME = {conditioning:"conditioning", extinction:"extinction",
+                   baseline_cs:"CS-only baseline", baseline_us:"US-only baseline"};
+const ROLE_WORD = {conditioning:"a conditioning chapter", extinction:"extinction",
+                   baseline_cs:"a CS-only baseline", baseline_us:"a US-only baseline"};
+
+function stageFindings(){
+  const placed = picked().filter(v => v.dated && v.rank != null && v.role in STAGE
+                                      && !v.guessed)
+                         .sort((a, b) => a.rank - b.rank);
+  const out = [];
+  let top = null;                    // the first recording of the latest stage so far
+  for (const v of placed){
+    const st = STAGE[v.role];
+    if (top && st < STAGE[top.role]) out.push({v, after: top});
+    else if (!top || st > STAGE[top.role]) top = v;
+  }
+  return out;
+}
+
+function stageWhy(f){
+  return STAGE[f.v.role] === 0
+    ? `A baseline measures this person <i>before</i> any conditioning, so it cannot have
+       been filmed after ${STAGE_WORD[STAGE[f.after.role]]}.`
+    : `Extinction is what follows conditioning, so a conditioning chapter cannot have been
+       filmed after it.`;
+}
+
+/* The camera's creation time belongs to the TAKE, not to the chapter, so the two files
+   in the commonest case of all - a chapter roled as something its own take is not -
+   carry the same one to the second. Printing it twice reads as "these were recorded at
+   the same moment", which argues against the very thing the panel is saying. What put
+   them in order there was the timecode inside the take, so that is what it says. */
+function stageWhen(f){
+  const a = f.after.recorded, b = f.v.recorded;
+  if (!a || !b) return "";
+  if (a !== b) return ` Recorded ${esc(a)}, then ${esc(b)}.`;
+  return f.v.chapter && f.after.chapter
+    ? ` Both carry the camera time ${esc(a)} because they are chapters of one take
+        (${esc(f.after.chapter)} and ${esc(f.v.chapter)}); the order inside a take is its
+        own timecode.`
+    : ` Both carry the camera time ${esc(a)}; the order is the camera's.`;
+}
+
+function renderTimelineWarn(found){
+  const box = $("#tlwarn");
+  if (!found.length){ box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="tlw">
+    <h4>${found.length === 1 ? "One ticked role does not match" : found.length +
+         " ticked roles do not match"} the order these were filmed in</h4>
+    <p class="stages">A session runs <b>baselines &rarr; conditioning &rarr;
+       extinction</b>, and the camera says these did not.</p>`
+    + found.map(f => `<div class="one">
+        <b class="mono">${esc(f.v.name)}</b> is ticked as <b>${ROLE_WORD[f.v.role]}</b>,
+        but the camera filmed it <b>after</b> <b class="mono">${esc(f.after.name)}</b>,
+        which is ticked as <b>${ROLE_WORD[f.after.role]}</b>.
+        <div class="why">${stageWhy(f)}${stageWhen(f)}</div>
+      </div>`).join("")
+    + `<p class="what">One of the two roles is wrong &mdash; unless these are not one
+       session, in which case they should not be run together. <b>Fix the Role column
+       above before running.</b> Nothing here stops the run: the roles decide what is
+       measured against what, and a run made on the wrong ones finishes normally and is
+       simply wrong.</p></div>`;
+}
+
 function renderVids(d){
   const wrap = $("#vidwrap");
   if (!VIDS.length){
@@ -1116,18 +1235,25 @@ function renderVids(d){
       + `<br><br>Press <b>Browse&hellip;</b> to pick a different folder, or click one of the folder
          chips above &mdash; the ones with a green dot have recordings in them.</div>`;
     clear("#selsummary");
+    clear("#tlwarn");
     return;
   }
+  // computed before the rows are drawn, so a flagged recording is marked in the table
+  // itself as well as in the panel under it
+  const found = stageFindings();
+  const flag = new Map(found.map(f => [f.v.name, f]));
   wrap.innerHTML = `<table><thead><tr>
       <th style="width:36px"><input type="checkbox" id="all" title="tick every recording"></th>
       <th>File</th><th class="r" style="width:90px">Size</th>
       <th style="width:190px">Role</th><th style="width:150px">Trials from</th>
       <th style="width:110px">Order</th></tr></thead><tbody>` +
-    VIDS.map((v,i) => `<tr class="${v.on?"on":""}">
+    VIDS.map((v,i) => `<tr class="${v.on?"on":""}${flag.has(v.name)?" bad":""}">
       <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
       <td><span class="nm">${esc(v.name)}</span>${v.cloud
           ? `<span class="cloud">stored online only — download it first, the run will not start on it</span>` : ""}${v.guessed
-          ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}</td>
+          ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}${flag.has(v.name)
+          ? `<span class="outoforder">filmed after ${esc(flag.get(v.name).after.name)}, which is
+             ${ROLE_WORD[flag.get(v.name).after.role]} — this role cannot be right</span>` : ""}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
       <td><select data-i="${i}" class="rl">
         <option value="baseline_cs"  ${v.role==="baseline_cs"?"selected":""}>CS-only baseline</option>
@@ -1154,6 +1280,10 @@ function renderVids(d){
   document.querySelectorAll(".rl").forEach(c => c.onchange = e => {
     const v = VIDS[+e.target.dataset.i];
     v.role = e.target.value;
+    // Whatever it is now, it is no longer the placeholder the app had to show for a name
+    // that says nothing: the row stops asking to be set, and the role starts being
+    // checked against the session clock like any other.
+    v.guessed = false;
     // extinction and CS-only deliver no US, so there is nothing to anchor on
     if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "auto";
     renderVids(d); refreshGuide(); });
@@ -1165,6 +1295,7 @@ function renderVids(d){
     [VIDS[i], VIDS[j]] = [VIDS[j], VIDS[i]];
     renderVids(d); refreshGuide();
   });
+  renderTimelineWarn(found);
   renderSummary();
 }
 
@@ -1181,8 +1312,7 @@ function renderSummary(){
   const mins = 3 * bytes/1e9 + 4 * on.length;
   const roles = {};
   on.forEach(v => roles[v.role] = (roles[v.role]||0) + 1);
-  const rn = {conditioning:"conditioning", extinction:"extinction",
-              baseline_cs:"CS-only baseline", baseline_us:"US-only baseline"};
+  const rn = ROLE_NAME;
   $("#selsummary").innerHTML = `<div class="summary">
      <span><b>${on.length}</b> <span class="k">of ${VIDS.length} ticked</span></span>
      <span><b>${fmtSize(bytes)}</b> <span class="k">to read</span></span>
@@ -1462,11 +1592,25 @@ function initProtocol(hello){
   refreshProtocol();
 }
 
+/* The top bar's Start another is offered whenever there is something to clear - a run
+   under way or over, or recordings ticked - and taken away while a run is going, when
+   the button that matters is Stop and /api/reset would refuse anyway.  The study name
+   is deliberately not one of those things: the app fills it in from the folder name the
+   moment a folder is listed, so counting it would mean the button was simply always
+   there, offering to start over on a page nobody has touched yet. */
+function refreshReset(){
+  const something = picked().length > 0
+    || !$("#progcard").classList.contains("hide")
+    || !$("#rescard").classList.contains("hide");
+  $("#againtop").classList.toggle("hide", RUNNING || !something);
+}
+
 /* ---------------------------------------------------------------- guidance */
 /* One sentence per card saying what to do next. It is recomputed on every change,
    so the page always has an answer to "and now what?". */
 function refreshGuide(){
   const on = picked();
+  refreshReset();
   const namesPending = CONFLICTS.some(c => c.kind === "conflict") && !NAMES_OK;
   const step1done = on.length > 0 && !namesPending;
   $("#n1").className = "n" + (step1done ? " done" : "");
@@ -1749,7 +1893,7 @@ $("#pick").onclick = async () => {
   browse(r.data.path);
 };
 $("#again").onclick = startAnother;
-$("#again2").onclick = startAnother;
+$("#againtop").onclick = startAnother;
 $("#dorename").onclick = doRename;
 $("#keepnames").onclick = keepNames;
 $("#path").addEventListener("keydown", e => { if (e.key === "Enter") browse($("#path").value); });
@@ -1897,8 +2041,13 @@ $("#run").onclick = async () => {
   clear("#runerr");
   $("#run").classList.add("busy");
   const r = await api("/api/run", {method:"POST", body: JSON.stringify({
+      // rank/dated/recorded are the camera's, read once when the folder was listed;
+      // they carry so the server can re-run the role-against-the-clock check itself and
+      // put what it finds in the run's notes
       items: on.map(v => ({path: v.path, tag: v.tag, label: v.label, role: v.role,
-                           size: v.size, anchor: v.anchor || "auto"})),
+                           size: v.size, anchor: v.anchor || "auto",
+                           rank: v.rank, dated: v.dated, recorded: v.recorded,
+                           guessed: v.guessed})),
       study: $("#study").value.trim(),
       force: $("#force").checked,
       // the whole protocol, not only the three timings - the server takes the keys it
@@ -1992,12 +2141,13 @@ let pollTimer = null;
    exactly where they are, which is why it does not ask for confirmation. */
 async function startAnother(){
   const r = await api("/api/reset", {method:"POST", body:"{}"});
-  if (!r.ok){ show("#resmsg", "bad", r.fail); return; }
+  // Said in step 1, not in the results card: the button that starts this is in the top
+  // bar now and can be pressed with the results card nowhere on screen.
+  if (!r.ok){ show("#browsemsg", "bad", r.fail); return; }
   clearTimeout(pollTimer);
   RUNNING = false;
   $("#progcard").classList.add("hide");
   $("#rescard").classList.add("hide");
-  $("#againrow").classList.add("hide");
   $("#log").textContent = "";
   $("#allbar").firstElementChild.style.width = "0";
   clear("#statemsg"); clear("#resmsg"); clear("#runerr");
@@ -2029,9 +2179,7 @@ async function poll(){
       : s.running ? phaseName(s) : s.phase === "done" ? "done" : "ready";
   $("#run").classList.toggle("hide", false);
   $("#stop").classList.toggle("hide", !s.running);
-  // offered as soon as a run is over, finished or stopped, and whether or not it got as
-  // far as producing anything to show in step 4
-  $("#againrow").classList.toggle("hide", s.running || !(s.phase === "done" || s.error));
+  refreshReset();
 
   if ((s.order || []).length) $("#progcard").classList.remove("hide");
   $("#phase").textContent = phaseName(s);

@@ -42,6 +42,25 @@ beside the recordings, which records every rename and reverses it. A take where 
 chapter names a role is left entirely alone — chaptering says which files belong together,
 never what they are. See *Names that lie* below for why this exists.
 
+**And step 1 itself checks the roles against the session's own clock.** The name panel can
+be dismissed, and the *Role* dropdown can be set to anything at any time afterwards, so
+the last thing between a mislabelled recording and a finished, wrong run is a check on
+what is actually ticked. A session runs **baselines → conditioning → extinction** and
+cannot go backwards: a baseline measures somebody who has not been conditioned yet, and
+extinction is what follows conditioning. Anything ticked as a stage earlier than one the
+camera filmed before it is flagged on its own row and in a panel under the table, naming
+both recordings and why the two cannot be in that order. It never blocks — a session
+filmed out of the usual order is unusual, not impossible, and the person reading it is
+the person who filmed it — and the same check runs again inside *Run analysis*, so what
+it found is in the run's own record. Which of the two baselines came first means nothing
+and is not flagged; neither is a recording the camera never dated, nor one whose role is
+still the placeholder the app had to put in the dropdown for a name that says nothing.
+
+**Starting over** is in the top bar, next to the status pill, from the moment anything is
+ticked. It unticks the recordings, empties the study name, puts away a finished run and
+keeps the folder — the next participant is usually the folder next door. Nothing on disk
+is touched, which is why it does not ask.
+
 It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
 away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
 Edge and is on every current Windows machine; the interface it shows is served by a server
@@ -65,7 +84,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.2.1.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib

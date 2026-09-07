@@ -690,6 +690,21 @@ def preflight(body):
         note("No conditioning chapter is ticked.", "warn",
              "The acquisition figure and the conditioning workbook come from "
              "conditioning chapters only. If that is deliberate, ignore this.")
+
+    # The page raises these in step 1 while the roles are being set, which is the moment
+    # they can be fixed for nothing.  They are re-stated here because step 1 can be
+    # scrolled past, and because a note lands in the run's own record: a role that
+    # contradicts the camera changes what the study IS, and nothing downstream will ever
+    # look odd because of it.  It is a warning and not a refusal - a study filmed out of
+    # the usual order is unusual, not impossible, and the person who filmed it knows.
+    for f in stage_findings(items):
+        note("%s is ticked as %s, but the camera filmed it after %s, which is ticked as "
+             "%s." % (f["file"], f["role_word"], f["after"], f["after_role_word"]),
+             "warn",
+             "%s. One of the two roles is wrong, unless these are not one session. Stop "
+             "the run and fix the Role column in step 1 if so - the roles decide what is "
+             "measured against what, and every number below inherits them."
+             % (f["why"][0].upper() + f["why"][1:]))
     for i in items:
         if i.get("anchor") == "us" and i.get("role") in C.NO_US_ROLES:
             return fail("'%s' is set to take trials from the US LED, but its role "
@@ -887,7 +902,7 @@ def guess_role(stem):
     return None
 
 
-ROLE_WORD = {"conditioning": "a conditioning block", "extinction": "extinction",
+ROLE_WORD = {"conditioning": "a conditioning chapter", "extinction": "extinction",
              "baseline_cs": "a CS-only baseline", "baseline_us": "a US-only baseline"}
 
 
@@ -968,6 +983,77 @@ def name_findings(vids, rows):
                          "runs continuously with it - so it is %s."
                          % (ch, r.get("n_chapters"), spoke, word))),
             })
+    return out
+
+
+# The three stages of a session, in the only order they can happen in.  C.ROLES is the
+# order the analysis works through and says why - each stage is read against the ones
+# before it - but two of its four entries are one moment in time here: the CS-only and
+# the US-only baseline are both "before any conditioning", and which of the two the
+# camera saw first means nothing.  What cannot happen is a stage going BACKWARDS.  A
+# baseline measures somebody who has not been conditioned yet; extinction is what
+# follows conditioning.  So a baseline filmed after conditioning started, or a
+# conditioning chapter filmed after extinction, is a role the recording itself denies.
+STAGE = {"baseline_cs": 0, "baseline_us": 0, "conditioning": 1, "extinction": 2}
+STAGE_WORD = ("a baseline", "conditioning", "extinction")
+
+
+def stage_why(role, after_role):
+    """Why this pair cannot be in this order, in one clause."""
+    if STAGE[role] == 0:
+        return ("a baseline measures this person before any conditioning, so it cannot "
+                "have been filmed after %s" % STAGE_WORD[STAGE[after_role]])
+    return ("extinction is what follows conditioning, so a conditioning chapter cannot "
+            "have been filmed after it")
+
+
+def stage_findings(items):
+    """Ticked roles that contradict the order the camera says they were filmed in.
+
+    `name_findings` asks whether a file's NAME agrees with the camera.  This asks the
+    question that actually reaches the numbers: whether the ROLE the run is about to use
+    does.  They are not the same question and the second has the last word - a name can
+    be kept, and the Role dropdown can be set to anything at any time, including long
+    after the name panel was answered.
+
+    Every case this exists to catch has the same shape.  `CSUS fin.MP4` was chapter 2 of
+    the EXTINCTION take and was roled conditioning for a year; Marie's `cs only.MP4` was
+    too, while serving as her CS-only baseline.  Both are a stage going backwards down
+    the session clock, and neither is visible from anywhere else in the app: the numbers
+    come out looking perfectly ordinary.
+
+    Order comes from `rank`, which ebc_media.timeline() built out of the camera's take
+    ids and timecodes - not from file names, and not from the row order in the page,
+    which the user is free to change.  A recording the camera never dated has no place
+    on that clock, so it is left out of the check rather than guessed at.
+
+    So is a recording whose role nobody has stated.  A name like `GX012907.MP4` says
+    nothing, the dropdown has to show something, and what it shows is `conditioning` -
+    an app-made placeholder, flagged as one on its own row.  Accusing somebody of
+    mislabelling a file on the strength of a label the app wrote itself would fire on
+    the whole 2016 Video root and on the two nameless clips in Charles's folder, and it
+    would be wrong every time.  Once a role is actually chosen it stops being a guess
+    and the check applies.
+    """
+    placed = [i for i in items if i.get("dated") and i.get("rank") is not None
+              and i.get("role") in STAGE and not i.get("guessed")]
+    placed.sort(key=lambda i: i["rank"])
+    out, top = [], None
+    for it in placed:
+        st = STAGE[it["role"]]
+        if top is not None and st < STAGE[top["role"]]:
+            out.append({
+                "file": os.path.basename(it.get("path") or "") or it.get("label") or "",
+                "role": it["role"], "role_word": ROLE_WORD[it["role"]],
+                "recorded": it.get("recorded") or "",
+                "after": (os.path.basename(top.get("path") or "")
+                          or top.get("label") or ""),
+                "after_role": top["role"], "after_role_word": ROLE_WORD[top["role"]],
+                "after_recorded": top.get("recorded") or "",
+                "why": stage_why(it["role"], top["role"]),
+            })
+        elif top is None or st > STAGE[top["role"]]:
+            top = it                    # the first recording of the latest stage so far
     return out
 
 
@@ -1137,6 +1223,12 @@ def list_dir(path):
                 v["duration_s"] = m.get("duration_s")
                 v["chapter"] = ("chapter %d/%d" % (row["chapter"], row["n_chapters"])
                                 if row.get("n_chapters", 1) > 1 else "")
+                # Where this sits on the session clock, and whether the camera dated it
+                # at all.  stage_findings() runs on these two - here and in the page -
+                # so a role that goes backwards down that clock is raised while the Role
+                # column is still being set, not an hour into the run.
+                v["rank"] = row.get("rank")
+                v["dated"] = bool(row.get("dated"))
                 notes = []
                 if v["name"] in copies:
                     notes.append("the same clip as %s" % copies[v["name"]])

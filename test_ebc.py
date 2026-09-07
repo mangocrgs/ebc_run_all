@@ -503,6 +503,105 @@ def test_a_suggested_name_never_collides_with_a_file_already_there():
     assert s != "extinction 2.MP4" and s.startswith("extinction ")
 
 
+# ------------------------------------- roles that contradict the session's own clock
+# name_findings asks whether the NAME agrees with the camera.  These ask the question
+# that reaches the numbers: whether the ROLE the run is about to use does.  The Role
+# dropdown can be set to anything at any time, including after the name panel has been
+# answered and dismissed, so this is the last thing standing between a mislabelled
+# recording and a run that finishes normally and is wrong.
+def _items(pairs):
+    """Ticked recordings as the page sends them: (file, role) in recording order."""
+    return [dict(path="C:/v/" + f, label=os.path.splitext(f)[0], role=r,
+                 rank=i, dated=True, recorded="2024-10-31 09:%02d:00" % i)
+            for i, (f, r) in enumerate(pairs, 1)]
+
+
+def test_a_conditioning_chapter_filmed_after_extinction_is_flagged():
+    """Carole's CSUS fin.MP4: chapter 2 of the extinction take, roled conditioning."""
+    f = A.stage_findings(_items([("extinction.MP4", "extinction"),
+                                 ("CSUS fin.MP4", "conditioning")]))
+    assert len(f) == 1, f
+    assert f[0]["file"] == "CSUS fin.MP4" and f[0]["after"] == "extinction.MP4"
+    assert "conditioning chapter cannot" in f[0]["why"]
+
+
+def test_a_baseline_filmed_after_conditioning_is_flagged():
+    """Marie retest's cs only.MP4, which was serving as her CS-only baseline."""
+    f = A.stage_findings(_items([("CSUS 1.MP4", "conditioning"),
+                                 ("cs only.MP4", "baseline_cs")]))
+    assert len(f) == 1 and f[0]["file"] == "cs only.MP4"
+    assert f[0]["after"] == "CSUS 1.MP4" and "before any conditioning" in f[0]["why"]
+
+
+def test_a_session_filmed_in_the_usual_order_is_not_flagged():
+    """Every real session on disk is exactly this, and none of them may warn."""
+    assert A.stage_findings(_items([
+        ("CS ONLY.MP4", "baseline_cs"), ("US ONLY.MP4", "baseline_us"),
+        ("CSUS 1.MP4", "conditioning"), ("CSUS 2.MP4", "conditioning"),
+        ("CSUS 3.MP4", "conditioning"), ("extinction.MP4", "extinction"),
+        ("extinction 2.MP4", "extinction")])) == []
+
+
+def test_the_two_baselines_are_one_stage_in_either_order():
+    """Which baseline the camera saw first means nothing - neither conditions anybody."""
+    assert A.stage_findings(_items([("US ONLY.MP4", "baseline_us"),
+                                    ("CS ONLY.MP4", "baseline_cs")])) == []
+
+
+def test_the_reference_is_the_first_recording_of_the_later_stage():
+    """'filmed after extinction' has to name where extinction STARTED, not its last
+    chapter, or the sentence understates how far back the role reaches."""
+    f = A.stage_findings(_items([("extinction.MP4", "extinction"),
+                                 ("extinction 2.MP4", "extinction"),
+                                 ("CSUS fin.MP4", "conditioning")]))
+    assert len(f) == 1 and f[0]["after"] == "extinction.MP4"
+
+
+def test_a_role_the_app_guessed_is_not_held_against_anybody():
+    """`GX012907.MP4` says nothing, so the dropdown shows the placeholder the app had to
+    put there - conditioning.  Checking that against a baseline filmed later fires on
+    Charles's folder and on the whole 2016 Video root, and is the app accusing somebody
+    of a label the app wrote itself."""
+    items = _items([("GX012907.MP4", "conditioning"), ("us only.MP4", "baseline_us")])
+    items[0]["guessed"] = True
+    assert A.stage_findings(items) == []
+    items[0]["guessed"] = False            # the user has now said what it is
+    assert len(A.stage_findings(items)) == 1
+
+
+def test_a_recording_the_camera_never_dated_takes_no_part():
+    """It has no place on the session clock, so it is left out rather than guessed at."""
+    items = _items([("extinction.MP4", "extinction"), ("GX012908.MP4", "conditioning")])
+    items[1]["dated"] = False
+    assert A.stage_findings(items) == []
+
+
+def test_the_check_reads_the_camera_order_not_the_row_order():
+    """The arrows in step 1 reorder the table; they do not move the camera clock."""
+    items = _items([("extinction.MP4", "extinction"),
+                    ("CSUS fin.MP4", "conditioning")])
+    items.reverse()                        # as if the user had moved the row up
+    assert len(A.stage_findings(items)) == 1
+
+
+def test_every_role_has_a_stage_and_a_word():
+    """A role added to ebc_config and not to STAGE would silently stop being checked."""
+    for r in C.ROLES:
+        assert r in A.STAGE and r in A.ROLE_WORD
+    assert len(A.STAGE_WORD) == len(set(A.STAGE.values()))
+
+
+def test_the_page_checks_the_same_stages_as_the_server():
+    """The page runs this rule too, so the answer arrives while the Role column is still
+    being set.  Two copies of one rule is a thing that drifts, so they are compared."""
+    src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "ebc_app_ui.html"), encoding="utf-8").read()
+    m = re.search(r"const STAGE = \{([^}]*)\}", src)
+    assert m, "the page no longer defines STAGE"
+    page = dict((k, int(v)) for k, v in re.findall(r"(\w+):(\d+)", m.group(1)))
+    assert page == A.STAGE, "page %s, server %s" % (page, A.STAGE)
+
+
 # ---------------------------------------------------------- the app page
 # ebc_app_ui.html ships as one <script>, so a single unterminated string takes the WHOLE
 # page down: no button is wired, and the app opens looking perfectly normal and does
@@ -561,7 +660,7 @@ def test_every_id_the_script_reaches_for_exists_in_the_markup():
 
 def test_the_buttons_the_page_promises_are_wired():
     src = io.open(UI, encoding="utf-8").read()
-    for b in ("again", "again2", "dorename", "keepnames", "pick", "run", "stop"):
+    for b in ("again", "againtop", "dorename", "keepnames", "pick", "run", "stop"):
         assert 'id="%s"' % b in src, "no #%s in the markup" % b
         assert ('$("#%s").onclick' % b) in src, "#%s is never wired" % b
 
