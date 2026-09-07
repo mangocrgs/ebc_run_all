@@ -8,6 +8,9 @@ So it is cut, not scaled:
 
     logo_mark.png   the brain glyph alone, square, black field.  Title bar, at 34 px,
                     where only the glyph survives the reduction.
+    logo_ghost.png  the same glyph as one flat grey on transparency.  The page lays it
+                    behind everything at a few percent, so the ground is the lab's mark
+                    without the mark being on the page.
     logo_full.png   the whole lockup, tight-cropped.  The credits bar, at 270 px,
                     where the tagline is legible again, and the workbook covers.
     ebc.ico         the brain glyph on a rounded black tile, 16 - 256 px, for the
@@ -84,6 +87,27 @@ def square(im, pad=0.06):
     return out
 
 
+def ghost(im, side=1200, colour=(89, 99, 111)):
+    """The glyph as one flat grey on transparency - a watermark, not a logo.
+
+    The mark is drawn on black, so its own brightness is already the shape: taken as an
+    alpha channel it gives the line work and drops the field entirely.  Every pixel is
+    then painted the SAME grey (PALETTE's `muted`), which is what turns a logo into a
+    suggestion of one - the blue and the white nodes are what make the mark read as the
+    lab's mark, and a watermark that still reads that way is a logo sitting on the page
+    rather than a texture behind it.
+
+    Full strength here; the page decides how faint it actually is, in one CSS opacity.
+    """
+    a = im.convert("L").resize((side, side), Image.LANCZOS)
+    # a gentle curve: lift the line work away from the near-black field so the shape
+    # survives being drawn at 6% opacity, without the field creeping in as a grey square
+    lut = [0 if v < 14 else min(255, int(255 * ((v - 14) / 241.0) ** 0.72)) for v in range(256)]
+    out = Image.new("RGBA", (side, side), colour + (0,))
+    out.putalpha(a.point(lut))
+    return out
+
+
 def rounded(im, radius=0.20):
     """The same square, corners rounded and the outside transparent - an app icon."""
     im = im.convert("RGBA")
@@ -115,9 +139,13 @@ def main():
     icon.save(os.path.join(OUT, "ebc.ico"),
               sizes=[(s, s) for s in (16, 24, 32, 48, 64, 128, 256)])
 
+    # The same glyph as a flat grey silhouette, for the page to lay behind its cards.
+    ghost(im.crop((m["mark"][0], m["mark"][1], m["mark"][2] + 1, m["mark"][3] + 1))
+          ).save(os.path.join(OUT, "logo_ghost.png"), optimize=True)
+
     print("  measured  glyph x%d-%d, wordmark from x%d" %
           (m["mark"][0], m["mark"][2], m["text_x"]))
-    for n in ("logo_full.png", "logo_mark.png", "ebc.ico"):
+    for n in ("logo_full.png", "logo_mark.png", "logo_ghost.png", "ebc.ico"):
         p = os.path.join(OUT, n)
         print("  wrote     %-16s %6.1f kB" % (n, os.path.getsize(p) / 1e3))
 

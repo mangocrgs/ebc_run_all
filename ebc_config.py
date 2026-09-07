@@ -15,7 +15,7 @@ import re
 # Stamped on the page, on the console banner and on every workbook cover, because a
 # number that reaches a paper has to be traceable to the thing that produced it.  Raise
 # it whenever the scoring changes.
-VERSION = "1.6"
+VERSION = "1.7"
 LAB = "Cerebral Dynamics, Plasticity & Learning"
 
 # ------------------------------------------------------------------------ house style
@@ -28,16 +28,16 @@ LAB = "Cerebral Dynamics, Plasticity & Learning"
 # is spent on the CS and on anything you are meant to press or read before trusting a
 # number.  Everything else is grey, and the reds and greens only ever mean a state.
 PALETTE = {
-    "brand":   "#3785D2",   # the glyph blue, unmodified
-    "accent":  "#2E6BA8",   # the same hue, dark enough to read as text
-    "action":  "#A85408",   # the complement at 30 deg: press this, read this
-    "cs":      "#9B6530",   # CS - the yellow LED
-    "us":      "#30669B",   # US - the blue LED
-    "cr":      "#24466F",   # the conditioned response: the US hue, driven darker
-    "ur":      "#A6332F",   # the reflex to the puff
-    "ok":      "#33795A",
+    "brand":   "#2085E9",   # the glyph blue, unmodified
+    "accent":  "#196BBD",   # the same hue, dark enough to read as text
+    "action":  "#B05400",   # the complement at 30 deg: press this, read this
+    "cs":      "#A85F14",   # CS - the yellow LED
+    "us":      "#1D66AE",   # US - the blue LED
+    "cr":      "#17457C",   # the conditioned response: the US hue, driven darker
+    "ur":      "#BB201A",   # the reflex to the puff
+    "ok":      "#27855B",
     "warn":    "#8A6100",
-    "alert":   "#A6332F",
+    "alert":   "#BB201A",
     "ink":     "#161B23",
     "muted":   "#59636F",
     "faint":   "#93A0AE",   # a trial with nothing in it
@@ -48,13 +48,13 @@ PALETTE = {
     "surface": "#FFFFFF",
     "sunken":  "#F2F5F9",
     # the same hues as a wash, for a band behind text or a spreadsheet colour scale
-    "us_mid":  "#6D85AE",   # the US hue at half strength, for a colour scale
-    "trace":   "#4A6076",   # one trial's closure trace, drawn among the others
-    "cs_soft": "#F6E7C8",
-    "us_soft": "#D6E2F0",
-    "cr_soft": "#E4EBF4",
-    "ur_soft": "#EFCFCD",
-    "flag_soft": "#FBF1E6",  # a row somebody has to look at
+    "us_mid":  "#6382B8",   # the US hue at half strength, for a colour scale
+    "trace":   "#43607D",   # one trial's closure trace, drawn among the others
+    "cs_soft": "#FFEABF",
+    "us_soft": "#CFE1F7",
+    "cr_soft": "#E0EAF8",
+    "ur_soft": "#F8C8C4",
+    "flag_soft": "#FFF1E2",  # a row somebody has to look at
 }
 
 # Segoe UI is on every machine this runs on, it has a large x-height so a table stays

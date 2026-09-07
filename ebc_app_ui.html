@@ -25,20 +25,20 @@
    read.  A CR is this blue in a PNG, in an Excel chart and here.  Change one, change
    both. */
 :root{
-  --brand:#3785D2;                 /* the glyph blue, unmodified */
-  --accent:#2E6BA8;                /* the same hue, dark enough to read as text */
-  --action:#A85408;                /* the complement at 30 deg: press this, read this */
-  --action-soft:#FBF1E6;           /* the same, as a background you can put text on */
-  --flag_soft:#FBF1E6;             /* PALETTE's flag_soft: a row somebody has to look at */
-  --cs:#9B6530; --us:#30669B;      /* the two LEDs: warm 30, cool 210 */
-  --cr:#24466F;                    /* a conditioned response: the US hue, driven darker */
-  --ur:#A6332F;                    /* the reflex to the puff */
+  --brand:#2085E9;                 /* the glyph blue, unmodified */
+  --accent:#196BBD;                /* the same hue, dark enough to read as text */
+  --action:#B05400;                /* the complement at 30 deg: press this, read this */
+  --action-soft:#FFF1E2;           /* the same, as a background you can put text on */
+  --flag_soft:#FFF1E2;             /* PALETTE's flag_soft: a row somebody has to look at */
+  --cs:#A85F14; --us:#1D66AE;      /* the two LEDs: warm 30, cool 210 */
+  --cr:#17457C;                    /* a conditioned response: the US hue, driven darker */
+  --ur:#BB201A;                    /* the reflex to the puff */
   --faint:#93A0AE;                 /* a trial with nothing in it */
-  --alert:#A6332F; --ok:#33795A; --warn:#8A6100;
+  --alert:#BB201A; --ok:#27855B; --warn:#8A6100;
 
   --paper:#E9ECF1; --surface:#FFFFFF; --sunken:#F2F5F9;
   --ink:#161B23; --muted:#59636F; --rule:#D7DDE6;
-  --alert-bg:#FBECEC; --ok-bg:#EAF6F0; --warn-bg:#FBF5E8; --info-bg:#ECF3FA;
+  --alert-bg:#FCE8E7; --ok-bg:#E4F5EC; --warn-bg:#FDF4E4; --info-bg:#E7F2FD;
 }
 *{box-sizing:border-box}
 /* Segoe UI throughout, except anything that is code, a path or a number - those stay
@@ -48,14 +48,51 @@
    used before it needs no negative tracking to stop looking oversized. */
 body{margin:0;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.6;
   font-family:"Segoe UI","Segoe UI Variable Text",system-ui,-apple-system,Tahoma,Arial,sans-serif}
+/* ------------------------------------------------------------------- the ground
+   The lab's brain glyph, flat grey on transparency, laid across the whole page at a few
+   percent - suggested rather than sitting there.  It is the reason the page has a BACK:
+   the cards are opaque white and hide it completely, so every one of them reads as a
+   box in front of something rather than as a white rectangle on a white-ish field, and
+   the ground shows only in the gutters, above the first card and below the last.
+
+   Fixed, so it does not scroll with the cards - the ground stays still and the work
+   moves over it, which is what makes it read as depth rather than as a picture.  Behind
+   everything and untouchable: z-index 0 with the content lifted to 1, and no pointer
+   events, so it can never take a click meant for the page.
+
+   Drawn much wider than the 940px column on purpose.  Sized to fit inside it, the whole
+   glyph would sit behind opaque cards and never be seen at all; at this size the column
+   covers its middle and what is left is the outline sweeping through the gutters either
+   side, above the first card and below the last - which is exactly the half-seen thing
+   that was asked for, and it is the cards hiding the rest that makes them read as being
+   in front of it. */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:url("/assets/logo_ghost.png") no-repeat;
+  background-position:50% 42%;
+  background-size:auto max(1180px, min(155vh, 1600px));
+  opacity:.09}
+@media (max-width:820px){
+  /* the column now fills the window, so the glyph is pushed up out from behind it */
+  body::before{background-position:50% -6%;background-size:auto 620px;opacity:.07}
+}
 .mono,.num,code{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
   font-variant-numeric:tabular-nums;letter-spacing:0}
-.wrap{max-width:940px;margin:0 auto;padding:0 24px 42px;display:flex;flex-direction:column;gap:18px}
+.wrap{max-width:940px;margin:0 auto;padding:0 24px 42px;display:flex;flex-direction:column;gap:18px;
+  position:relative;z-index:1}
 
 /* ---------------------------------------------------------------- top bar */
+/* Translucent rather than solid, over a blur: the ground shows through it just enough
+   that the bar reads as a PANEL laid on the page, the same way the credits panel does at
+   the other end, instead of as more page.  A browser without backdrop-filter simply gets
+   the flat colour underneath, which is what the bar used to be. */
 .topbar{position:sticky;top:0;z-index:20;background:var(--paper);
+  background:color-mix(in srgb,
+    color-mix(in srgb, var(--surface) 55%, var(--paper)) 88%, transparent);
+  backdrop-filter:blur(14px) saturate(1.15);
+  -webkit-backdrop-filter:blur(14px) saturate(1.15);
   border-bottom:1px solid var(--rule);margin-bottom:2px;
   box-shadow:0 6px 16px -10px rgba(22,27,35,0);transition:box-shadow .25s ease}
+@supports not (backdrop-filter:blur(1px)){ .topbar{background:var(--paper)} }
 /* set by the scroll listener: the bar only casts a shadow once a card is under it */
 .topbar.over{box-shadow:0 6px 16px -8px rgba(22,27,35,.22)}
 .topbar .inner{max-width:940px;margin:0 auto;padding:14px 24px;
@@ -65,6 +102,12 @@ h1{font-size:29px;font-weight:600;margin:0;letter-spacing:-.025em;white-space:no
 h1 .ver{font-size:12px;font-weight:400;letter-spacing:.02em;color:var(--muted);
   vertical-align:6px;margin-left:4px}
 .sub{color:var(--muted);font-size:13.5px;margin:0}
+/* The lab, in words, at the top of its own tool.  It was on the page only as artwork -
+   inside the lockup at the very bottom, and in the title text of the mark, neither of
+   which is readable text.  Set small and letterspaced under the app's own subtitle, so
+   it reads as the letterhead it is rather than competing with the name of the tool. */
+.lab{margin:2px 0 0;font-size:11.5px;font-weight:600;letter-spacing:.055em;
+  text-transform:uppercase;color:var(--accent)}
 .titles{flex:1;min-width:210px}
 /* The lab mark keeps its own black field - it is drawn on one, and the glyph's white
    nodes disappear against anything lighter. */
@@ -552,10 +595,21 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
    drawn on, so the mark sits in it without a plaque and the page ends on the lab.
    The lab and the two names, and nothing else: the two institutions moved up to the
    top bar, where they belong to the header rather than competing with the byline. */
-.credits{background:#000;color:#E8ECF2;padding:26px 24px;
+.credits{background:#000;color:#E8ECF2;padding:26px 24px;position:relative;overflow:hidden;
   display:flex;gap:30px;align-items:center;justify-content:center;flex-wrap:wrap}
+/* The same glyph as the page's ground, once more and much larger, running off both
+   edges of the black panel.  It is the bottom bookend to the top bar: the two panels
+   are the only places the mark appears at all, and between them the page is white boxes
+   on a ground that only hints at it.  Brightened, because a #59636F watermark on black
+   is not a watermark, it is nothing. */
+.credits::before{content:"";position:absolute;inset:-40% -10%;pointer-events:none;
+  background:url("/assets/logo_ghost.png") no-repeat center/contain;
+  filter:brightness(3.2);opacity:.055}
+.credits > *{position:relative;z-index:1}
 .credits .lockup{width:300px;max-width:100%;height:auto;display:block;flex:none}
 .credits .who{min-width:180px}
+/* The lab's name is not repeated here in text: the lockup beside it already says it, in
+   the lab's own lettering.  It is the TOP bar that had no readable version of it. */
 .credits .names{margin:0;font-size:14.5px;color:#FFFFFF}
 .credits .when{margin:3px 0 0;font-size:12.5px;color:#96A0AE}
 </style>
@@ -571,6 +625,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
     <div class="titles">
       <h1>EBC Analyzer <span class="ver" id="ver"></span></h1>
       <p class="sub">Eyeblink conditioning, scored from video</p>
+      <p class="lab">Cerebral Dynamics, Plasticity &amp; Learning</p>
     </div>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="topelapsed"></span>
     <button class="ghost" id="againtop" title="Clears the page for the next
@@ -941,7 +996,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
        alt="Cerebral Dynamics, Plasticity &amp; Learning - We have the brain in mind.">
   <div class="who">
     <p class="names">C.&nbsp;Levenes and M.&nbsp;Courreges</p>
-    <p class="when">August&nbsp;2026</p>
+    <p class="when">September&nbsp;2026</p>
   </div>
 </footer>
 

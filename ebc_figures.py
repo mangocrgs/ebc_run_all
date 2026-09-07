@@ -90,13 +90,14 @@ def window_note(win):
                 % (win["lo_ms"], win["hi_ms"], win["reflex_ms"],
                    win["reflex"]["k"], win["reflex"]["n"]))
     if win.get("standard"):
+        # Kept short enough to fit the figure it is set under: the full account of where
+        # the window came from is win["why"], which the workbooks print in full.
         r = win.get("reflex") or {}
-        return ("CR window %.0f–%.0f ms  ·  the standard window: the protocol's startle "
-                "cut-off and the US onset, the same two numbers for every participant%s"
+        return ("CR window %.0f–%.0f ms  ·  the standard window, the same two numbers "
+                "for every participant%s"
                 % (win["lo_ms"], win["hi_ms"],
-                   ", so this study's own measured reflex (%d blinks at %.0f ± %.0f ms) "
-                   "is recorded beside the results but did not score them"
-                   % (r["n"], r["mean_ms"], r["sd_ms"])
+                   "  ·  this study's own reflex, %d blinks at %.0f ± %.0f ms, was "
+                   "measured but did not score" % (r["n"], r["mean_ms"], r["sd_ms"])
                    if r.get("onset_ms") is not None
                    else "  ·  no US-only baseline here to measure a reflex from either"))
     return ("CR window %.0f–%.0f ms  ·  no US-only baseline to measure the reflex "

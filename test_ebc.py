@@ -598,6 +598,27 @@ def _plot_group(chart):
     return next(c for c in pa if c.tag.endswith("Chart"))
 
 
+def test_the_page_and_the_palette_are_the_same_colours():
+    """"A CR is this blue in a PNG, in an Excel chart and here" - checked, not asserted.
+
+    ebc_app_ui.html carries its own copy as CSS custom properties, because a stylesheet
+    cannot import a Python dict.  The two have always been kept in step by a comment
+    saying to, which is not a mechanism.  Every :root variable that names a palette
+    colour has to BE that colour; the page is allowed extra ones of its own (the tinted
+    backgrounds it puts text on), and the palette is allowed colours the page never uses.
+    """
+    src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "ebc_app_ui.html"), encoding="utf-8").read()
+    root = src.split(":root{", 1)[1].split("}", 1)[0]
+    page = dict(re.findall(r"--([\w-]+)\s*:\s*(#[0-9A-Fa-f]{6})", root))
+    assert len(page) >= 18, page
+    shared = [k for k in page if k in C.PALETTE]
+    assert len(shared) >= 16, sorted(shared)
+    wrong = {k: (page[k], C.PALETTE[k]) for k in shared
+             if page[k].upper() != C.PALETTE[k].upper()}
+    assert not wrong, "page and PALETTE disagree: %s" % wrong
+
+
 def test_a_chart_colour_is_six_hex_digits_and_a_cell_colour_is_eight():
     """The bug that made every workbook this app ever wrote refuse to open.
 
