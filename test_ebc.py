@@ -158,6 +158,56 @@ def test_moving_lid_is_untimeable():
     assert S.classify(200.0, WIN, True, False, True) == WIN["moving_label"]
 
 
+# ----------------------------------------- the two ends outside which nothing is scored
+# A blink before the CS had nothing to respond to, and one long enough after the puff is
+# the next spontaneous blink rather than the reflex to it.  Both used to be classified
+# like any other latency: the first as startle, the second as a UR - inflating the UR
+# count and dragging the mean UR latency out with it.
+def test_a_blink_before_the_CS_is_not_a_response_to_it():
+    assert S.classify(-40.0, STD, False, False, True) == STD["before_label"]
+    assert S.classify(-1.0, STD, False, False, True) == STD["before_label"]
+    # and the boundary itself is still scored: 0 is the CS, not before it
+    assert S.classify(0.0, STD, False, False, True) == STD["alpha_label"]
+
+
+def test_a_blink_long_after_the_puff_is_not_the_reflex_to_it():
+    late = STD["us_onset_ms"] + STD["late_ms"]
+    assert S.classify(late + 1, STD, False, False, True) == STD["too_late_label"]
+    assert S.classify(late - 1, STD, False, False, True).startswith("UR")
+
+
+def test_the_same_two_ends_apply_to_a_us_only_baseline():
+    """Timed from the puff there, so the cut-offs are 0 and late_ms themselves."""
+    assert S.classify(-5.0, STD, False, True, True) == STD["before_us_label"]
+    assert S.classify(STD["late_ms"] + 1, STD, False, True, True) == STD["too_late_label"]
+    assert S.classify(67.0, STD, False, True, True) == STD["ur_puff_label"]
+
+
+def test_a_trial_with_no_puff_is_bounded_the_same_way():
+    """Nothing was delivered, but the US onset is still a moment in the trial, and a
+    blink 200 ms past it is no more a response to the CS than on a paired trial."""
+    late = STD["us_onset_ms"] + STD["late_ms"]
+    assert S.classify(late + 50, STD, False, False, False) == STD["too_late_label"]
+
+
+def test_the_set_aside_classes_are_the_ones_the_rates_skip():
+    for lab in (STD["before_label"], STD["before_us_label"], STD["too_late_label"],
+                STD["moving_label"]):
+        assert not C.is_scoreable(lab, STD), lab
+    for lab in (STD["cr_label"], STD["ur_label"], STD["alpha_label"], STD["qcr_label"]):
+        assert C.is_scoreable(lab, STD), lab
+    assert not C.is_scoreable(None, STD)
+
+
+def test_the_cut_offs_do_not_move_the_CR_window():
+    """They decide what is scored, never where the boundary is."""
+    w = C.cr_window(dict(PROTO, late_ms=500.0))
+    assert (w["lo_ms"], w["hi_ms"], w["qcr_hi_ms"]) == (STD["lo_ms"], STD["hi_ms"],
+                                                        STD["qcr_hi_ms"])
+    assert w["late_ms"] == 500.0
+    assert S.classify(STD["us_onset_ms"] + 300, w, False, False, True).startswith("UR")
+
+
 def test_us_anchored_trial_is_always_unconditioned():
     assert S.classify(67.0, WIN, False, True, True) == WIN["ur_puff_label"]
 
@@ -382,7 +432,7 @@ def test_the_probe_curve_is_broken_across_blocks_with_no_probe():
     import ebc_figures as F
     rows = [dict(block=1, scored_class=WIN["cr_no_us_label"], scored_onset_ms=200.0),
             dict(block=9, scored_class=WIN["late_no_us_label"], scored_onset_ms=600.0)]
-    pr = F.block_rate(rows, "CR")
+    pr = F.block_rate(rows, "CR", WIN)
     assert [p[0] for p in pr] == [1, 9], pr
     got = {p[0]: p for p in pr}
     ys = [got[x][1] if x in got else float("nan") for x in range(1, 11)]

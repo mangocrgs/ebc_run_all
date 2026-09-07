@@ -100,6 +100,24 @@ def classify(onset_ms, win, moving, anchored_on_us, us_delivered=True):
     """
     if moving:
         return win["moving_label"]
+    # Outside these two, a blink is not a response to this trial and is set aside before
+    # any boundary is applied to it.  Before the stimulus there was nothing to respond
+    # to, so the trial window has simply caught a spontaneous blink; far enough past the
+    # puff the reflex is over, and calling the next spontaneous blink a UR both inflates
+    # the UR count and drags the mean UR latency out with it.  Neither is a scoring
+    # boundary - the CR window is untouched - and both are named classes that travel into
+    # the workbooks with their reason, rather than trials that quietly disappear.
+    late = win.get("late_ms")
+    if anchored_on_us:
+        if onset_ms < 0:
+            return win["before_us_label"]
+        if late is not None and onset_ms > late:
+            return win["too_late_label"]
+    else:
+        if onset_ms < 0:
+            return win["before_label"]
+        if late is not None and onset_ms > win["us_onset_ms"] + late:
+            return win["too_late_label"]
     if anchored_on_us:
         # No CS exists in this recording, so there is nothing to anticipate: every blink
         # is unconditioned, and the only cut is the one below which nothing can be a
@@ -340,7 +358,7 @@ def cs_baseline(cfg, rows, win):
         no_cs_baseline(cfg)
         return None
 
-    scoreable = [r for r in got if r["scored_class"] not in (None, win["moving_label"])]
+    scoreable = [r for r in got if C.is_scoreable(r["scored_class"], win)]
     startle = [r for r in scoreable if r["scored_class"] == win["alpha_label"]]
     inwin = [r for r in scoreable if r["scored_class"] == win["cr_no_us_label"]]
     late = [r for r in scoreable if r["scored_class"] == win["late_no_us_label"]]
@@ -483,7 +501,7 @@ def summarise(rows, role, tt, win, label):
     rs = [r for r in rows if r["role"] == role and r["trial_type"] == tt]
     if not rs:
         return None
-    sc = [r for r in rs if r["scored_class"] not in (None, win["moving_label"])]
+    sc = [r for r in rs if C.is_scoreable(r["scored_class"], win)]
     cr = [r for r in sc if str(r["scored_class"]).startswith("CR")]
     qcr = [r for r in sc if str(r["scored_class"]).startswith("?CR")]
     rec = [r for r in rs if r["first_response_obscured"] == "yes"

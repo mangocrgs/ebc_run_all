@@ -121,7 +121,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.4.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.5.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
@@ -237,6 +237,17 @@ its own heading so a fifty-minute log can be read from the top.
    through them and its **R²**, which is the check on the curve the eye draws: a CR rate
    that climbs is the whole claim, and an R² of 0.03 says the climb is not in those ten
    numbers.
+
+   The onset panel draws **two** means, and the pair is the point. Over the CRs alone the
+   mean is conditioned on already being inside the CR window, so it cannot show a block
+   improving — a block improves by trials *crossing into* the window, and a mean taken
+   inside it cannot see them arrive. On Marie that line is flat (214 ms in block 1, 245 in
+   block 10, R² 0.001) while her CR rate goes 33% to 86%, which reads as "she learnt but
+   the timing never changed" and is an artefact of the selection. Over every scoreable
+   trial the same blocks run 310 ms to 220 ms: the blink moving from after the puff to
+   before it, which is the learning itself. Neither number is wrong — the first answers
+   *how well timed are the CRs*, the second *where is the blink* — and only the second can
+   show the shift.
 
    The same trials are drawn a second time as **`cond_paper_figure.png`**, in the style
    of the published figures this lab works from — the windows as a diagram, every trial
@@ -375,7 +386,7 @@ detector will fire on noise long before it fails outright.
     "cs_ms": 400.0, "us_onset_ms": 350.0, "us_dur_ms": 50.0,
     "paired_per_block": 9, "cs_only_per_block": 1, "n_blocks": 10,
     "min_iti_s": 2.0, "cs_tol": 0.35, "us_tol": 0.60,
-    "alpha_ms": 100.0, "pre_ms": 300.0, "post_ms": 0.0,
+    "alpha_ms": 100.0, "pre_ms": 300.0, "post_ms": 0.0, "late_ms": 200.0,
     "cr_window_mode": "standard"
   },
   "recordings": [
@@ -540,11 +551,27 @@ accepted or rejected. If that page is right, the numbers are right.
    participants' rates are numbers about the same thing:
 
    ```
+   before the CS   < 0 ms                                       set aside, not scored
    alpha/startle   < alpha_ms                    (100 ms)
    CR              alpha_ms  ->  us_onset_ms     (100-350 ms)   begins before the puff
    ?CR             us_onset_ms  ->  cs_ms        (350-400 ms)   cannot be called either
    UR              at or after cs_ms             (>= 400 ms)
+   too late        > us_onset_ms + late_ms       (> 550 ms)     set aside, not scored
    ```
+
+   **The first and last rows are not scoring boundaries** — nothing between them changes,
+   and the CR window is untouched. They decide what is scored *at all*. A blink that began
+   before the CS had nothing to respond to, so the trial window has simply caught a
+   spontaneous one; and `late_ms` (200 ms) past the puff the reflex is over, so a blink
+   there is the next spontaneous blink rather than a reaction to anything. Both used to be
+   classified like any other latency — the first as startle, the second as a **UR** — which
+   inflated the UR count and dragged the mean UR latency out with it: Carole's read
+   **499 ms** before this and **423 ms** after, which is what a puff reflex actually looks
+   like. Both are named classes that travel into the workbooks with their reason beside
+   them; nothing is silently dropped. Across the four participants they set aside 4-11% of
+   the trials, and **agreement with the hand scoring did not move at all** — the CR rates,
+   the block correlations and the SD ratios are identical either side of the change, which
+   is what says the rule removes noise rather than data.
 
    **`?CR` is the band between the puff and the end of the CS**, and it is counted as
    **neither a CR nor a UR**. A blink that begins there cannot be a definitive conditioned

@@ -13,6 +13,9 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import ScatterChart, LineChart, Reference, Series
 from openpyxl.chart.marker import Marker
+from openpyxl.chart.trendline import Trendline
+from openpyxl.chart.error_bar import ErrorBars
+from openpyxl.chart.data_source import NumDataSource, NumRef
 from openpyxl.drawing.line import LineProperties
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.formatting.rule import ColorScaleRule
@@ -466,7 +469,60 @@ def widths(ws, w):
 
 
 def scoreable(rs):
-    return [r for r in rs if r["scored_class"] not in (None, MOVING_LBL)]
+    """The trials the rates are computed over - ebc_config decides which those are."""
+    return [r for r in rs if C.is_scoreable(r["scored_class"], WIN)]
+
+
+def _dots(ws, col, n, colr, name_row=1, size=7, symbol="diamond", line=False):
+    """One series of the block charts: markers over the blocks, optionally joined."""
+    s = Series(Reference(ws, min_col=col, min_row=name_row, max_row=n),
+               Reference(ws, min_col=1, min_row=2, max_row=n), title_from_data=True)
+    s.marker = Marker(symbol=symbol, size=size)
+    s.marker.graphicalProperties = GraphicalProperties(solidFill=colr)
+    s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
+    if line:
+        s.graphicalProperties.line = LineProperties(solidFill=colr, w=14000)
+    else:
+        s.graphicalProperties.line.noFill = True
+    return s
+
+
+def block_charts(ws, n):
+    """The two block panels, drawn as charts Excel owns.
+
+    A PNG is finished: it can be looked at and nothing else.  These are the same two
+    panels with the numbers in the cells beside them, so a trendline can be turned off, a
+    colour changed, a block dropped, an axis rescaled - in the program people already use
+    to do that.  The trendline and the R² are Excel's own, computed from the cells, so
+    editing the data moves them.
+    """
+    for anchor, title, ylab, series, ymin, ymax in (
+            ("S2", "Percentage of CRs", "% of scoreable trials",
+             [(6, C.xl("cr"), None)], 0, 100),
+            ("S22", "Mean blink onset", "ms from CS onset",
+             [(14, C.xl("cr"), 15), (12, C.xl("muted"), None)], None, None)):
+        ch = ScatterChart()
+        ch.style = 2
+        ch.title = title
+        ch.x_axis.title = "Block"
+        ch.y_axis.title = ylab
+        ch.height, ch.width = 9.5, 17
+        ch.x_axis.scaling.min, ch.x_axis.scaling.max = 0.5, n - 0.5
+        if ymin is not None:
+            ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
+        for col, colr, sd_col in series:
+            s = _dots(ws, col, n, colr)
+            # A straight line through the blocks and how straight it is, both Excel's:
+            # the published figures put one on every block panel, and an R2 of 0.03 says
+            # the climb the eye reads into ten points is not in them.
+            s.trendline = Trendline(trendlineType="linear", dispRSqr=True, dispEq=False)
+            if sd_col:
+                sd = Reference(ws, min_col=sd_col, min_row=2, max_row=n)
+                s.errBars = ErrorBars(errDir="y", errValType="cust", errBarType="both",
+                                      plus=NumDataSource(numRef=NumRef(f=sd)),
+                                      minus=NumDataSource(numRef=NumRef(f=sd)))
+            ch.series.append(s)
+        ws.add_chart(ch, anchor)
 
 
 def write_table(ws, rows):
@@ -880,10 +936,17 @@ def build(block):
 
         # ---------------- Block summary ----------------
         ws = wb.create_sheet("Block summary")
+        # "Mean scored onset" is over EVERY scoreable trial in the block; "Mean CR onset"
+        # only over the ones inside the CR window.  The pair is the point: the second is
+        # conditioned on already being a CR and so cannot show a block improving, because
+        # improving consists of trials crossing INTO the window.  The two charts below
+        # draw both, with a trendline and an R² each, so the difference is on the page.
         hd = ["Block", "Paired trials", "To score by hand", "Scoreable", "CR n", "CR %",
               "?CR n", "?CR %",
-              "UR only n", "UR only %", "alpha n", "Mean scored onset (ms)", "SD (ms)",
-              "Mean CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)"]
+              "UR only n", "UR only %", "alpha n",
+              "Mean onset, every scoreable trial (ms)", "SD (ms)",
+              "Mean CR onset (ms)", "CR onset SD (ms)",
+              "Mean peak closure (%)", "Mean closure at US (%)"]
         for j, x in enumerate(hd, 1):
             ws.cell(row=1, column=j, value=x)
         for bi, b in enumerate(sorted({r["block"] for r in paired}), 2):
@@ -902,6 +965,7 @@ def build(block):
                     round(float(np.mean(allo)), 1) if allo else None,
                     round(float(np.std(allo, ddof=1)), 1) if len(allo) > 1 else None,
                     round(float(np.mean(o)), 1) if o else None,
+                    round(float(np.std(o, ddof=1)), 1) if len(o) > 1 else None,
                     round(float(np.mean([r["peak_closure_pct"] for r in sc if r["peak_closure_pct"]])), 1) if sc else None,
                     round(float(np.mean([r["closure_at_US_pct"] for r in sc])), 1) if sc else None]
             for j, v in enumerate(vals, 1):
@@ -910,21 +974,16 @@ def build(block):
                 c.border = Border(bottom=thin)
                 c.alignment = Alignment(horizontal="right")
         style_header(ws)
-        widths(ws, [8, 11, 13, 10, 8, 9, 9, 9, 10, 10, 8, 15, 9, 15, 14, 15])
+        widths(ws, [8, 11, 13, 10, 8, 9, 9, 9, 10, 10, 8, 30, 9, 15, 13, 14, 15])
         ws.sheet_view.showGridLines = False
         n = len(set(r["block"] for r in paired)) + 1
         ws.conditional_formatting.add("F2:F" + str(n), ColorScaleRule(
             start_type="num", start_value=0, start_color=WHITE,
             end_type="num", end_value=100, end_color=C.xl("us_mid")))
-        lc = LineChart()
-        lc.title = "Learning across blocks"
-        lc.x_axis.title = "Block"
-        lc.y_axis.title = "CR % / mean onset (ms)"
-        lc.height, lc.width = 10, 20
-        lc.add_data(Reference(ws, min_col=6, min_row=1, max_row=n), titles_from_data=True)
-        lc.add_data(Reference(ws, min_col=14, min_row=1, max_row=n), titles_from_data=True)
-        lc.set_categories(Reference(ws, min_col=1, min_row=2, max_row=n))
-        ws.add_chart(lc, "P2")
+        # The two block panels of the figures, as Excel's own charts: the numbers are in
+        # the cells beside them, the trendline and its R² are Excel's, and every part of
+        # both is editable in the place people actually edit figures.
+        block_charts(ws, n)
 
     # ---------------- trial tables ----------------
     write_table(wb.create_sheet(main_sheet), main)

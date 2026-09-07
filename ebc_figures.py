@@ -37,9 +37,16 @@ CMAP = LinearSegmentedColormap.from_list(
 TRACE, TRACE_MEAN = "#4A6076", P["ink"]
 
 
-def excluded(cls):
-    """Classes that are not a scored response: the lid was already moving, or the blink
-    was too late to be time-locked to anything in the trial."""
+def excluded(cls, win=None):
+    """Classes that are not a scored response.
+
+    The lid was already moving at the stimulus, the blink began before it, or it came so
+    long after the puff that it is the next spontaneous blink rather than a reaction to
+    anything.  ebc_config.is_scoreable is the authority; the fallback below is for the
+    one caller that has no window to hand.
+    """
+    if win is not None:
+        return not C.is_scoreable(cls, win)
     c = str(cls)
     return c == "in-progress at stimulus" or c.startswith("spontaneous")
 
@@ -229,7 +236,7 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
         for b in blocks:
             g = [r["scored_onset_ms"] for r in rows if r["block"] == b
                  and r["scored_onset_ms"] is not None
-                 and not excluded(r["scored_class"])]
+                 and not excluded(r["scored_class"], win)]
             if g:
                 bx.append((b - .5) * per_block + .5); by.append(float(np.mean(g)))
         ax.plot(bx, by, "-o", color=INK, lw=2.8, ms=9, zorder=6,
@@ -276,7 +283,7 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
         ax.spines[s].set_visible(False)
 
     allo = [r["scored_onset_ms"] for r in rows if r["scored_onset_ms"] is not None
-            and not excluded(r["scored_class"])]
+            and not excluded(r["scored_class"], win)]
     if allo:
         hx.hist(allo, bins=np.arange(-100, YMAX, 25), orientation="horizontal",
                 color=CR_C, alpha=.55, zorder=4)
@@ -324,7 +331,7 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
     print("wrote " + os.path.basename(p))
 
 
-def block_rate(rows, cls_prefix):
+def block_rate(rows, cls_prefix, win):
     """Per block: what fraction of the scoreable trials in it were `cls_prefix`.
 
     Blocks come from the protocol - ebc_protocol numbers them from the paired-trial
@@ -334,7 +341,7 @@ def block_rate(rows, cls_prefix):
     out = []
     for b in sorted({r["block"] for r in rows if r["block"]}):
         g = [r for r in rows if r["block"] == b
-             and r["scored_class"] is not None and not excluded(r["scored_class"])]
+             and r["scored_class"] is not None and not excluded(r["scored_class"], win)]
         if not g:
             continue
         k = sum(str(r["scored_class"]).startswith(cls_prefix) for r in g)
@@ -342,18 +349,30 @@ def block_rate(rows, cls_prefix):
     return out
 
 
-def block_onset(rows):
-    """Per block: the mean CR onset and its SD, over the CRs actually scored in it.
+def block_onset(rows, win=None, every=False):
+    """Per block: the mean blink onset and its SD, and how many it is over.
 
     The SD is the spread of the onsets in that block and nothing else - no SD is shown
-    for a block with one CR in it, because one number has no spread, and none is shown
+    for a block with one onset in it, because one number has no spread, and none is shown
     for a block with none.
+
+    `every` decides WHICH onsets, and the difference between the two answers is the point
+    of drawing both.  Over the CRs alone the mean is conditioned on already being inside
+    the CR window: it cannot move much, because a block improves by trials CROSSING INTO
+    the window, not by the ones already in it starting earlier.  On Marie that mean is
+    flat - 214 ms in block 1, 245 in block 10, R² 0.001 - while her CR rate goes 33% to
+    86%, which reads as "she learnt but the timing never changed" and is an artefact of
+    the selection.  Over every scoreable trial the same blocks run 310 ms to 220 ms, R²
+    0.69: the blink moving from after the puff to before it, which is the learning
+    itself.  Neither number is wrong; the first answers "how well timed are the CRs" and
+    the second "where is the blink", and only the second can show the shift.
     """
     out = []
     for b in sorted({r["block"] for r in rows if r["block"]}):
         o = [r["scored_onset_ms"] for r in rows
-             if r["block"] == b and str(r["scored_class"]).startswith("CR")
-             and r["scored_onset_ms"] is not None]
+             if r["block"] == b and r["scored_onset_ms"] is not None
+             and (not excluded(r["scored_class"], win) if every
+                  else str(r["scored_class"]).startswith("CR"))]
         if not o:
             continue
         out.append((b, float(np.mean(o)),
@@ -377,12 +396,12 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
     good; a rate that climbs with no change in onset is a different thing and is worth
     seeing separately.
     """
-    paired = block_rate(rows, "CR")
+    paired = block_rate(rows, "CR", win)
     if not paired:
         return
-    urs = block_rate(rows, "UR")
+    urs = block_rate(rows, "UR", win)
     onsets = block_onset(rows)
-    pr = block_rate(probes, "CR") if probes else []
+    pr = block_rate(probes, "CR", win) if probes else []
 
     f, (a, b_ax) = plt.subplots(2, 1, figsize=(13.5, 8.4), sharex=True,
                                 gridspec_kw=dict(height_ratios=[2.05, 1.0], hspace=.16))
@@ -434,17 +453,33 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
         om = [o[1] for o in onsets]
         oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
         b_ax.errorbar(ox, om, yerr=oe, fmt="-o", color=CR_C, lw=2.2, ms=7.5,
-                      ecolor=CR_C, elinewidth=1.4, capsize=4, alpha=.95)
+                      ecolor=CR_C, elinewidth=1.4, capsize=4, alpha=.95,
+                      label="mean CR onset  ·  the CRs only", zorder=5)
         for x_, y_, sd_, n_ in onsets:
             b_ax.annotate("n=%d" % n_, (x_, y_), textcoords="offset points",
                           xytext=(10, -3.5), ha="left", fontsize=8, color=MUT)
         trend(b_ax, ox, om, CR_C)
+        # The same blocks over EVERY scoreable trial.  The line above is conditioned on
+        # already being a CR, so it cannot show the shift that makes one: a block gets
+        # better by trials crossing into the window, and a mean taken inside the window
+        # cannot see them arrive.  This one can, and on a learner it falls while the
+        # other stays put.
+        allo = block_onset(rows, win, every=True)
+        if allo and len(allo) > 2:
+            ax_, am = [o[0] for o in allo], [o[1] for o in allo]
+            b_ax.plot(ax_, am, "-s", color=MUT, lw=1.6, ms=5.5, alpha=.85, zorder=4,
+                      label="mean blink onset  ·  every scoreable trial")
+            trend(b_ax, ax_, am, MUT, where="upper left", pad=(8, -8))
         b_ax.axhspan(win["lo_ms"], win["hi_ms"], color=CR_C, alpha=.07, zorder=0)
-        b_ax.set_ylim(win["lo_ms"] - 25, win["hi_ms"] + 25)
+        lows = [o[1] - (o[2] or 0) for o in onsets] + [o[1] for o in (allo or [])]
+        highs = [o[1] + (o[2] or 0) for o in onsets] + [o[1] for o in (allo or [])]
+        b_ax.set_ylim(min([win["lo_ms"]] + lows) - 30, max([win["hi_ms"]] + highs) + 30)
+        b_ax.legend(fontsize=8.5, frameon=False, loc="lower right", ncol=2,
+                    handletextpad=.5, columnspacing=1.6)
     else:
         b_ax.text(.5, .5, "no CR onsets to average", transform=b_ax.transAxes,
                   ha="center", va="center", fontsize=10, color=MUT)
-    b_ax.set_ylabel("mean CR onset ± SD  (ms)", fontsize=11)
+    b_ax.set_ylabel("mean blink onset ± SD  (ms)", fontsize=11)
     b_ax.set_xticks(xs)
     b_ax.set_xlabel("block  (%d paired CS-US trials each)  ·  %s"
                     % (proto["paired_per_block"], C.design(proto)["label"].lower()),
@@ -484,7 +519,7 @@ def paper(rows, probes, proto, win, title, odir, key="cond"):
     lo, hi = win["lo_ms"], win["hi_ms"]
     RED, EDGE = P["ur"], P["ur"]
     onsets = block_onset(rows)
-    rates = block_rate(rows, "CR")
+    rates = block_rate(rows, "CR", win)
 
     f = plt.figure(figsize=(11.6, 10.6))
     # The right margin is wide because panel B's legend hangs in it, the way the
@@ -585,11 +620,23 @@ def paper(rows, probes, proto, win, title, odir, key="cond"):
         om = [o[1] for o in onsets]
         oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
         c_ax.errorbar(ox, om, yerr=oe, fmt="D", ms=5.2, mfc="none", mec=EDGE, mew=1.1,
-                      ecolor=EDGE, elinewidth=1.0, capsize=2.5, ls="none", zorder=3)
+                      ecolor=EDGE, elinewidth=1.0, capsize=2.5, ls="none", zorder=3,
+                      label="CRs only")
         trend(c_ax, ox, om, RED)
+        # see block_onset(): a mean taken inside the CR window cannot show trials
+        # arriving in it, which is what a block improving actually consists of
+        allo = block_onset(rows, win, every=True)
+        if allo and len(allo) > 2:
+            ax_, am = [o[0] for o in allo], [o[1] for o in allo]
+            c_ax.plot(ax_, am, "-", color=MUT, lw=1.3, alpha=.9, zorder=2,
+                      label="every scoreable trial")
+            trend(c_ax, ax_, am, MUT, where="upper left", pad=(8, -8))
+            c_ax.legend(fontsize=7.5, frameon=False, loc="lower left",
+                        handletextpad=.5, borderaxespad=.2)
         c_ax.set_xticks(ox)
         c_ax.set_xticklabels(["block %d" % b for b in ox], rotation=90, fontsize=7.5)
-        c_ax.set_ylim(min(0, lo - 120), max(om) + max(oe) + 120)
+        c_ax.set_ylim(min(0, lo - 120),
+                      max(list(om) + [o[1] for o in (allo or [])]) + max(oe) + 120)
     else:
         c_ax.text(.5, .5, "no CR onsets to average", transform=c_ax.transAxes,
                   ha="center", va="center", fontsize=9, color=MUT)

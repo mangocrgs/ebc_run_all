@@ -15,7 +15,7 @@ import re
 # Stamped on the page, on the console banner and on every workbook cover, because a
 # number that reaches a paper has to be traceable to the thing that produced it.  Raise
 # it whenever the scoring changes.
-VERSION = "1.4"
+VERSION = "1.5"
 LAB = "Cerebral Dynamics, Plasticity & Learning"
 
 # ------------------------------------------------------------------------ house style
@@ -159,6 +159,14 @@ DEFAULT_PROTOCOL = {
     "alpha_ms": 100.0,       # a blink sooner than this after CS onset is startle, not a CR
     "pre_ms": 300.0,         # trial window before the anchor
     "post_ms": 0.0,          # trial window after the anchor; 0 = derived from the design
+    # The two ends outside which a blink is not a response to this trial at all, and is
+    # set aside rather than classified.  Before the CS there was nothing to respond to,
+    # so a blink there is a spontaneous one the trial window happened to catch.  Far
+    # enough past the puff, the reflex is over: a blink 200 ms after the US is not the
+    # reaction to it, it is the next spontaneous blink, and calling it a UR both inflates
+    # the UR count and drags the mean UR latency out.  Neither end is a scoring boundary
+    # - nothing between them changes - they only decide what is scored at all.
+    "late_ms": 200.0,        # a blink later than this AFTER THE US ONSET is set aside
     # "standard" scores every study on the same two numbers - the startle cut-off and the
     # US onset - so participants can be put beside each other.  "measured" restores the
     # per-participant window derived from that study's own US-only baseline.  The reflex
@@ -386,7 +394,32 @@ def cr_window(proto, reflex=None):
     out["ur_puff_label"] = "UR to the puff"
     out["alpha_us_label"] = "alpha/startle <20ms"
     out["moving_label"] = "in-progress at stimulus"
+    # The two ends outside which a blink is not a response to this trial.  They are
+    # classes like any other - every one is written into the workbooks with its reason
+    # beside it, nothing is silently dropped - but they are the classes the rates are NOT
+    # computed over, which is what `excluded_labels` is read for.
+    late = float(p.get("late_ms", DEFAULT_PROTOCOL["late_ms"]))
+    out["late_ms"] = round(late, 1)
+    out["before_label"] = "before the CS"
+    out["before_us_label"] = "before the US"
+    out["too_late_label"] = "too late (>%dms after the US)" % round(late)
+    out["excluded_labels"] = [out["moving_label"], out["before_label"],
+                              out["before_us_label"], out["too_late_label"]]
     return out
+
+
+def is_scoreable(cls, win):
+    """Whether a class is one the rates are computed over.
+
+    Three modules used to spell this out for themselves - the score report, the figures
+    and the workbooks - and each knew about a different set of exclusions, so the same
+    run could report one denominator in a figure and another in a sheet.  The window
+    names the excluded classes and everything reads them from here.
+    """
+    if cls is None:
+        return False
+    c = str(cls)
+    return not (c in (win.get("excluded_labels") or ()) or c.startswith("spontaneous"))
 
 
 def pair_window_s(proto):
