@@ -211,6 +211,12 @@ td.r,th.r{text-align:right}
 /* Said under a file whose name carried no role at all, so a value the app picked
    because it had to pick one never looks like a value it read. */
 .guessed{font-size:11px;color:var(--warn);display:block}
+/* Said under a file the camera CAN place, where the name could not.  It is a different
+   colour from .guessed on purpose: that one is the app admitting it does not know, this
+   one is the app saying what the recordings around it settle - a proposal with evidence
+   behind it, which is still a proposal.  Hovering gives the evidence in full. */
+.proposed{font-size:11px;color:var(--accent);display:block;cursor:help}
+.proposed b{color:var(--accent)}
 /* Said under a file whose ROLE goes backwards down the session clock.  It is the loudest
    thing the row can say, because it is the one mistake in this table that no later step
    can see: the run finishes, the workbooks fill, and the numbers are simply wrong. */
@@ -241,6 +247,11 @@ tbody tr.bad:hover{background:var(--alert-bg)}
 .tlw .what{margin:11px 0 0;padding-top:9px;border-top:1px solid var(--rule);
   font-size:12.5px;color:var(--muted)}
 .tlw .stages{font-size:12.5px;color:var(--muted);margin:0}
+/* Nothing is wrong here - the run will do the right thing whatever the rows say - so it
+   is told in the quiet colours rather than the alarming ones. */
+.tlw.mild{border-color:var(--rule);background:var(--sunken)}
+.tlw.mild h4{color:var(--ink)}
+.tlw.mild p{margin:4px 0 0;font-size:12.5px;color:var(--muted)}
 
 /* ---------------------------------------------------------------- env check */
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -560,7 +571,7 @@ details.guide[open] summary:before{content:"\25BE\00a0\00a0"}
       <p class="sub">Eyeblink conditioning, scored from video</p>
     </div>
     <span class="mono" style="font-size:12.5px;color:var(--muted)" id="topelapsed"></span>
-    <button class="ghost hide" id="againtop" title="Clears the page for the next
+    <button class="ghost" id="againtop" title="Clears the page for the next
       participant: unticks the recordings, empties the study name and puts away the run
       just finished. Nothing on disk is touched.">Start another</button>
     <span class="pill" id="pill"><span class="dot"></span><span id="pilltext">starting up</span></span>
@@ -1161,31 +1172,31 @@ function chapterOf(i){
    still the placeholder the app had to put in the dropdown for a name that says nothing
    (`v.guessed`), because that label is the app's own and accusing somebody of it would
    be wrong every time. */
-const STAGE = {baseline_cs:0, baseline_us:0, conditioning:1, extinction:2};
-const STAGE_WORD = ["a baseline", "conditioning", "extinction"];
+const ROLE_STAGE = {baseline_cs:0, baseline_us:0, conditioning:1, extinction:2};
+const ROLE_STAGE_WORD = ["a baseline", "conditioning", "extinction"];
 const ROLE_NAME = {conditioning:"conditioning", extinction:"extinction",
                    baseline_cs:"CS-only baseline", baseline_us:"US-only baseline"};
 const ROLE_WORD = {conditioning:"a conditioning chapter", extinction:"extinction",
                    baseline_cs:"a CS-only baseline", baseline_us:"a US-only baseline"};
 
 function stageFindings(){
-  const placed = picked().filter(v => v.dated && v.rank != null && v.role in STAGE
+  const placed = picked().filter(v => v.dated && v.rank != null && v.role in ROLE_STAGE
                                       && !v.guessed)
                          .sort((a, b) => a.rank - b.rank);
   const out = [];
   let top = null;                    // the first recording of the latest stage so far
   for (const v of placed){
-    const st = STAGE[v.role];
-    if (top && st < STAGE[top.role]) out.push({v, after: top});
-    else if (!top || st > STAGE[top.role]) top = v;
+    const st = ROLE_STAGE[v.role];
+    if (top && st < ROLE_STAGE[top.role]) out.push({v, after: top});
+    else if (!top || st > ROLE_STAGE[top.role]) top = v;
   }
   return out;
 }
 
 function stageWhy(f){
-  return STAGE[f.v.role] === 0
+  return ROLE_STAGE[f.v.role] === 0
     ? `A baseline measures this person <i>before</i> any conditioning, so it cannot have
-       been filmed after ${STAGE_WORD[STAGE[f.after.role]]}.`
+       been filmed after ${ROLE_STAGE_WORD[ROLE_STAGE[f.after.role]]}.`
     : `Extinction is what follows conditioning, so a conditioning chapter cannot have been
        filmed after it.`;
 }
@@ -1206,10 +1217,27 @@ function stageWhen(f){
     : ` Both carry the camera time ${esc(a)}; the order is the camera's.`;
 }
 
+/* The other way an order goes wrong: the arrows.  They reorder the rows, and the chapter
+   numbers in the Order column follow them - but ebc_timeline sorts the recordings by the
+   camera clock before a single frame is read, so a hand-made order is overwritten and the
+   page has been showing chapter numbers the run will not use.  Saying so is the whole
+   fix: the run is right either way, the page was the thing that lied. */
+function movedRows(){
+  const on = picked().filter(v => v.dated && v.rank != null);
+  return on.some((v, i) => i > 0 && v.rank < on[i-1].rank);
+}
+
 function renderTimelineWarn(found){
   const box = $("#tlwarn");
-  if (!found.length){ box.innerHTML = ""; return; }
-  box.innerHTML = `<div class="tlw">
+  const moved = movedRows() ? `<div class="tlw mild">
+    <h4>These rows are not in the order the camera recorded them</h4>
+    <p>The analysis lays the conditioning chapters end to end on <b>the camera's</b>
+       clock, which it reads before anything is decoded, so it will use the recording
+       order however the rows are arranged here &mdash; the chapter numbers in the
+       <b>Order</b> column are the only thing the arrows change. Press
+       <b>Browse&hellip;</b> again on the same folder to put the rows back.</p></div>` : "";
+  if (!found.length){ box.innerHTML = moved; return; }
+  box.innerHTML = moved + `<div class="tlw">
     <h4>${found.length === 1 ? "One ticked role does not match" : found.length +
          " ticked roles do not match"} the order these were filmed in</h4>
     <p class="stages">A session runs <b>baselines &rarr; conditioning &rarr;
@@ -1251,7 +1279,10 @@ function renderVids(d){
       <td><input type="checkbox" data-i="${i}" class="ck" ${v.on?"checked":""}></td>
       <td><span class="nm">${esc(v.name)}</span>${v.cloud
           ? `<span class="cloud">stored online only — download it first, the run will not start on it</span>` : ""}${v.guessed
-          ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}${flag.has(v.name)
+          ? `<span class="guessed">the name does not say what this is — set the Role yourself</span>` : ""}${v.proposed
+          ? `<span class="proposed" title="${esc(v.proposed_why || "")}">the name says nothing —
+             the camera puts it at <b>${esc(v.proposed)}</b>, so that is what the Role says.
+             Check it.</span>` : ""}${flag.has(v.name)
           ? `<span class="outoforder">filmed after ${esc(flag.get(v.name).after.name)}, which is
              ${ROLE_WORD[flag.get(v.name).after.role]} — this role cannot be right</span>` : ""}</td>
       <td class="r num" style="color:var(--muted)">${fmtSize(v.size)}</td>
@@ -1281,9 +1312,10 @@ function renderVids(d){
     const v = VIDS[+e.target.dataset.i];
     v.role = e.target.value;
     // Whatever it is now, it is no longer the placeholder the app had to show for a name
-    // that says nothing: the row stops asking to be set, and the role starts being
-    // checked against the session clock like any other.
+    // that says nothing, nor the camera's proposal: the row stops asking to be set, and
+    // the role starts being checked against the session clock like any other.
     v.guessed = false;
+    v.proposed = "";
     // extinction and CS-only deliver no US, so there is nothing to anchor on
     if (v.role === "extinction" || v.role === "baseline_cs") v.anchor = "auto";
     renderVids(d); refreshGuide(); });
@@ -1592,17 +1624,13 @@ function initProtocol(hello){
   refreshProtocol();
 }
 
-/* The top bar's Start another is offered whenever there is something to clear - a run
-   under way or over, or recordings ticked - and taken away while a run is going, when
-   the button that matters is Stop and /api/reset would refuse anyway.  The study name
-   is deliberately not one of those things: the app fills it in from the folder name the
-   moment a folder is listed, so counting it would mean the button was simply always
-   there, offering to start over on a page nobody has touched yet. */
+/* Start another sits in the top bar and STAYS there.  It was hidden until something was
+   ticked, on the reasoning that there was otherwise nothing to clear - but a button that
+   is not there when you look for it is not in the top bar at all, which was the first
+   thing said about it.  It goes away for one reason only: a run is going, and then the
+   button that matters is Stop and /api/reset would refuse anyway. */
 function refreshReset(){
-  const something = picked().length > 0
-    || !$("#progcard").classList.contains("hide")
-    || !$("#rescard").classList.contains("hide");
-  $("#againtop").classList.toggle("hide", RUNNING || !something);
+  $("#againtop").classList.toggle("hide", RUNNING);
 }
 
 /* ---------------------------------------------------------------- guidance */

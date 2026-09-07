@@ -503,6 +503,113 @@ def test_a_suggested_name_never_collides_with_a_file_already_there():
     assert s != "extinction 2.MP4" and s.startswith("extinction ")
 
 
+# ------------------------------- roles proposed from where a recording was filmed
+# The take answers first (name_findings above).  Where there is no take to answer,
+# between_findings asks the recordings either side.  Both sides are required: duration
+# cannot stand in for them (Thomas's US-only baseline is 498 s, his extinction 58 s) and
+# neither can position (Charles's folder opens with two nameless clips filmed 45 minutes
+# before his first baseline).
+def _solo(files):
+    """rows for files that are each their own single-chapter take, in the order given."""
+    return {f: dict(file=f, take=["t", "t%d" % i], chapter=1, n_chapters=1, rank=i,
+                    dated=True)
+            for i, f in enumerate(files, 1)}
+
+
+def test_a_nameless_recording_between_two_of_one_role_is_proposed_that_role():
+    files = ["CSUS 1.MP4", "GX012908.MP4", "CSUS 3.MP4"]
+    f = A.between_findings(_vids(files), _solo(files))
+    assert len(f) == 1, f
+    assert f[0]["name"] == "GX012908.MP4" and f[0]["actual"] == "conditioning"
+    assert f[0]["kind"] == "unnamed" and f[0]["between"] == ["CSUS 1.MP4", "CSUS 3.MP4"]
+
+
+def test_a_name_the_recordings_either_side_contradict_is_a_conflict():
+    """Both neighbours say extinction, so a name saying conditioning is wrong."""
+    files = ["extinction.MP4", "CSUS 9.MP4", "extinction 3.MP4"]
+    f = A.between_findings(_vids(files), _solo(files))
+    assert len(f) == 1 and f[0]["kind"] == "conflict"
+    assert f[0]["claims"] == "conditioning" and f[0]["actual"] == "extinction"
+
+
+def test_neighbours_that_disagree_settle_nothing():
+    files = ["US ONLY.MP4", "GX012908.MP4", "CSUS 1.MP4"]
+    assert A.between_findings(_vids(files), _solo(files)) == []
+
+
+def test_a_recording_with_nothing_known_before_it_is_left_alone():
+    """Charles's GX012907/GX012908, filmed 45 min before his first baseline. Anything at
+    all can precede a session, so an unbounded side settles nothing."""
+    files = ["GX012907.MP4", "GX012908.MP4", "US ONLY.MP4", "CS ONLY.MP4"]
+    assert A.between_findings(_vids(files), _solo(files)) == []
+
+
+def test_a_recording_with_nothing_known_after_it_is_left_alone():
+    files = ["extinction.MP4", "GX012999.MP4"]
+    assert A.between_findings(_vids(files), _solo(files)) == []
+
+
+def test_a_take_overrules_the_name_of_its_own_chapter():
+    """A name already known to be wrong must not go on being evidence.  With
+    `extinction.MP4` and `CSUS fin.MP4` as chapters 1 and 2 of one take, taking the
+    second name at face value made it a witness for conditioning - and the recording
+    between it and the real conditioning chapters, `extinction.MP4` itself, was then
+    reported as the misnamed one.  Both are extinction: the take says so."""
+    files = ["extinction.MP4", "CSUS fin.MP4"]
+    rows = _take(files)
+    for i, f in enumerate(files, 1):
+        rows[f].update(rank=i, dated=True)
+    known = A.settled_roles(_vids(files), rows)
+    assert known == {"extinction.MP4": "extinction", "CSUS fin.MP4": "extinction"}
+
+
+def test_a_take_no_chapter_names_settles_nothing():
+    files = ["GX012888.MP4", "GX022888.MP4"]
+    assert A.settled_roles(_vids(files), _take(files)) == {}
+
+
+def test_the_real_extinction_is_not_reported_as_the_misnamed_one():
+    """The whole of Carole's folder with her old name back on it: the only finding is
+    CSUS fin, and it comes from the take."""
+    files = ["CS ONLY.MP4", "US ONLY.MP4", "CSUS 1.MP4", "CSUS 3.MP4",
+             "extinction.MP4", "CSUS fin.MP4"]
+    rows = {}
+    for i, f in enumerate(files, 1):
+        take = "ext" if f in ("extinction.MP4", "CSUS fin.MP4") else "t%d" % i
+        rows[f] = dict(file=f, take=["t", take], chapter=1, n_chapters=1, rank=i,
+                       dated=True)
+    rows["extinction.MP4"].update(chapter=1, n_chapters=2)
+    rows["CSUS fin.MP4"].update(chapter=2, n_chapters=2)
+    f = A.role_findings(_vids(files), rows)
+    assert [x["name"] for x in f] == ["CSUS fin.MP4"], f
+
+
+def test_a_take_names_every_chapter_of_itself():
+    files = ["extinction.MP4", "GX012908.MP4"]
+    known = A.settled_roles(_vids(files), _take(files))
+    assert known["GX012908.MP4"] == "extinction"
+
+
+def test_an_undated_recording_neither_is_placed_nor_places_anything():
+    files = ["CSUS 1.MP4", "raccourci.mkv", "CSUS 3.MP4"]
+    rows = _solo(files)
+    rows["raccourci.mkv"]["dated"] = False
+    assert A.between_findings(_vids(files), rows) == []
+
+
+def test_the_take_answers_before_the_neighbours_do():
+    """One recording, one finding: role_findings must not raise the same file twice."""
+    files = ["extinction.MP4", "GX012908.MP4", "extinction 3.MP4"]
+    rows = _take(files[:2])
+    rows["extinction 3.MP4"] = dict(file="extinction 3.MP4", take=["t", "z"], chapter=1,
+                                    n_chapters=1, rank=3, dated=True)
+    for i, f in enumerate(files[:2], 1):
+        rows[f].update(rank=i, dated=True)
+    f = A.role_findings(_vids(files), rows)
+    assert [x["name"] for x in f] == ["GX012908.MP4"]
+    assert "same take" in f[0]["why"]
+
+
 # ------------------------------------- roles that contradict the session's own clock
 # name_findings asks whether the NAME agrees with the camera.  These ask the question
 # that reaches the numbers: whether the ROLE the run is about to use does.  The Role
@@ -585,10 +692,10 @@ def test_the_check_reads_the_camera_order_not_the_row_order():
 
 
 def test_every_role_has_a_stage_and_a_word():
-    """A role added to ebc_config and not to STAGE would silently stop being checked."""
+    """A role added to ebc_config and not to ROLE_STAGE would stop being checked."""
     for r in C.ROLES:
-        assert r in A.STAGE and r in A.ROLE_WORD
-    assert len(A.STAGE_WORD) == len(set(A.STAGE.values()))
+        assert r in A.ROLE_STAGE and r in A.ROLE_WORD
+    assert len(A.ROLE_STAGE_WORD) == len(set(A.ROLE_STAGE.values()))
 
 
 def test_the_page_checks_the_same_stages_as_the_server():
@@ -596,10 +703,41 @@ def test_the_page_checks_the_same_stages_as_the_server():
     being set.  Two copies of one rule is a thing that drifts, so they are compared."""
     src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "ebc_app_ui.html"), encoding="utf-8").read()
-    m = re.search(r"const STAGE = \{([^}]*)\}", src)
-    assert m, "the page no longer defines STAGE"
+    m = re.search(r"const ROLE_STAGE = \{([^}]*)\}", src)
+    assert m, "the page no longer defines ROLE_STAGE"
     page = dict((k, int(v)) for k, v in re.findall(r"(\w+):(\d+)", m.group(1)))
-    assert page == A.STAGE, "page %s, server %s" % (page, A.STAGE)
+    assert page == A.ROLE_STAGE, "page %s, server %s" % (page, A.ROLE_STAGE)
+
+
+# --------------------------------------------------- the app can still start a run
+# Nothing here had ever pressed Run.  1.3 added a module-level `STAGE` dict to ebc_app,
+# which shadowed the `--stage` switch it imports from ebc_launch, and every run then
+# built a command line with a dict in it and died inside subprocess - while Browse, the
+# folder dialog, the name panel and every other button went on working normally, so the
+# app looked entirely well.  These two are cheap and they close that whole class.
+def test_nothing_shadows_what_ebc_app_imports():
+    """Every name ebc_app takes from ebc_launch must still BE that name at import time."""
+    import ebc_launch as L
+    for n in ("STAGE", "PICK", "helper_cmd", "helper_env"):
+        assert getattr(A, n) is getattr(L, n), \
+            "ebc_app.%s is no longer ebc_launch.%s - something shadows it" % (n, n)
+
+
+def test_the_app_can_start_its_own_pipeline():
+    """Actually launch the command the app builds for Run.
+
+    The config it is pointed at does not exist, so ebc_run_all refuses it and exits at
+    once; what is under test is that the command line can be launched at all, which is
+    exactly what the shadowed switch broke.
+    """
+    d = tempfile.mkdtemp()
+    try:
+        rc = A.run_pipeline(os.path.join(d, "does-not-exist.json"), d, False)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    assert rc != 0, "a missing config should have been refused, not run"
+    assert not any("TypeError" in ln for ln in A.STATE["log"]), \
+        "the pipeline could not even be started:\n  " + "\n  ".join(A.STATE["log"][-6:])
 
 
 # ---------------------------------------------------------- the app page

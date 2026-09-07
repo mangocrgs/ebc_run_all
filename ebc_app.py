@@ -986,6 +986,112 @@ def name_findings(vids, rows):
     return out
 
 
+def settled_roles(vids, rows):
+    """What each recording's role is known to be before anything is inferred from when
+    it was filmed: its own name, or the take it is a chapter of.
+
+    The take OVERRULES a chapter's own name, on exactly the rule name_findings() uses -
+    whichever chapter names a role speaks for the whole take.  It has to work that way
+    here too, or a name that is already known to be wrong goes on being evidence.  With
+    `extinction.MP4` and `CSUS fin.MP4` as chapters 1 and 2 of one take, taking each
+    name at face value made `CSUS fin` a witness for conditioning, and the recording
+    between it and the conditioning chapters - the real `extinction.MP4` - was then
+    reported as the misnamed one.  The take says otherwise and the take is the stronger
+    evidence, so it is what stands here.
+
+    A take where NO chapter names a role settles nothing: chaptering says which files
+    belong together, never what they are.
+    """
+    known, by_take = {}, {}
+    for v in vids:
+        g = guess_role(os.path.splitext(v["name"])[0])
+        if g:
+            known[v["name"]] = g
+        r = rows.get(v["name"]) or {}
+        if r.get("n_chapters", 1) > 1 and r.get("take"):
+            by_take.setdefault(tuple(r["take"]), []).append((r.get("chapter", 1), v))
+    for group in by_take.values():
+        group.sort(key=lambda x: x[0])
+        role = next((known[v["name"]] for _, v in group if v["name"] in known), None)
+        if role is None:
+            continue
+        for _, v in group:
+            known[v["name"]] = role
+    return known
+
+
+def between_findings(vids, rows):
+    """What the recordings either side of one say it must be.
+
+    A take says what its own chapters are, and that is where most of the answer comes
+    from.  This is the rest of it: a recording filmed BETWEEN two whose roles are known
+    and agree.  A session is worked through in one order and cannot go back a stage, so
+    something filmed between two conditioning chapters is conditioning, and something
+    filmed between two extinction recordings is extinction - whatever its name says, or
+    fails to say.
+
+    Both sides are required, and that is the whole of the restraint.  Duration cannot
+    stand in for it: across the five sessions here a baseline runs 41 s to 498 s and
+    extinction 58 s to 532 s, so Thomas's US-only baseline is eight times longer than his
+    extinction - any rule reading a role off a duration would have got him wrong.  Nor
+    can position alone: Charles's folder opens with two nameless clips filmed 45 minutes
+    before his first baseline, and calling those the start of the session would put
+    whatever they are into his numbers.  With a known recording on each side there is
+    nothing left to assume - the answer is bounded on both sides by something stated.
+
+    Only recordings the camera dated take part, on either side: a file with no camera
+    metadata has no place in the session's order, so it can neither be placed nor place
+    anything else.
+    """
+    known = settled_roles(vids, rows)
+    order = [v for v in sorted(vids, key=lambda v: (rows.get(v["name"]) or {})
+                               .get("rank") or 10 ** 6)
+             if (rows.get(v["name"]) or {}).get("dated")]
+    taken = {v["name"].lower() for v in vids}
+    out = []
+    for i, v in enumerate(order):
+        before = next((u for u in reversed(order[:i]) if u["name"] in known), None)
+        after = next((u for u in order[i + 1:] if u["name"] in known), None)
+        if not before or not after:
+            continue
+        role = known[before["name"]]
+        if role != known[after["name"]] or known.get(v["name"]) == role:
+            continue
+        mine = guess_role(os.path.splitext(v["name"])[0])
+        stem, ext = os.path.splitext(v["name"])
+        base = base_stem(os.path.splitext(before["name"])[0])
+        n, want = 2, "%s 2%s" % (base, ext)
+        while want.lower() in taken:
+            n += 1
+            want = "%s %d%s" % (base, n, ext)
+        taken.add(want.lower())
+        word = ROLE_WORD.get(role, role)
+        out.append({
+            "kind": "conflict" if mine else "unnamed",
+            "name": v["name"], "path": v["path"], "suggest": want,
+            "claims": mine, "claims_word": ROLE_WORD.get(mine, mine) if mine else "",
+            "actual": role, "actual_word": word,
+            "between": [before["name"], after["name"]],
+            "why": ("It was filmed between %s and %s, and both of those are %s%s."
+                    % (before["name"], after["name"], word,
+                       " - so this is too, whatever its name says" if mine
+                       else ", so this is as well")),
+        })
+    return out
+
+
+def role_findings(vids, rows):
+    """Everything the camera can say about what these recordings are.
+
+    The take speaks first, because a shared take id and a continuous timecode is the
+    strongest thing in the metadata; where there is no take to speak, the recordings
+    either side answer instead.  One recording never appears twice.
+    """
+    out = name_findings(vids, rows)
+    said = {f["name"] for f in out}
+    return out + [f for f in between_findings(vids, rows) if f["name"] not in said]
+
+
 # The three stages of a session, in the only order they can happen in.  C.ROLES is the
 # order the analysis works through and says why - each stage is read against the ones
 # before it - but two of its four entries are one moment in time here: the CS-only and
@@ -994,15 +1100,22 @@ def name_findings(vids, rows):
 # baseline measures somebody who has not been conditioned yet; extinction is what
 # follows conditioning.  So a baseline filmed after conditioning started, or a
 # conditioning chapter filmed after extinction, is a role the recording itself denies.
-STAGE = {"baseline_cs": 0, "baseline_us": 0, "conditioning": 1, "extinction": 2}
-STAGE_WORD = ("a baseline", "conditioning", "extinction")
+#
+# It is ROLE_STAGE and not STAGE because this module already has a STAGE: the `--stage`
+# switch imported from ebc_launch, which is how every run starts its own pipeline.  A
+# dict called STAGE here shadowed it, and `helper_cmd(STAGE, ...)` then built a command
+# line with a dict in it - so pressing Run died inside subprocess with a TypeError while
+# Browse, the folder dialog and every other button went on working normally.  That
+# shipped in 1.3.  See test_nothing_shadows_what_ebc_app_imports.
+ROLE_STAGE = {"baseline_cs": 0, "baseline_us": 0, "conditioning": 1, "extinction": 2}
+ROLE_STAGE_WORD = ("a baseline", "conditioning", "extinction")
 
 
 def stage_why(role, after_role):
     """Why this pair cannot be in this order, in one clause."""
-    if STAGE[role] == 0:
+    if ROLE_STAGE[role] == 0:
         return ("a baseline measures this person before any conditioning, so it cannot "
-                "have been filmed after %s" % STAGE_WORD[STAGE[after_role]])
+                "have been filmed after %s" % ROLE_STAGE_WORD[ROLE_STAGE[after_role]])
     return ("extinction is what follows conditioning, so a conditioning chapter cannot "
             "have been filmed after it")
 
@@ -1036,12 +1149,12 @@ def stage_findings(items):
     and the check applies.
     """
     placed = [i for i in items if i.get("dated") and i.get("rank") is not None
-              and i.get("role") in STAGE and not i.get("guessed")]
+              and i.get("role") in ROLE_STAGE and not i.get("guessed")]
     placed.sort(key=lambda i: i["rank"])
     out, top = [], None
     for it in placed:
-        st = STAGE[it["role"]]
-        if top is not None and st < STAGE[top["role"]]:
+        st = ROLE_STAGE[it["role"]]
+        if top is not None and st < ROLE_STAGE[top["role"]]:
             out.append({
                 "file": os.path.basename(it.get("path") or "") or it.get("label") or "",
                 "role": it["role"], "role_word": ROLE_WORD[it["role"]],
@@ -1052,7 +1165,7 @@ def stage_findings(items):
                 "after_recorded": top.get("recorded") or "",
                 "why": stage_why(it["role"], top["role"]),
             })
-        elif top is None or st > STAGE[top["role"]]:
+        elif top is None or st > ROLE_STAGE[top["role"]]:
             top = it                    # the first recording of the latest stage so far
     return out
 
@@ -1241,7 +1354,24 @@ def list_dir(path):
                 v["skip"] = bool(notes)
             # A name that contradicts the camera is not a note on one row - it changes
             # what the study IS, so it is raised before the protocol is even set.
-            base["conflicts"] = name_findings(vids, rows)
+            base["conflicts"] = role_findings(vids, rows)
+            # And where the camera can say what a NAMELESS recording is, the Role column
+            # says so instead of showing a placeholder.  `GX012908.MP4` in a labelled
+            # take used to arrive as "conditioning" with a note that the app had picked
+            # it - while the take it belongs to said extinction, in a panel two feet
+            # further down.  Answering the panel was the only way to get the right role
+            # onto the row, and "Not now" ran the wrong one.  A name that DOES claim a
+            # role is never overruled here: that is a conflict for the user to settle,
+            # and quietly resolving it would hide the very thing being raised.
+            by_name = {v["name"]: v for v in vids}
+            for f in base["conflicts"]:
+                v = by_name.get(f["name"])
+                if v is None or f["claims"] is not None:
+                    continue
+                v["role"] = f["actual"]
+                v["guessed"] = False
+                v["proposed"] = f["actual_word"]
+                v["proposed_why"] = f["why"]
         except Exception as e:                  # metadata is a courtesy, never a blocker
             base["warn"] = ("The recording times could not be read (%s), so the list is "
                             "in name order rather than the order they were filmed." % e)

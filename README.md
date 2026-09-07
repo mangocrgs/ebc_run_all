@@ -32,9 +32,26 @@ camera.** A panel appears before anything else can be set, with two kinds of fin
   deliberately: the protocol panel is where people stop reading the file list, and a wrong
   role is invisible from that point on.
 - **the name says nothing at all** — a camera's own `GX012908.MP4` sitting in a take whose
-  other chapters do carry a role. There is nothing to contradict, so this blocks nothing
-  and is not ticked by default; it is simply offered, because the take can say what the
-  file is and nobody should have to work it out again later.
+  other chapters do carry a role, or filmed between two recordings whose roles are known
+  and agree. There is nothing to contradict, so this blocks nothing and is not ticked by
+  default; it is simply offered, because the camera can say what the file is and nobody
+  should have to work it out again later. **The Role column says so too**: a recording the
+  camera can place arrives with that role already set and a note saying where it came
+  from, instead of the placeholder the dropdown used to have to show.
+
+**What the camera can settle, and what it cannot.** A take is the strongest evidence
+there is: a shared take id and a timecode that continues to the second say those files
+are one recording, so whichever chapter names a role names the take. Where there is no
+take to speak, the recordings *either side* answer instead — something filmed between two
+conditioning chapters is conditioning, whatever its name says or fails to say. Both sides
+are required, and nothing else is used. **Duration cannot stand in for them**: across the
+five sessions here a baseline runs 41 s to 498 s and extinction 58 s to 532 s, so Thomas's
+US-only baseline is eight times longer than his extinction, and any rule reading a role
+off a duration would have got him wrong. **Nor can position**: Charles's folder opens with
+two nameless clips filmed 45 minutes before his first baseline, and calling those the
+start of the session would put whatever they are into his numbers. So a folder where
+nothing is named — the 2016 `Video` root, say — gets no proposals at all, and that is the
+right answer: what a recording contains is a question for the LEDs, not for its timestamp.
 
 Either way the panel shows what the name claims, what the recording actually is, the
 evidence, and a proposed new name that can be edited. Renaming writes `RENAMES.json`
@@ -56,10 +73,17 @@ it found is in the run's own record. Which of the two baselines came first means
 and is not flagged; neither is a recording the camera never dated, nor one whose role is
 still the placeholder the app had to put in the dropdown for a name that says nothing.
 
-**Starting over** is in the top bar, next to the status pill, from the moment anything is
-ticked. It unticks the recordings, empties the study name, puts away a finished run and
-keeps the folder — the next participant is usually the folder next door. Nothing on disk
-is touched, which is why it does not ask.
+The same panel also says when the **rows have been moved out of the recording order** with
+the ▲▼ arrows. Nothing is wrong when it does: `ebc_timeline` sorts the recordings by the
+camera clock before a frame is decoded, so the run uses that order whatever the page shows
+— but the chapter numbers in the *Order* column follow the arrows, and a number the run
+will not use should not sit there unexplained.
+
+**Starting over** is in the top bar, next to the status pill, and stays there. It unticks
+the recordings, empties the study name, puts away a finished run and keeps the folder —
+the next participant is usually the folder next door. Nothing on disk is touched, which is
+why it does not ask. It goes away for one reason: a run is going, and then the button that
+matters is *Stop*.
 
 It is a desktop window, not a browser tab — no address bar, no tabs, nothing to navigate
 away from.  Underneath, the window is drawn by the Edge WebView2 runtime, which ships with
@@ -84,7 +108,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.1.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
