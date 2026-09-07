@@ -1,0 +1,35 @@
+{
+ "study": "Margaux",
+ "video_dir": "C:\\Users\\marga\\OneDrive\\Bureau\\Recherche\\EBC\\Video",
+ "out_dir": "C:\\Users\\marga\\OneDrive\\Bureau\\Recherche\\EBC\\Video\\analysis_EBC",
+ "protocol": {
+  "cs_ms": 400.0,
+  "us_onset_ms": 350.0,
+  "us_dur_ms": 50.0,
+  "paired_per_block": 9,
+  "cs_only_per_block": 1,
+  "n_blocks": 10,
+  "min_iti_s": 5.0,
+  "cs_tol": 0.35,
+  "us_tol": 0.6,
+  "alpha_ms": 100.0,
+  "pre_ms": 300.0,
+  "post_ms": 0.0
+ },
+ "recordings": [
+  {
+   "tag": "gh012885",
+   "file": "GH012885.MP4",
+   "label": "GH012885",
+   "role": "conditioning",
+   "order": 1
+  },
+  {
+   "tag": "gx012886",
+   "file": "GX012886.MP4",
+   "label": "GX012886",
+   "role": "conditioning",
+   "order": 2
+  }
+ ]
+}
