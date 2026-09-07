@@ -427,6 +427,178 @@ def test_an_unchanged_order_says_so_rather_than_saying_nothing():
     assert "agree" in buf.getvalue()
 
 
+# -------------------------------------------- what a mean blink onset is taken over
+def test_a_response_is_a_CR_a_qCR_or_a_UR():
+    for lbl in (STD["cr_label"], STD["qcr_label"], STD["ur_label"],
+                STD["cr_no_us_label"], STD["late_no_us_label"], STD["ur_puff_label"]):
+        assert C.is_response(lbl, STD), lbl
+
+
+def test_a_startle_is_scoreable_but_is_not_a_response():
+    """It counts in a RATE's denominator and must stay out of a mean onset."""
+    for lbl in (STD["alpha_label"], STD["alpha_us_label"]):
+        assert C.is_scoreable(lbl, STD), lbl
+        assert not C.is_response(lbl, STD), lbl
+
+
+def test_a_set_aside_trial_is_not_a_response_either():
+    for lbl in STD["excluded_labels"]:
+        assert not C.is_response(lbl, STD), lbl
+
+
+def test_the_mean_blink_onset_includes_the_qCRs_and_the_URs():
+    """The user's rule, and the reason it exists: CRs alone cannot show the shift."""
+    import ebc_figures as F
+    rows = [dict(block=1, scored_class=STD["cr_label"], scored_onset_ms=200.0),
+            dict(block=1, scored_class=STD["qcr_label"], scored_onset_ms=380.0),
+            dict(block=1, scored_class=STD["ur_label"], scored_onset_ms=440.0)]
+    (b, mean, sd, n), = F.block_onset(rows, STD)
+    assert (b, n) == (1, 3), (b, n)
+    assert abs(mean - 340.0) < 0.01, mean          # not 200.0, which is the CRs alone
+
+
+def test_the_mean_blink_onset_leaves_the_startles_out():
+    import ebc_figures as F
+    rows = [dict(block=1, scored_class=STD["cr_label"], scored_onset_ms=300.0),
+            dict(block=1, scored_class=STD["alpha_label"], scored_onset_ms=40.0),
+            dict(block=1, scored_class=STD["moving_label"], scored_onset_ms=None)]
+    (_, mean, _, n), = F.block_onset(rows, STD)
+    assert (mean, n) == (300.0, 1), (mean, n)
+
+
+def test_a_block_can_improve_without_any_of_its_CRs_moving():
+    """The whole case for the rule, as an arithmetic fact rather than an opinion.
+
+    Two blocks whose CRs sit at exactly the same latency, but where one UR has crossed
+    into the window.  Over the CRs alone nothing has changed; over every response the
+    mean walks in by 25 ms, which is the learning.
+    """
+    import numpy as np
+    import ebc_figures as F
+    early = [dict(block=1, scored_class=STD["cr_label"], scored_onset_ms=250.0)] * 2
+    b1 = early + [dict(block=1, scored_class=STD["ur_label"], scored_onset_ms=450.0)] * 2
+    b2 = [dict(block=2, scored_class=STD["cr_label"], scored_onset_ms=250.0)] * 3 + \
+         [dict(block=2, scored_class=STD["ur_label"], scored_onset_ms=450.0)]
+    cr_only = [np.mean([r["scored_onset_ms"] for r in g
+                        if r["scored_class"].startswith("CR")]) for g in (b1, b2)]
+    assert cr_only[0] == cr_only[1] == 250.0, cr_only
+    means = [F.block_onset(g, STD)[0][1] for g in (b1, b2)]
+    assert abs(means[0] - 350.0) < .01 and abs(means[1] - 300.0) < .01, means
+
+
+# ------------------------------------------------------- which trial a clip is cut from
+def _clip_row(cls, onset, **kw):
+    return dict(dict(role="conditioning", trial_type="CS-US", scored_class=cls,
+                     scored_onset_ms=onset, peak_closure_pct=95.0,
+                     face_tracked_pct=100.0, quality="clean",
+                     needs_manual_scoring=""), **kw)
+
+
+def test_a_clip_is_never_cut_from_a_trial_the_scorer_will_not_stand_behind():
+    import ebc_clips as K
+    rows = [_clip_row(STD["cr_label"], 200.0, needs_manual_scoring="yes")]
+    assert K.candidates(rows, "CR", "CS-US", ("conditioning",), STD) == []
+
+
+def test_a_missing_kind_is_reported_and_never_substituted():
+    """No ?CR to show is a fact about the participant, not a gap to paper over."""
+    import ebc_clips as K
+    rows = [_clip_row(STD["cr_label"], 200.0), _clip_row(STD["ur_label"], 450.0)]
+    assert K.candidates(rows, "?CR", "CS-US", ("conditioning", "extinction"), STD) == []
+
+
+def test_the_clip_shows_the_ordinary_trial_not_the_striking_one():
+    import ebc_clips as K
+    rows = [_clip_row(STD["cr_label"], o) for o in (150.0, 200.0, 205.0, 210.0, 330.0)]
+    got, why, _ = K.prototypical(rows, ["conditioning"])
+    assert got["scored_onset_ms"] == 205.0, got["scored_onset_ms"]
+    assert "median" in why
+
+
+def test_a_lid_flicker_under_the_blink_criterion_loses_to_a_real_blink():
+    """Even one from a recording further down the order - see prototypical()."""
+    import ebc_clips as K
+    flicker = _clip_row(STD["cr_no_us_label"], 200.0, trial_type="CS-only",
+                        peak_closure_pct=16.0)
+    real = _clip_row(STD["cr_no_us_label"], 200.0, trial_type="CS-only",
+                     role="extinction", peak_closure_pct=95.0)
+    got, _, _ = K.prototypical([flicker, real], ["conditioning", "extinction"])
+    assert got["role"] == "extinction", got
+
+
+def test_every_clip_kind_names_a_class_the_window_can_produce():
+    """A kind whose prefix matches no label this app emits could never be filled."""
+    import ebc_clips as K
+    labels = [v for k, v in STD.items() if k.endswith("_label") and v]
+    for kind, prefix, tt, roles, note in K.KINDS:
+        if prefix:
+            assert any(str(v).startswith(prefix) for v in labels), kind
+        assert set(roles) <= set(C.ROLES), kind
+
+
+def test_a_standard_window_does_not_claim_the_baseline_is_missing():
+    """It was measured and then not used; saying it was never there is a different claim."""
+    import ebc_figures as F
+    note = F.window_note(C.cr_window(PROTO, REFLEX))
+    assert "no US-only baseline" not in note, note
+    assert "standard window" in note and "%d blinks" % REFLEX["n"] in note, note
+
+
+def test_with_no_baseline_at_all_the_note_still_says_so():
+    """Both ways of ending up without one: the standard window, and a measured one that
+    had nothing to measure."""
+    import ebc_figures as F
+    assert "no US-only baseline" in F.window_note(C.cr_window(PROTO)), "standard"
+    fell_back = C.cr_window(dict(PROTO, cr_window_mode="measured"))
+    assert "no US-only baseline" in F.window_note(fell_back), "measured"
+
+
+def test_every_pipeline_stage_has_a_name_on_the_progress_bar():
+    """A stage the page has never heard of shows as its bare key and weights nothing.
+
+    ebc_clips was added to the pipeline and had to be added to three separate maps to
+    appear; this is the check that the next one does not have to be found by watching a
+    run go blank half way through.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    runner = io.open(os.path.join(here, "ebc_run_all.py"), encoding="utf-8").read()
+    ran = set(re.findall(r'run(?:_parallel)?\(\s*"ebc_(\w+)\.py"', runner))
+    ran -= {"triage"}                      # started under the protocol stage's own name
+    app = io.open(os.path.join(here, "ebc_app.py"), encoding="utf-8").read()
+    page = io.open(os.path.join(here, "ebc_app_ui.html"), encoding="utf-8").read()
+    known = set(re.findall(r'"(\w+)":', app.split("PHASE = {", 1)[1].split("}", 1)[0]))
+    shown = set(re.findall(r'(\w+):"', page.split("const PHASES = {", 1)[1]
+                           .split("};", 1)[0]))
+    weighed = set(re.findall(r'(\w+):[.\d]', page.split("const WEIGHT = {", 1)[1]
+                             .split("};", 1)[0]))
+    for name, got in (("ebc_app PHASE", known), ("the page's PHASES", shown),
+                      ("the page's WEIGHT", weighed)):
+        assert ran <= got, "%s does not know about %s" % (name, sorted(ran - got))
+
+
+def test_every_rendered_figure_points_at_a_sheet_that_exists():
+    """PNG_DATA tells the reader where a picture's numbers are; a stale name misleads.
+
+    ebc_workbooks reads a config as it is imported, so this reads its source rather than
+    running it - and a sheet name that no longer exists is the only thing here that can
+    go stale.
+    """
+    src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "ebc_workbooks.py"), encoding="utf-8").read()
+    made = set(re.findall(r'create_sheet\(\s*"([^"]+)"', src))
+    made |= set(re.findall(r'fig_sheet\(wb,\s*"([^"]+)"', src))
+    made |= set(re.findall(r'wb,\s*"(F\d[^"]*)"', src))
+    named = set()
+    for block in re.findall(r'PNG_DATA = \{(.*?)\n\}', src, re.S):
+        named |= set(re.findall(r'"([^"]+)"\s*[,\]]', block))
+    named -= set(re.findall(r'"(\w+\.png)"', src))
+    assert len(named) >= 6, named
+    assert named <= made, "PNG_DATA names sheets nothing creates: %s" % (named - made)
+    for want in ("F1 CR rate by block", "F4 Mean blink onset by block",
+                 "F7 Mean closure by block", "Figure index", "Video clips"):
+        assert want in made, want
+
+
 def test_the_probe_curve_is_broken_across_blocks_with_no_probe():
     """Joining the only two scoreable probes draws a trend over blocks never measured."""
     import ebc_figures as F

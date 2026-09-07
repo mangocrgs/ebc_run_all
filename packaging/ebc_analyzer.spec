@@ -31,7 +31,8 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))                    # noqa: 
 # Stage scripts are run, never imported: they ship as source and so do their imports.
 STAGES = ["ebc_run_all.py", "ebc_timeline.py", "ebc_locate.py", "ebc_stimulus.py",
           "ebc_triage.py", "ebc_protocol.py", "ebc_eyes.py", "ebc_score.py",
-          "ebc_figures.py", "ebc_export_csv.py", "ebc_workbooks.py", "ebc_qc.py",
+          "ebc_figures.py", "ebc_clips.py", "ebc_export_csv.py", "ebc_workbooks.py",
+          "ebc_qc.py",
           "ebc_app.py", "ebc_config.py", "ebc_media.py", "ebc_paths.py",
           "ebc_signal.py", "ebc_video.py"]
 
@@ -57,7 +58,11 @@ datas += [(os.path.join(ROOT, "ebc_app_ui.html"), "."),
 
 hiddenimports = ["cv2", "mediapipe", "numpy", "scipy", "scipy.signal", "scipy.stats",
                  "scipy.ndimage", "scipy.interpolate", "matplotlib", "matplotlib.pyplot",
-                 "openpyxl", "PIL", "PIL.Image", "tkinter", "tkinter.filedialog",
+                 "openpyxl", "PIL", "PIL.Image",
+                 # ebc_clips draws its overlay with these two, and it travels as source,
+                 # so nothing in the analysis reaches them by following an import
+                 "PIL.ImageDraw", "PIL.ImageFont",
+                 "tkinter", "tkinter.filedialog",
                  # the app's own window, and the Edge WebView2 backend that draws it
                  "webview", "webview.platforms.edgechromium", "clr", "clr_loader"]
 binaries = []

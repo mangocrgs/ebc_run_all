@@ -11,7 +11,7 @@ import json, numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import ScatterChart, LineChart, Reference, Series
+from openpyxl.chart import ScatterChart, LineChart, BarChart, Reference, Series
 from openpyxl.chart.marker import Marker
 from openpyxl.chart.trendline import Trendline
 from openpyxl.chart.error_bar import ErrorBars
@@ -95,6 +95,36 @@ def is_ur(r):
 
 def is_alpha(r):
     return str(r["scored_class"]).startswith("alpha")
+
+
+def and_list(names):
+    """'a', 'a and b', 'a, b and c' - names read by people, not joined by a comma."""
+    names = list(names)
+    if len(names) < 2:
+        return names[0] if names else ""
+    return "%s and %s" % (", ".join(names[:-1]), names[-1])
+
+
+CLIP_SHOWS = {"CR": "a conditioned response",
+              "qCR": "the uncertain band - ?CR",
+              "CSonly": "a CS-only trial, no puff delivered",
+              "UR": "a reaction to the puff"}
+
+
+def clips_manifest():
+    """What ebc_clips wrote, or nothing at all if it has not been run.
+
+    Read rather than recomputed: which trial each clip is of is decided in one place, and
+    a workbook that worked it out again could name a different trial than the file shows.
+    """
+    f = os.path.join(OUT, "clips.json")
+    if not os.path.exists(f):
+        return None
+    try:
+        with open(f, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
 
 
 def stim_events(tag):
@@ -233,6 +263,26 @@ ROLE_FIGS = {"conditioning": [("cond_acquisition.png", "Acquisition by block - c
                              ("baseline_cs_overview.png", "Eyelid closure - raster and overlaid traces")],
              "baseline_us": [("baseline_us_onset_scatter.png", "Blink latency per US-only trial"),
                              ("baseline_us_overview.png", "Eyelid closure - raster and overlaid traces")]}
+
+# Which figure sheet carries the numbers behind each rendered PNG.  A finished picture
+# that does not say where its data is invites somebody to re-derive it; this is the one
+# line that stops that, and it is printed under the picture rather than in a legend
+# somewhere else in the workbook.  The acquisition PNG maps onto three sheets because
+# separating its three series onto three charts is exactly what made them editable.
+PNG_DATA = {
+    "cond_acquisition.png": ["F1 CR rate by block", "F3 Probes vs paired",
+                             "F4 Mean blink onset by block"],
+    "cond_paired_onset_scatter.png": ["F5 Onset per trial"],
+    "cond_csonly_onset_scatter.png": ["F6 Probe onset per trial"],
+    "cond_paired_overview.png": ["F7 Mean closure by block", "Closure traces (data)"],
+    "cond_csonly_overview.png": ["F7 Mean closure by block", "Closure traces (data)"],
+    "ext_onset_scatter.png": ["F1 Onset per trial"],
+    "ext_overview.png": ["F2 Mean closure by recording", "Closure traces (data)"],
+    "baseline_cs_onset_scatter.png": ["F1 Onset per trial"],
+    "baseline_cs_overview.png": ["F2 Mean closure by recording", "Closure traces (data)"],
+    "baseline_us_onset_scatter.png": ["F1 Onset per trial"],
+    "baseline_us_overview.png": ["F2 Mean closure by recording", "Closure traces (data)"],
+}
 
 
 def _span(tags):
@@ -473,56 +523,146 @@ def scoreable(rs):
     return [r for r in rs if C.is_scoreable(r["scored_class"], WIN)]
 
 
-def _dots(ws, col, n, colr, name_row=1, size=7, symbol="diamond", line=False):
-    """One series of the block charts: markers over the blocks, optionally joined."""
-    s = Series(Reference(ws, min_col=col, min_row=name_row, max_row=n),
-               Reference(ws, min_col=1, min_row=2, max_row=n), title_from_data=True)
+def responses(rs):
+    """The trials a mean ONSET is taken over: every response, never the CRs alone.
+
+    A rate and a mean onset are asked of different sets and this workbook says so.  The
+    rate asks how many trials were CRs, so a startle counts in its denominator - it was a
+    trial that was not a CR.  The mean asks when this person's blink happens, and a
+    startle happened before either stimulus could have caused it, so it is not one of
+    this person's responses and drags the average down for no reason to do with learning.
+
+    The mean is emphatically NOT taken over the CRs alone: that is conditioned on the
+    blink already being inside the CR window, and a block improves by trials crossing
+    INTO the window.  A mean computed inside it cannot see them arrive, so it reads flat
+    on a participant who is plainly learning.  ebc_config.is_response is the authority
+    and ebc_figures reads the same one, so a sheet and a figure cannot disagree.
+    """
+    return [r for r in rs if C.is_response(r["scored_class"], WIN)]
+
+
+def onsets(rs):
+    """The scored onsets of those responses, in ms."""
+    return [r["scored_onset_ms"] for r in responses(rs) if r["scored_onset_ms"] is not None]
+
+
+ONSET_NOTE = ("Mean blink onset is over every RESPONSE in the block - CR, ?CR and UR "
+              "together - and never over the CRs alone. A mean taken over the CRs is "
+              "conditioned on the blink already being inside the CR window, and a block "
+              "improves by trials crossing INTO that window, so a mean computed inside "
+              "it cannot see them arrive and reads flat on someone who is plainly "
+              "learning. Startle blinks are left out: they began before either stimulus "
+              "could have caused anything, so they are not responses to this trial.")
+
+
+# ------------------------------------------------------------- the editable figures
+#
+# A PNG is finished: it can be looked at and nothing else.  Every figure below is an
+# Excel chart drawn from cells on its own sheet, so a colour, a block, an axis or a
+# trendline can be changed in the program people already use to change them - and the
+# numbers behind the picture are the ones sitting next to it, not a file somewhere else.
+# Each sheet says, in a line under its title, the exact range its chart reads.
+#
+# One figure per sheet, and one thing per figure.  The rendered PNGs put three series and
+# two panels on one page: that is a good page to print and a bad one to edit, and
+# separating them is most of what makes them editable in practice.
+FIG_HDR = 4              # figure sheets: title, note, where-the-data-is, then the header
+FIG_EDIT_NOTE = ("The chart is Excel's own and reads the cells on this sheet, so the "
+                 "colours, the axes, the trendline and which blocks are in it are all "
+                 "yours to change.")
+
+
+def fig_sheet(wb, name, title, note, headers, data, widths_, fmts=None, hdr_h=32):
+    """Lay out one figure sheet and say where its chart reads from.
+
+    Returns (sheet, last data row, the A1 range of the chart's data), and records the
+    sheet on FIGS so the figure index can list it without being kept in step by hand.
+    """
+    ws = wb.create_sheet(name)
+    ws.sheet_view.showGridLines = False
+    c = ws.cell(row=1, column=1, value=title)
+    c.font = F(bold=True, size=13, color=INK)
+    c = ws.cell(row=2, column=1, value=note)
+    c.font = F(size=9, color=MUT)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max(len(headers), 5))
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[2].height = 40
+    for j, h in enumerate(headers, 1):
+        ws.cell(row=FIG_HDR, column=j, value=h)
+    for i, vals in enumerate(data, FIG_HDR + 1):
+        for j, v in enumerate(vals, 1):
+            cc = ws.cell(row=i, column=j, value=v)
+            cc.font = F(size=10, color=INK)
+            cc.border = Border(bottom=thin)
+            cc.alignment = Alignment(horizontal="left" if isinstance(v, str) else "right")
+            if fmts and fmts[j - 1]:
+                cc.number_format = fmts[j - 1]
+    style_header(ws, FIG_HDR)
+    ws.row_dimensions[FIG_HDR].height = hdr_h
+    widths(ws, widths_)
+    last = FIG_HDR + len(data)
+    rng = "A%d:%s%d" % (FIG_HDR, get_column_letter(len(headers)), last)
+    c = ws.cell(row=3, column=1,
+                value="The chart on this sheet is drawn from %s  on this sheet. "
+                      "Change a number there and the chart follows it." % rng)
+    c.font = F(size=9, color=ACTION, italic=True)
+    return ws, last, rng
+
+
+def fig_anchor(headers):
+    """Where a figure's chart is anchored: two columns clear of its own data."""
+    return get_column_letter(len(headers) + 2) + str(FIG_HDR)
+
+
+def _series(ws, col, first, last, colr, joined=True, symbol="circle", size=7,
+            dashed=None, sd_col=None, trendline=False, xcol=1):
+    """One series of a figure chart, named from the header cell above its column."""
+    s = Series(Reference(ws, min_col=col, min_row=FIG_HDR, max_row=last),
+               Reference(ws, min_col=xcol, min_row=first, max_row=last),
+               title_from_data=True)
     s.marker = Marker(symbol=symbol, size=size)
-    s.marker.graphicalProperties = GraphicalProperties(solidFill=colr)
-    s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
-    if line:
-        s.graphicalProperties.line = LineProperties(solidFill=colr, w=14000)
+    if symbol != "none":
+        s.marker.graphicalProperties = GraphicalProperties(solidFill=colr)
+        s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
+    if joined:
+        s.graphicalProperties.line = LineProperties(
+            solidFill=colr, w=20000, prstDash=dashed or "solid")
     else:
         s.graphicalProperties.line.noFill = True
+    if sd_col:
+        sd = Reference(ws, min_col=sd_col, min_row=first, max_row=last)
+        s.errBars = ErrorBars(errDir="y", errValType="cust", errBarType="both",
+                              plus=NumDataSource(numRef=NumRef(f=sd)),
+                              minus=NumDataSource(numRef=NumRef(f=sd)))
+    if trendline:
+        # A straight line through the blocks and how straight it is, both Excel's own and
+        # both computed from the cells: an R² of 0.03 says the climb the eye reads into
+        # ten points is not in them.  Editing a block moves the line and the number.
+        s.trendline = Trendline(trendlineType="linear", dispRSqr=True, dispEq=False)
     return s
 
 
-def block_charts(ws, n):
-    """The two block panels, drawn as charts Excel owns.
-
-    A PNG is finished: it can be looked at and nothing else.  These are the same two
-    panels with the numbers in the cells beside them, so a trendline can be turned off, a
-    colour changed, a block dropped, an axis rescaled - in the program people already use
-    to do that.  The trendline and the R² are Excel's own, computed from the cells, so
-    editing the data moves them.
-    """
-    for anchor, title, ylab, series, ymin, ymax in (
-            ("S2", "Percentage of CRs", "% of scoreable trials",
-             [(6, C.xl("cr"), None)], 0, 100),
-            ("S22", "Mean blink onset", "ms from CS onset",
-             [(14, C.xl("cr"), 15), (12, C.xl("muted"), None)], None, None)):
-        ch = ScatterChart()
-        ch.style = 2
-        ch.title = title
-        ch.x_axis.title = "Block"
-        ch.y_axis.title = ylab
-        ch.height, ch.width = 9.5, 17
-        ch.x_axis.scaling.min, ch.x_axis.scaling.max = 0.5, n - 0.5
-        if ymin is not None:
-            ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
-        for col, colr, sd_col in series:
-            s = _dots(ws, col, n, colr)
-            # A straight line through the blocks and how straight it is, both Excel's:
-            # the published figures put one on every block panel, and an R2 of 0.03 says
-            # the climb the eye reads into ten points is not in them.
-            s.trendline = Trendline(trendlineType="linear", dispRSqr=True, dispEq=False)
-            if sd_col:
-                sd = Reference(ws, min_col=sd_col, min_row=2, max_row=n)
-                s.errBars = ErrorBars(errDir="y", errValType="cust", errBarType="both",
-                                      plus=NumDataSource(numRef=NumRef(f=sd)),
-                                      minus=NumDataSource(numRef=NumRef(f=sd)))
-            ch.series.append(s)
-        ws.add_chart(ch, anchor)
+def fig_chart(ws, anchor, title, xlab, ylab, series, xmin=None, xmax=None,
+              ymin=None, ymax=None, height=10.5, width=19, legend=True):
+    ch = ScatterChart()
+    ch.style = 2
+    ch.title = title
+    ch.x_axis.title = xlab
+    ch.y_axis.title = ylab
+    ch.height, ch.width = height, width
+    if xmin is not None:
+        ch.x_axis.scaling.min, ch.x_axis.scaling.max = xmin, xmax
+    if ymin is not None:
+        ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
+    for s in series:
+        ch.series.append(s)
+    if not legend:
+        ch.legend = None
+    # A block with nothing scoreable in it is a gap in the line, not a plunge to zero:
+    # joining across it would draw a trend over blocks that were never measured.
+    ch.dispBlanksAs = "gap"
+    ws.add_chart(ch, anchor)
+    return ch
 
 
 def write_table(ws, rows):
@@ -579,92 +719,281 @@ def write_table(ws, rows):
     ws.sheet_view.showGridLines = False
 
 
-def scatter_sheet(ws, rows, has_us, xlabel, title, us_anchored=False):
-    # A US-only baseline is anchored on the puff, so its trials carry the US-anchored
-    # response labels and time zero is the US.  The CS reference lines mean nothing there
-    # and the CS-anchored labels never appear, so both are swapped out rather than left
-    # to mislead - and, before this, to raise a KeyError on the first US-only trial.
+def fig_onset_per_trial(wb, name, title, rows, us_anchored, xlabel):
+    """Every trial's blink onset, in the order the trials were run, coloured by class.
+
+    One thing: where each blink was.  The reference lines are the two stimuli and, when
+    the CR window was measured rather than taken as standard, its two edges - and nothing
+    else.  The block-mean line that used to be drawn on top of this has a sheet of its
+    own now, because a chart carrying both answers "where was each blink" and "how did
+    the block average move" and is harder to read than either.
+
+    A US-only baseline is anchored on the puff, so its trials carry the US-anchored
+    labels and time zero is the US: the CS lines mean nothing there and are left off.
+    """
     if us_anchored:
-        hd = ["#", "Block", "Session", UR_PUFF_LBL, ALPHA_US_LBL, "",
-              "lid moving at onset", "US onset = 0 ms", "", "", "Block mean latency"]
-        colmap = {UR_PUFF_LBL: 4, ALPHA_US_LBL: 5, MOVING_LBL: 7}
+        cls_cols = [(UR_PUFF_LBL, C.xl("us")), (ALPHA_US_LBL, C.xl("cs")),
+                    (MOVING_LBL, C.xl("faint"))]
+        ref_cols = [("US onset = 0 ms", C.xl("us"), "solid")]
         yaxis = "Blink latency (ms from blue LED / US onset)"
+        note = ("Anchored on the puff: 0 ms is the blue LED, and every latency here is "
+                "measured from it. There is no CS in this recording, so nothing here can "
+                "be a conditioned response - these are the unconditioned reflexes the CR "
+                "window is measured from. " + FIG_EDIT_NOTE)
         ymin, ymax = -120, 400
     else:
-        lbl_us = ("US onset = %.0f ms" % NOM["us_onset_ms"]) if has_us else (
-            "learned US onset = %.0f ms (none delivered)" % NOM["us_onset_ms"])
-        # The reference line at the CS offset is only "the CS and US offset" when the two
-        # really do end together; in a trace protocol it is the start of the gap.
-        lbl_cs_off = ("CS / US offset = %.0f ms" % NOM["cs_ms"] if DES["coterminate"]
-                      else "CS offset = %.0f ms" % NOM["cs_ms"])
-        hd = ["#", "Block", "Session", CR_LBL, ALPHA_LBL, UR_LBL,
-              "lid moving at onset", "CS onset = 0 ms", lbl_us,
-              lbl_cs_off, "Block mean onset",
-              "CR window opens = %.0f ms" % CR_LO, "CR window closes = %.0f ms" % CR_HI]
-        colmap = {CR_LBL: 4, ALPHA_LBL: 5, UR_LBL: 6, MOVING_LBL: 7}
+        cls_cols = [(CR_LBL, C.xl("cr"))]
+        if QCR_LBL:
+            cls_cols.append((QCR_LBL, C.xl("us_mid")))
+        cls_cols += [(UR_LBL, C.xl("ur")), (ALPHA_LBL, C.xl("cs")),
+                     (MOVING_LBL, C.xl("faint"))]
+        ref_cols = [("CS onset = 0 ms", C.xl("cs"), "solid"),
+                    ("US onset = %.0f ms" % NOM["us_onset_ms"], C.xl("us"), "dash")]
+        # Both edges of the CR window, on the chart rather than in a caption - but only
+        # when they were measured, or they would simply redraw the two lines above.
+        if WIN["measured"]:
+            ref_cols += [("CR window opens = %.0f ms" % CR_LO, C.xl("cr"), "sysDash"),
+                         ("CR window closes = %.0f ms" % CR_HI, C.xl("cr"), "sysDash")]
         yaxis = "Blink onset (ms from yellow LED / CS onset)"
-        # room for the whole trial, so a trace protocol's UR is on the chart rather than
-        # clipped off the top of it
+        note = ("Each trial's scored onset, in the order the trials were run, in the "
+                "column of the class it was given. A trial appears in exactly one class "
+                "column, so the colour of a point is the call the scorer made about it. "
+                + FIG_EDIT_NOTE)
         ymin, ymax = -120, max(520, int(DES["span_ms"]) + 160)
-    for j, x in enumerate(hd, 1):
-        if x:
-            ws.cell(row=1, column=j, value=x)
-    bmean = {}
-    for b in sorted({r["block"] for r in rows if r["block"]}):
-        g = [r["scored_onset_ms"] for r in rows if r["block"] == b and r["scored_onset_ms"] is not None
-             and r["scored_class"] != MOVING_LBL]
-        if g:
-            bmean[b] = float(np.mean(g))
-    for i, r_ in enumerate(rows, 2):
-        ws.cell(row=i, column=1, value=r_["gidx"])
-        ws.cell(row=i, column=2, value=r_["block"])
-        ws.cell(row=i, column=3, value=r_["session_name"])
-        col = colmap.get(r_["scored_class"])
-        if r_["scored_onset_ms"] is not None and col:
-            ws.cell(row=i, column=col, value=r_["scored_onset_ms"]).number_format = "0.0"
-        ws.cell(row=i, column=8, value=0)
-        if not us_anchored:
-            ws.cell(row=i, column=9, value=NOM["us_onset_ms"])
-            ws.cell(row=i, column=10, value=NOM["cs_ms"])
-            ws.cell(row=i, column=12, value=CR_LO)
-            ws.cell(row=i, column=13, value=CR_HI)
-        if r_["block"] in bmean:
-            ws.cell(row=i, column=11, value=round(bmean[r_["block"]], 1)).number_format = "0.0"
-    style_header(ws)
-    widths(ws, [6, 7, 10, 19, 21, 19, 17, 15, 20, 19, 15] + ([] if us_anchored else [19, 19]))
-    ws.sheet_view.showGridLines = False
-    ch = ScatterChart()
-    ch.style = 2
-    ch.title = title
-    ch.x_axis.title = xlabel
-    ch.y_axis.title = yaxis
-    ch.height, ch.width = 13, 30 if len(rows) > 14 else 20
-    ch.x_axis.scaling.min, ch.x_axis.scaling.max = 0, len(rows) + 1
-    ch.y_axis.scaling.min, ch.y_axis.scaling.max = ymin, ymax
-    xref = Reference(ws, min_col=1, min_row=2, max_row=len(rows) + 1)
-    marks = ((4, C.xl("us"), 7), (5, C.xl("cs"), 7), (7, C.xl("faint"), 6)) if us_anchored else (
-             (4, C.xl("cr"), 7), (5, C.xl("cs"), 7), (6, C.xl("ur"), 7), (7, C.xl("faint"), 6))
-    for k, colr, size in marks:
-        s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
-        s.marker = Marker(symbol="circle", size=size)
-        s.marker.graphicalProperties = GraphicalProperties(solidFill=colr)
-        s.marker.graphicalProperties.line = LineProperties(solidFill=colr)
-        s.graphicalProperties.line.noFill = True
-        ch.series.append(s)
-    lines = ((8, C.xl("us") if us_anchored else C.xl("cs"), "solid", 20000),
-             (11, C.xl("ink"), "solid", 28000)) if us_anchored else (
-            [(8, C.xl("cs"), "solid", 20000), (9, C.xl("us"), "dash", 20000),
-             (10, C.xl("us"), "dash", 20000), (11, C.xl("ink"), "solid", 28000)]
-            # Both edges of the CR window, on the chart rather than in a caption - but
-            # only when they were measured, or they would simply redraw the US line.
-            + ([(12, C.xl("cr"), "sysDash", 16000), (13, C.xl("cr"), "sysDash", 16000)]
-               if WIN["measured"] else []))
-    for k, colr, dash, wdt in lines:
-        s = Series(Reference(ws, min_col=k, min_row=1, max_row=len(rows) + 1), xref, title_from_data=True)
-        s.marker = Marker(symbol="none")
-        s.graphicalProperties.line = LineProperties(solidFill=colr, w=wdt, prstDash=dash)
-        ch.series.append(s)
-    ws.add_chart(ch, "M2")
+    heads = ["#", "Block", "Session"] + [c[0] for c in cls_cols] + [c[0] for c in ref_cols]
+    colmap = {lbl: 4 + i for i, (lbl, _) in enumerate(cls_cols)}
+    ref0 = 4 + len(cls_cols)
+    refvals = [0.0] + ([] if us_anchored else [NOM["us_onset_ms"]]
+                       + ([CR_LO, CR_HI] if WIN["measured"] else []))
+    data = []
+    for r in rows:
+        row = [r["gidx"], r["block"], r["session_name"]] + [None] * len(cls_cols)
+        col = colmap.get(r["scored_class"])
+        if r["scored_onset_ms"] is not None and col:
+            row[col - 1] = r["scored_onset_ms"]
+        data.append(row + list(refvals))
+    fmts = [None, None, None] + ["0.0"] * (len(cls_cols) + len(ref_cols))
+    ws, last, rng = fig_sheet(wb, name, title, note, heads, data,
+                              [6, 7, 14] + [20] * (len(cls_cols) + len(ref_cols)), fmts,
+                              hdr_h=44)
+    first = FIG_HDR + 1
+    ser = [_series(ws, colmap[lbl], first, last, colr, joined=False,
+                   size=7 if lbl != MOVING_LBL else 6)
+           for lbl, colr in cls_cols]
+    ser += [_series(ws, ref0 + i, first, last, colr, symbol="none", dashed=dash)
+            for i, (_, colr, dash) in enumerate(ref_cols)]
+    fig_chart(ws, fig_anchor(heads), title, xlabel, yaxis, ser,
+              xmin=0, xmax=len(rows) + 1, ymin=ymin, ymax=ymax,
+              height=12, width=30 if len(rows) > 14 else 20)
+    return (title, "one dot per trial, in the order they were run", name, rng)
+
+
+def fig_cr_rate(wb, paired):
+    """How many of each block's trials were conditioned responses.  One line."""
+    blocks = sorted({r["block"] for r in paired if r["block"]})
+    data = []
+    for b in blocks:
+        sc = scoreable([r for r in paired if r["block"] == b])
+        if not sc:
+            continue
+        cr = [r for r in sc if is_cr(r)]
+        data.append([b, len(sc), len(cr), round(100.0 * len(cr) / len(sc), 1)])
+    if not data:
+        return None
+    heads = ["Block", "Scoreable trials", "CR n", "CR %"]
+    note = ("The acquisition curve, and nothing else on the axes with it. The "
+            "percentage is of the SCOREABLE trials in the block - a trial whose lid was "
+            "already moving cannot be called either way and is not in the denominator, "
+            "which is why the second column is here beside the third. " + FIG_EDIT_NOTE)
+    ws, last, rng = fig_sheet(wb, "F1 CR rate by block",
+                              "CR rate by block", note, heads, data,
+                              [8, 16, 10, 10], [None, None, None, "0.0"])
+    fig_chart(ws, fig_anchor(heads), "CR rate by block", "Block",
+              "% of scoreable trials",
+              [_series(ws, 4, FIG_HDR + 1, last, C.xl("cr"), trendline=True)],
+              xmin=0.5, xmax=max(blocks) + 0.5, ymin=0, ymax=100)
+    return ("CR rate by block", "the acquisition curve", "F1 CR rate by block", rng)
+
+
+def fig_response_mix(wb, paired):
+    """What the blinks in each block WERE, as a composition that always totals 100%."""
+    blocks = sorted({r["block"] for r in paired if r["block"]})
+    data = []
+    for b in blocks:
+        sc = scoreable([r for r in paired if r["block"] == b])
+        if not sc:
+            continue
+        n = float(len(sc))
+        data.append([b, len(sc)] + [round(100.0 * sum(1 for r in sc if f(r)) / n, 1)
+                                    for f in (is_cr, is_qcr, is_ur, is_alpha)])
+    if not data:
+        return None
+    heads = ["Block", "Scoreable trials", "CR %", "?CR %", "UR %", "alpha / startle %"]
+    note = ("The same trials as F1, split four ways instead of two: the four columns add "
+            "to 100%% of the block's scoreable trials, so what a rising CR rate is "
+            "rising OUT OF can be read off it. ?CR is the band between the puff and CS "
+            "offset (%.0f-%.0f ms), where a blink cannot be called a CR or a UR without "
+            "asserting something the timing does not settle. %s"
+            % (CR_HI, QCR_HI or CR_HI, FIG_EDIT_NOTE))
+    ws, last, rng = fig_sheet(wb, "F2 Response mix by block",
+                              "What the blinks were, block by block", note, heads, data,
+                              [8, 16, 10, 10, 10, 15],
+                              [None, None, "0.0", "0.0", "0.0", "0.0"])
+    ch = BarChart()
+    ch.type, ch.grouping, ch.overlap = "col", "stacked", 100
+    ch.title = "Response mix by block"
+    ch.x_axis.title = "Block"
+    ch.y_axis.title = "% of scoreable trials"
+    ch.y_axis.scaling.min, ch.y_axis.scaling.max = 0, 100
+    ch.height, ch.width = 10.5, 19
+    ch.add_data(Reference(ws, min_col=3, max_col=6, min_row=FIG_HDR, max_row=last),
+                titles_from_data=True)
+    ch.set_categories(Reference(ws, min_col=1, min_row=FIG_HDR + 1, max_row=last))
+    for s, colr in zip(ch.series, (C.xl("cr"), C.xl("us_mid"), C.xl("ur"), C.xl("cs"))):
+        s.graphicalProperties = GraphicalProperties(solidFill=colr)
+        s.graphicalProperties.line = LineProperties(solidFill=C.xl("surface"), w=6000)
+    ws.add_chart(ch, fig_anchor(heads))
+    return ("Response mix by block", "CR / ?CR / UR / startle, adding to 100%",
+            "F2 Response mix by block", rng)
+
+
+def fig_probe_vs_paired(wb, paired, csonly):
+    """Does responding to the CS ALONE track responding on the paired trials?"""
+    blocks = sorted({r["block"] for r in paired if r["block"]})
+    data, anyprobe = [], False
+    for b in blocks:
+        sc = scoreable([r for r in paired if r["block"] == b])
+        pb = scoreable([r for r in csonly if r["block"] == b])
+        if not sc:
+            continue
+        anyprobe = anyprobe or bool(pb)
+        data.append([b, len(sc), round(100.0 * sum(1 for r in sc if is_cr(r)) / len(sc), 1),
+                     len(pb) or None,
+                     round(100.0 * sum(1 for r in pb if is_cr(r)) / len(pb), 1) if pb else None])
+    if not data or not anyprobe:
+        return None
+    heads = ["Block", "Paired scoreable", "Paired CR %", "Probes scoreable", "Probe CR %"]
+    note = ("A probe delivers no puff, so a response on one cannot be a reaction to "
+            "anything but the CS. Probe responding that tracks the paired responding is "
+            "what says the learning is real and stable rather than an artefact of the "
+            "puff arriving. Blocks with no scoreable probe are left BLANK, not zero, and "
+            "the probe line breaks across them: joining two probes eight blocks apart "
+            "draws a trend that was never measured. One probe is 0%% or 100%% and nothing "
+            "in between, which is what the 'Probes scoreable' column is for. "
+            + FIG_EDIT_NOTE)
+    ws, last, rng = fig_sheet(wb, "F3 Probes vs paired",
+                              "CS-only probes against the paired trials", note, heads,
+                              data, [8, 15, 13, 15, 12],
+                              [None, None, "0.0", None, "0.0"])
+    fig_chart(ws, fig_anchor(heads), "Probe vs paired CR rate", "Block",
+              "% of scoreable trials",
+              [_series(ws, 3, FIG_HDR + 1, last, C.xl("cr")),
+               _series(ws, 5, FIG_HDR + 1, last, C.xl("cs"), symbol="triangle",
+                       dashed="dash")],
+              xmin=0.5, xmax=max(blocks) + 0.5, ymin=0, ymax=100)
+    return ("CS-only probes against the paired trials",
+            "the check that the learning is to the CS", "F3 Probes vs paired", rng)
+
+
+def fig_mean_onset(wb, paired):
+    """When the blink happens, block by block - over every response, never the CRs."""
+    blocks = sorted({r["block"] for r in paired if r["block"]})
+    data = []
+    for b in blocks:
+        o = onsets([r for r in paired if r["block"] == b])
+        if not o:
+            continue
+        sd = float(np.std(o, ddof=1)) if len(o) > 1 else None
+        data.append([b, len(o), round(float(np.mean(o)), 1),
+                     round(sd, 1) if sd is not None else None,
+                     round(sd / np.sqrt(len(o)), 1) if sd is not None else None,
+                     CR_LO, CR_HI])
+    if not data:
+        return None
+    heads = ["Block", "Responses n", "Mean blink onset (ms)", "SD (ms)", "SEM (ms)",
+             "CR window opens (ms)", "CR window closes (ms)"]
+    note = ONSET_NOTE + "  " + FIG_EDIT_NOTE
+    ws, last, rng = fig_sheet(wb, "F4 Mean blink onset by block",
+                              "Mean blink onset by block  -  CR, ?CR and UR together",
+                              note, heads, data, [8, 13, 19, 10, 10, 17, 17],
+                              [None, None, "0.0", "0.0", "0.0", "0.0", "0.0"],
+                              hdr_h=44)
+    lo = min(d[2] - (d[3] or 0) for d in data)
+    hi = max(d[2] + (d[3] or 0) for d in data)
+    fig_chart(ws, fig_anchor(heads),
+              "Mean blink onset by block", "Block", "ms from CS onset",
+              [_series(ws, 3, FIG_HDR + 1, last, C.xl("cr"), sd_col=4, trendline=True),
+               _series(ws, 6, FIG_HDR + 1, last, C.xl("muted"), symbol="none",
+                       dashed="sysDash"),
+               _series(ws, 7, FIG_HDR + 1, last, C.xl("muted"), symbol="none",
+                       dashed="sysDash")],
+              xmin=0.5, xmax=max(blocks) + 0.5,
+              ymin=round(min(lo, CR_LO) - 40), ymax=round(max(hi, CR_HI) + 40))
+    return ("Mean blink onset by block", "over CR, ?CR and UR - never the CRs alone",
+            "F4 Mean blink onset by block", rng)
+
+
+def fig_mean_closure(wb, name, groups, title, what):
+    """The eyelid trace itself, averaged - the readable version of 90 overlaid traces.
+
+    `groups` is [(column name, [rows])].  Every trace in a group is averaged sample by
+    sample on the trial clock, so one line is one group's typical eyelid movement, and
+    the lines can be compared with each other because they are all on the same pooled
+    closure scale.
+    """
+    t = None
+    cols = []
+    for gname, rs in groups:
+        stack = []
+        for r in rs:
+            TRC = (M["traces"].get(r["session"]) or {}).get(str(r["session_trial"]))
+            if not TRC:
+                continue
+            if t is None:
+                t = TRC["t"]
+            if len(TRC["C"]) >= len(t):
+                stack.append(TRC["C"][:len(t)])
+        if stack:
+            cols.append((gname, len(stack), np.mean(np.array(stack, float), axis=0)))
+    if not cols or t is None:
+        return None
+    heads = ["Time from CS onset (ms)"] + ["%s  (n=%d)" % (c[0], c[1]) for c in cols]
+    data = [[round(tv, 2)] + [round(float(c[2][i] * 100), 2) for c in cols]
+            for i, tv in enumerate(t)]
+    note = ("%s, averaged sample by sample on the trial clock. 0%% is that trial's "
+            "open-eye reference and 100%% is full closure on a scale pooled over every "
+            "recording of this participant, so any two lines here can be compared with "
+            "each other. This is the readable form of the raster and the overlaid "
+            "traces: every individual trace is on the next sheet if a subset is wanted. "
+            "%s" % (what, FIG_EDIT_NOTE))
+    ws, last, rng = fig_sheet(wb, name, title, note, heads, data,
+                              [21] + [15] * len(cols),
+                              ["0.00"] + ["0.0"] * len(cols), hdr_h=40)
+    lc = LineChart()
+    lc.title = title
+    lc.x_axis.title = "Time from CS onset (ms)"
+    lc.y_axis.title = "% eyelid closure"
+    lc.height, lc.width = 11, 26
+    lc.add_data(Reference(ws, min_col=2, max_col=len(cols) + 1, min_row=FIG_HDR,
+                          max_row=last), titles_from_data=True)
+    lc.set_categories(Reference(ws, min_col=1, min_row=FIG_HDR + 1, max_row=last))
+    # from the CS hue to the CR hue across the blocks, so the order of the lines is
+    # readable without hunting through the legend
+    for i, s in enumerate(lc.series):
+        f = i / max(len(lc.series) - 1, 1)
+        s.graphicalProperties.line = LineProperties(
+            solidFill=_blend(C.PALETTE["cs"], C.PALETTE["cr"], f), w=14000)
+        s.smooth = False
+    lc.x_axis.tickLblSkip = 12
+    ws.add_chart(lc, fig_anchor(heads))
+    return (title, what.lower(), name, rng)
+
+
+def _blend(a, b, f):
+    """Two house colours mixed, as openpyxl wants them."""
+    A = [int(a.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    B = [int(b.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "FF" + "".join("%02X" % round(x + (y - x) * f) for x, y in zip(A, B))
 
 
 LOGO = os.path.join(BASE, "assets", "logo_full.png")
@@ -749,9 +1078,20 @@ def build(block):
                else [(main_sheet, "One row per %s trial." % main_type.lower())])
     sheets += [
                ("Stimulus events", "Every accepted CS and US event with frame and time."),
-               ("Onset scatter", "Data behind the scatter, with a live Excel chart."),
-               ("Closure traces", "Full eyelid traces, time x trial, with a live chart."),
-               ("Figures", "Rendered PNG figures.")]
+               ("Figure index", "Every chart in this workbook: which sheet it is on and "
+                                "the exact cells it is drawn from."),
+               ("F1, F2, F3 ...", "One figure per sheet, each an Excel chart drawn from "
+                                  "the numbers printed beside it. One thing per chart - "
+                                  "change anything you like, the picture follows."),
+               ("Closure traces (data)", "Every trial's full eyelid trace, time x trial. "
+                                         "Data only: the averaged, readable version is a "
+                                         "figure sheet of its own."),
+               ("Video clips", "A few seconds of the recording itself for one trial of "
+                               "each kind, with the eye ratio and the blink count drawn "
+                               "on it. Which trial each clip shows, and why that one."),
+               ("Figures (rendered)", "The same figures as finished PNGs - richer, and "
+                                      "not editable. Each caption says which F-sheet "
+                                      "holds its numbers.")]
     for k, v in sheets:
         kv(ws, r, k, v, 20); r += 1
     widths(ws, [30, 112])
@@ -825,8 +1165,8 @@ def build(block):
               # a US-anchored book has no CS to be startled by, so its own cut-off is the
               # one the scorer used there, not the CR window's lower edge
               ("alpha <20 ms" if main_type == "US-only" else "alpha <%.0f ms" % ALPHA),
-              "UR / late", "Mean scored onset (ms)", "SD (ms)", "SEM (ms)",
-              "Median scored onset (ms)", "Min (ms)", "Max (ms)",
+              "UR / late", "Mean blink onset (ms)", "SD (ms)", "SEM (ms)",
+              "Median blink onset (ms)", "Min (ms)", "Max (ms)",
               "Mean peak closure (%)", "SD peak closure (%)",
               "Mean closure at US %d ms (%%)" % NOM["us_onset_ms"]]
         for j, x in enumerate(hd, 1):
@@ -840,7 +1180,7 @@ def build(block):
                 continue
             sc = scoreable(rs)
             cr = [r for r in sc if is_cr(r)]
-            o = [r["scored_onset_ms"] for r in sc if r["scored_onset_ms"] is not None]
+            o = onsets(rs)          # every response, never the CRs alone
             pk = [r["peak_closure_pct"] for r in sc if r["peak_closure_pct"]]
             n = len(o)
             sd = float(np.std(o, ddof=1)) if n > 1 else None
@@ -876,8 +1216,8 @@ def build(block):
         ws.cell(row=ri + 1, column=1, value=(
             "Scoreable = a trial whose response could be classified; a lid already closing at "
             "stimulus onset cannot be, and is excluded here but kept in the trial table. "
-            "Mean / SD / SEM are over the scored onsets of the scoreable trials. "
-            "n is small in a baseline recording - read the SD alongside it, not instead of it."
+            + ONSET_NOTE +
+            " n is small in a baseline recording - read the SD alongside it, not instead of it."
         )).font = F(size=9, color=MUT, italic=True)
         style_header(ws)
         widths(ws, [13, 26, 11] + [12] * (len(hd) - 3))
@@ -891,8 +1231,8 @@ def build(block):
               "To score by hand", "Scoreable", "CR n",
               "CR % of scoreable", "?CR n", "alpha <%.0f ms" % ALPHA, "UR only",
               "no later blink",
-              "Mean CR onset (ms)",
-              "SD (ms)", "Median CR onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)",
+              "Responses (CR+?CR+UR) n", "Mean blink onset (ms)",
+              "SD (ms)", "Median blink onset (ms)", "Mean peak closure (%)", "Mean closure at US (%)",
               "Recovered behind artefact"]
         for j, x in enumerate(hd, 1):
             ws.cell(row=1, column=j, value=x)
@@ -904,7 +1244,8 @@ def build(block):
                 continue
             sc = scoreable(rs)
             cr = [r for r in sc if is_cr(r)]
-            o = [r["scored_onset_ms"] for r in cr]
+            # over every response, never the CRs alone - see responses() and ONSET_NOTE
+            o = onsets(rs)
             name = "All pooled" if tag == "ALL" else rs[0]["session_name"]
             vals = [name, vid, round(SESSMETA[sess[0]]["duration_s"], 1) if tag != "ALL"
                     else round(sum(SESSMETA[t]["duration_s"] for t in sess), 1),
@@ -914,6 +1255,7 @@ def build(block):
                     sum(1 for r in sc if is_alpha(r)),
                     sum(1 for r in sc if is_ur(r)),
                     len(rs) - len(sc),
+                    len(o),
                     round(float(np.mean(o)), 1) if o else None,
                     round(float(np.std(o, ddof=1)), 1) if len(o) > 1 else None,
                     round(float(np.median(o)), 1) if o else None,
@@ -936,16 +1278,14 @@ def build(block):
 
         # ---------------- Block summary ----------------
         ws = wb.create_sheet("Block summary")
-        # "Mean scored onset" is over EVERY scoreable trial in the block; "Mean CR onset"
-        # only over the ones inside the CR window.  The pair is the point: the second is
-        # conditioned on already being a CR and so cannot show a block improving, because
-        # improving consists of trials crossing INTO the window.  The two charts below
-        # draw both, with a trendline and an R² each, so the difference is on the page.
+        # One mean onset, over every response in the block - CR, ?CR and UR - and never
+        # over the CRs alone: see responses() for why the second would read flat on
+        # somebody who is plainly learning.  This sheet is the numbers; the charts drawn
+        # from them are the F-sheets, one figure each.
         hd = ["Block", "Paired trials", "To score by hand", "Scoreable", "CR n", "CR %",
               "?CR n", "?CR %",
               "UR only n", "UR only %", "alpha n",
-              "Mean onset, every scoreable trial (ms)", "SD (ms)",
-              "Mean CR onset (ms)", "CR onset SD (ms)",
+              "Responses (CR+?CR+UR) n", "Mean blink onset (ms)", "SD (ms)",
               "Mean peak closure (%)", "Mean closure at US (%)"]
         for j, x in enumerate(hd, 1):
             ws.cell(row=1, column=j, value=x)
@@ -953,8 +1293,7 @@ def build(block):
             g = [r for r in paired if r["block"] == b]
             sc = scoreable(g)
             cr = [r for r in sc if is_cr(r)]
-            allo = [r["scored_onset_ms"] for r in sc]
-            o = [r["scored_onset_ms"] for r in cr]
+            o = onsets(g)
             vals = [b, len(g), sum(1 for r in g if r["needs_manual_scoring"]),
                     len(sc), len(cr), round(len(cr) / len(sc) * 100, 1) if sc else None,
                     sum(1 for r in sc if is_qcr(r)),
@@ -962,8 +1301,7 @@ def build(block):
                     sum(1 for r in sc if is_ur(r)),
                     round(100 * sum(1 for r in sc if is_ur(r)) / len(sc), 1) if sc else None,
                     sum(1 for r in sc if is_alpha(r)),
-                    round(float(np.mean(allo)), 1) if allo else None,
-                    round(float(np.std(allo, ddof=1)), 1) if len(allo) > 1 else None,
+                    len(o),
                     round(float(np.mean(o)), 1) if o else None,
                     round(float(np.std(o, ddof=1)), 1) if len(o) > 1 else None,
                     round(float(np.mean([r["peak_closure_pct"] for r in sc if r["peak_closure_pct"]])), 1) if sc else None,
@@ -973,17 +1311,15 @@ def build(block):
                 c.font = F(size=10, color=INK)
                 c.border = Border(bottom=thin)
                 c.alignment = Alignment(horizontal="right")
-        style_header(ws)
-        widths(ws, [8, 11, 13, 10, 8, 9, 9, 9, 10, 10, 8, 30, 9, 15, 13, 14, 15])
-        ws.sheet_view.showGridLines = False
         n = len(set(r["block"] for r in paired)) + 1
+        ws.cell(row=n + 2, column=1, value=ONSET_NOTE).font = F(size=9, color=MUT,
+                                                               italic=True)
+        style_header(ws)
+        widths(ws, [8, 11, 13, 10, 8, 9, 9, 9, 10, 10, 8, 17, 17, 9, 14, 15])
+        ws.sheet_view.showGridLines = False
         ws.conditional_formatting.add("F2:F" + str(n), ColorScaleRule(
             start_type="num", start_value=0, start_color=WHITE,
             end_type="num", end_value=100, end_color=C.xl("us_mid")))
-        # The two block panels of the figures, as Excel's own charts: the numbers are in
-        # the cells beside them, the trendline and its R² are Excel's, and every part of
-        # both is editable in the place people actually edit figures.
-        block_charts(ws, n)
 
     # ---------------- trial tables ----------------
     write_table(wb.create_sheet(main_sheet), main)
@@ -1019,18 +1355,48 @@ def build(block):
     ws.freeze_panes = "C2"
     ws.sheet_view.showGridLines = False
 
-    # ---------------- Onset scatter ----------------
+    # ---------------- the figures, one per sheet ----------------
+    # Index first so it comes before the sheets it lists; it is filled in at the end,
+    # once each figure has reported the range its chart actually reads.
+    idx_ws = wb.create_sheet("Figure index")
+    FIGS = []
     us_anchored = bool(main) and main[0]["trial_type"] == "US-only"
-    scatter_sheet(wb.create_sheet("Onset scatter"), main, bool(paired),
-                  "Paired CS-US trial, in order" if paired else "%s trial" % main_type,
-                  "Blink latency per trial, from the puff" if us_anchored
-                  else "Blink onset per trial, relative to CS and US", us_anchored)
-    if paired and csonly:
-        scatter_sheet(wb.create_sheet("CS-only scatter"), csonly, False,
-                      "CS-only probe (one per block)", "CS-only probes - blink onset")
+    if paired:
+        FIGS.append(fig_cr_rate(wb, paired))
+        FIGS.append(fig_response_mix(wb, paired))
+        FIGS.append(fig_probe_vs_paired(wb, paired, csonly) if csonly else None)
+        FIGS.append(fig_mean_onset(wb, paired))
+        FIGS.append(fig_onset_per_trial(
+            wb, "F5 Onset per trial", "Blink onset per paired trial", main, False,
+            "Paired CS-US trial, in the order they were run"))
+        if csonly:
+            FIGS.append(fig_onset_per_trial(
+                wb, "F6 Probe onset per trial", "Blink onset per CS-only probe", csonly,
+                False, "CS-only probe (one per block)"))
+        FIGS.append(fig_mean_closure(
+            wb, "F7 Mean closure by block", [("Block %d" % b,
+                                              [r for r in paired if r["block"] == b])
+                                             for b in sorted({r["block"] for r in paired
+                                                              if r["block"]})],
+            "Mean eyelid closure, block by block",
+            "The paired trials of each block"))
+    else:
+        FIGS.append(fig_onset_per_trial(
+            wb, "F1 Onset per trial",
+            "Blink latency per trial, from the puff" if us_anchored
+            else "Blink onset per trial", main, us_anchored,
+            "%s trial, in the order they were run" % main_type))
+        FIGS.append(fig_mean_closure(
+            wb, "F2 Mean closure by recording",
+            [(SESSMETA[t]["label"], [r for r in main if r["session"] == t]) for t in sess],
+            "Mean eyelid closure, recording by recording",
+            "The trials of each recording"))
 
-    # ---------------- Closure traces ----------------
-    ws = wb.create_sheet("Closure traces")
+    # ---------------- Closure traces (data) ----------------
+    # Every trial's trace, and deliberately no chart over it.  Ninety grey lines on one
+    # axis is a picture nobody can read a trial off; the averaged version is a figure
+    # sheet of its own, and this sheet is here so any subset can be charted by hand.
+    ws = wb.create_sheet("Closure traces (data)")
     t = None
     series = []
     for r in rows:
@@ -1051,39 +1417,159 @@ def build(block):
     widths(ws, [21] + [17] * len(series))
     ws.freeze_panes = "B2"
     ws.sheet_view.showGridLines = False
-    lc = LineChart()
-    lc.title = "Eyelid closure (%) - every trial, aligned to yellow LED onset"
-    lc.x_axis.title = "Time from CS onset (ms)"
-    lc.y_axis.title = "% eyelid closure"
-    lc.height, lc.width = 12, 28
-    lc.add_data(Reference(ws, min_col=2, max_col=len(series) + 1, min_row=1, max_row=len(t) + 1),
-                titles_from_data=True)
-    lc.set_categories(Reference(ws, min_col=1, min_row=2, max_row=len(t) + 1))
-    for s in lc.series:
-        s.graphicalProperties.line = LineProperties(solidFill=C.xl("trace"), w=6000)
-        s.smooth = False
-    lc.x_axis.tickLblSkip = 12
-    lc.legend = None
-    ws.add_chart(lc, get_column_letter(len(series) + 3) + "2")
+    c = ws.cell(row=len(t) + 3, column=1,
+                value="One column per trial, %d in all, on the trial clock in column A. "
+                      "0%% is that trial's open-eye reference and 100%% full closure, on "
+                      "one scale pooled over every recording of this participant. There "
+                      "is no chart here on purpose: %d lines on one axis cannot be read. "
+                      "The block averages are charted on the mean-closure figure sheet, "
+                      "and any subset of these columns can be selected and charted from "
+                      "here." % (len(series), len(series)))
+    c.font = F(size=9, color=MUT, italic=True)
 
-    # ---------------- Figures ----------------
-    ws = wb.create_sheet("Figures")
+    # ---------------- Video clips ----------------
+    # The one output in this folder that can be checked without reading a number: a few
+    # seconds of the recording itself with the eye ratio, the closure trace and the blink
+    # count drawn on it.  Listed here so the workbook says which trial each clip is of -
+    # a clip whose trial cannot be found in the trial table proves nothing about it.
+    CLIPS = clips_manifest()
+    if CLIPS and (CLIPS.get("clips") or CLIPS.get("missing")):
+        ws = wb.create_sheet("Video clips")
+        ws.sheet_view.showGridLines = False
+        ws.cell(row=1, column=1, value="Watch what was scored"
+                ).font = F(bold=True, size=13, color=INK)
+        c = ws.cell(row=2, column=1, value=(
+            "One prototypical trial of each kind, cut from the recording itself with the "
+            "eye ratio that was measured off it, the eyelid trace being drawn as it "
+            "happens, the running blink count and both stimulus LEDs read off each "
+            "frame. The files are beside this workbook. Every trial named here is in the "
+            "trial tables of this workbook or of a companion one, at the row given, so "
+            "any clip can be checked against the numbers it claims to show. They are "
+            "chosen for being ORDINARY - the trial closest to the middle of that kind - "
+            "not for being the clearest."))
+        c.font = F(size=9, color=MUT)
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=7)
+        ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[2].height = 56
+        hd = ["Clip", "Shows", "Recording", "Trial in recording", "Block",
+              "Scored class", "Scored onset (ms)", "At in the recording",
+              "Why this trial was chosen"]
+        for j, x in enumerate(hd, 1):
+            ws.cell(row=4, column=j, value=x)
+        ri = 5
+        for k in CLIPS.get("clips") or []:
+            vals = [k["file"], CLIP_SHOWS.get(k["kind"], k["kind"]), k["recording"],
+                    k["session_trial"], k["block"], k["scored_class"],
+                    k["scored_onset_ms"], clock(k.get("at_in_video")),
+                    k["chosen_because"]]
+            for j, v in enumerate(vals, 1):
+                c = ws.cell(row=ri, column=j, value=v)
+                c.font = F(size=10, color=INK, bold=(j == 1))
+                c.border = Border(bottom=thin)
+                c.alignment = Alignment(horizontal="left" if j in (1, 2, 3, 6, 8, 9)
+                                        else "right", vertical="top", wrap_text=(j == 9))
+                if j == 7:
+                    c.number_format = "0.0"
+            ws.row_dimensions[ri].height = 30
+            ri += 1
+        for m in CLIPS.get("missing") or []:
+            c = ws.cell(row=ri, column=1, value="(no clip)")
+            c.font = F(size=10, color=ACTION, bold=True)
+            c = ws.cell(row=ri, column=2, value=CLIP_SHOWS.get(m["kind"], m["kind"]))
+            c.font = F(size=10, color=ACTION)
+            c = ws.cell(row=ri, column=3, value=(
+                "This participant produced no trial of this kind that the scorer will "
+                "stand behind, so there is nothing to show. That is a result about the "
+                "participant, not a gap in the output - no clip of something else has "
+                "been substituted for it."))
+            c.font = F(size=10, color=ACTION, italic=True)
+            ws.merge_cells(start_row=ri, start_column=3, end_row=ri, end_column=9)
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+            ws.row_dimensions[ri].height = 30
+            ri += 1
+        style_header(ws, 4)
+        widths(ws, [20, 30, 22, 13, 8, 22, 13, 16, 54])
+
+    # ---------------- Figures (rendered) ----------------
+    ws = wb.create_sheet("Figures (rendered)")
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Rendered figures"
     ws["A1"].font = F(bold=True, size=13, color=INK)
-    r = 3
-    for f, cap in cfg["figs"]:
-        f = os.path.join(OUT, f)
+    c = ws.cell(row=2, column=1,
+                value="Finished PNGs: richer than the Excel charts and not editable. "
+                      "Everything drawn here is on one of the F-sheets as numbers with a "
+                      "live chart - see the Figure index - so nothing on this sheet is "
+                      "the only copy of anything.")
+    c.font = F(size=9, color=MUT, italic=True)
+    r = 4
+    for fn, cap in cfg["figs"]:
+        f = os.path.join(OUT, fn)
         if not os.path.exists(f):
             continue
         im = XLImage(f)
         ws.cell(row=r, column=1, value=cap).font = F(bold=True, size=10, color=MUT)
         r += 1
+        # Which sheet holds this picture's numbers, on the picture rather than in a
+        # separate legend: a PNG that leaves the workbook in an email should still say
+        # where the data behind it lives.
+        # only sheets this workbook actually has: a book with no probes has no F3, and
+        # naming one would send the reader looking for a tab that is not there
+        names = [n for n in PNG_DATA.get(fn, ()) if n in wb.sheetnames]
+        if names:
+            c = ws.cell(row=r, column=1,
+                        value="Editable version, with the numbers: sheet %s" % and_list(names))
+            c.font = F(size=9, color=ACTION, italic=True)
+            r += 1
         k = min(1200 / im.width, 1.0)
         im.width, im.height = int(im.width * k), int(im.height * k)
         ws.add_image(im, "A" + str(r))
         r += int(im.height / 19) + 3
     widths(ws, [115])
+
+    # ---------------- Figure index ----------------
+    # Filled last, from what each figure reported, so it cannot list a range that no
+    # chart reads or miss one that a chart does.
+    ws = idx_ws
+    ws.sheet_view.showGridLines = False
+    ws.cell(row=1, column=1, value="Every chart in this workbook, and where it reads from"
+            ).font = F(bold=True, size=13, color=INK)
+    c = ws.cell(row=2, column=1,
+                value="One figure per sheet and one thing per figure. Each is an Excel "
+                      "chart drawn from the cells printed on its own sheet, so the "
+                      "colours, the axes, the trendline and which blocks are in it are "
+                      "all yours to change - and you can see exactly which numbers "
+                      "produced the picture. The finished PNGs are on the last sheet.")
+    c.font = F(size=9, color=MUT)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=4)
+    ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[2].height = 40
+    hd = ["Figure", "What it shows", "Sheet", "Cells the chart reads"]
+    for j, x in enumerate(hd, 1):
+        ws.cell(row=4, column=j, value=x)
+    ri = 5
+    for item in FIGS:
+        if not item:
+            continue
+        for j, v in enumerate(item, 1):
+            c = ws.cell(row=ri, column=j, value=v)
+            c.font = F(size=10, color=INK if j != 4 else ACTION,
+                       bold=(j == 1))
+            c.border = Border(bottom=thin)
+            c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=(j == 2))
+        ws.row_dimensions[ri].height = 26
+        ri += 1
+    ws.cell(row=ri, column=1, value="Closure traces (data)").font = F(size=10, bold=True,
+                                                                     color=INK)
+    ws.cell(row=ri, column=2, value="Every trial's full eyelid trace. Data only - no "
+                                    "chart, on purpose").font = F(size=10, color=INK)
+    ws.cell(row=ri, column=3, value="Closure traces (data)").font = F(size=10, color=INK)
+    ws.cell(row=ri + 2, column=1, value=ONSET_NOTE).font = F(size=9, color=MUT,
+                                                             italic=True)
+    ws.merge_cells(start_row=ri + 2, start_column=1, end_row=ri + 2, end_column=4)
+    ws.cell(row=ri + 2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[ri + 2].height = 60
+    style_header(ws, 4)
+    widths(ws, [36, 52, 30, 26])
 
     out = os.path.join(OUTDIR, cfg["file"])
     try:

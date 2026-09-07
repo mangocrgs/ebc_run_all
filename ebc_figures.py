@@ -75,13 +75,30 @@ PLATE = dict(fc="white", ec="none", alpha=.82, pad=1.6)
 
 
 def window_note(win):
-    """One line saying where the CR window came from, for under a title."""
+    """One line saying where the CR window came from, for under a title.
+
+    Three cases, not two.  A standard window is a CHOICE - every study scored on the same
+    two numbers so participants can be compared - and it is taken whether or not this
+    study measured its own reflex.  Saying "no US-only baseline" there is simply false on
+    a participant who has one, and it was printed on every figure of every standard-window
+    run until this said otherwise.
+    """
     if win["measured"]:
         return ("CR window %.0f–%.0f ms  ·  both edges sit %.0f ms after their own "
                 "stimulus, the reflex latency measured in the US-only baseline "
                 "(mean − %.1f SD of %d unconditioned onsets)"
                 % (win["lo_ms"], win["hi_ms"], win["reflex_ms"],
                    win["reflex"]["k"], win["reflex"]["n"]))
+    if win.get("standard"):
+        r = win.get("reflex") or {}
+        return ("CR window %.0f–%.0f ms  ·  the standard window: the protocol's startle "
+                "cut-off and the US onset, the same two numbers for every participant%s"
+                % (win["lo_ms"], win["hi_ms"],
+                   ", so this study's own measured reflex (%d blinks at %.0f ± %.0f ms) "
+                   "is recorded beside the results but did not score them"
+                   % (r["n"], r["mean_ms"], r["sd_ms"])
+                   if r.get("onset_ms") is not None
+                   else "  ·  no US-only baseline here to measure a reflex from either"))
     return ("CR window %.0f–%.0f ms  ·  no US-only baseline to measure the reflex "
             "from, so the protocol's startle cut-off and the bare US onset are used"
             % (win["lo_ms"], win["hi_ms"]))
@@ -234,9 +251,10 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
     if blocks:
         bx, by = [], []
         for b in blocks:
+            # the same set block_onset() averages: every response, startle excluded
             g = [r["scored_onset_ms"] for r in rows if r["block"] == b
                  and r["scored_onset_ms"] is not None
-                 and not excluded(r["scored_class"], win)]
+                 and C.is_response(r["scored_class"], win)]
             if g:
                 bx.append((b - .5) * per_block + .5); by.append(float(np.mean(g)))
         ax.plot(bx, by, "-o", color=INK, lw=2.8, ms=9, zorder=6,
@@ -302,7 +320,7 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
          for k in present]
     if blocks:
         h += [Line2D([], [], color=INK, lw=2.8, marker="o", ms=9, mfc="white", mew=2.2,
-                     label="block mean (learning curve)")]
+                     label="block mean onset  ·  CR, ?CR and UR")]
     h += [Line2D([], [], color=LINK, lw=1.2, label="trial order")]
     # The two edges of the CR window, named the way the published figures name them, so
     # a reader coming from one of those knows which line is which without the caption.
@@ -349,30 +367,30 @@ def block_rate(rows, cls_prefix, win):
     return out
 
 
-def block_onset(rows, win=None, every=False):
+def block_onset(rows, win):
     """Per block: the mean blink onset and its SD, and how many it is over.
 
-    The SD is the spread of the onsets in that block and nothing else - no SD is shown
-    for a block with one onset in it, because one number has no spread, and none is shown
-    for a block with none.
+    Over every RESPONSE in the block - CR, ?CR and UR alike - and never over the CRs
+    alone.  A mean taken over the CRs is conditioned on already being inside the CR
+    window, so it cannot show the thing this panel exists to show: a block improves by
+    trials crossing INTO the window, and a mean computed inside the window cannot see
+    them arrive.  On Marie the CR-only mean is flat - 214 ms in block 1, 245 in block 10,
+    R² 0.001 - while her CR rate goes 33% to 86%, which reads as "she learnt but the
+    timing never changed" and is an artefact of the selection.  Over every response the
+    same blocks run 310 ms to 220 ms: the blink moving from after the puff to before it,
+    which is the evolution over time this is drawn for.
 
-    `every` decides WHICH onsets, and the difference between the two answers is the point
-    of drawing both.  Over the CRs alone the mean is conditioned on already being inside
-    the CR window: it cannot move much, because a block improves by trials CROSSING INTO
-    the window, not by the ones already in it starting earlier.  On Marie that mean is
-    flat - 214 ms in block 1, 245 in block 10, R² 0.001 - while her CR rate goes 33% to
-    86%, which reads as "she learnt but the timing never changed" and is an artefact of
-    the selection.  Over every scoreable trial the same blocks run 310 ms to 220 ms, R²
-    0.69: the blink moving from after the puff to before it, which is the learning
-    itself.  Neither number is wrong; the first answers "how well timed are the CRs" and
-    the second "where is the blink", and only the second can show the shift.
+    ebc_config.is_response decides what counts, so the startle blinks that began before
+    either stimulus could have caused anything stay out of the average.
+
+    The SD is the spread of the onsets in that block and nothing else - no SD is shown
+    for a block with one onset in it, because one number has no spread.
     """
     out = []
     for b in sorted({r["block"] for r in rows if r["block"]}):
         o = [r["scored_onset_ms"] for r in rows
              if r["block"] == b and r["scored_onset_ms"] is not None
-             and (not excluded(r["scored_class"], win) if every
-                  else str(r["scored_class"]).startswith("CR"))]
+             and C.is_response(r["scored_class"], win)]
         if not o:
             continue
         out.append((b, float(np.mean(o)),
@@ -391,16 +409,16 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
     the learning is real and stable rather than an artefact of the puff arriving.
 
     The lower panel is the same measurement in time rather than in count: the mean onset
-    of the CRs scored in each block, with the SD of that block's onsets.  A CR rate that
-    climbs while the onsets creep earlier is the response moving to where it does some
-    good; a rate that climbs with no change in onset is a different thing and is worth
-    seeing separately.
+    of every response scored in each block - CR, ?CR and UR together - with the SD of
+    that block's onsets.  It is deliberately not the mean of the CRs: see block_onset.
+    A rate that climbs while the onsets walk in from after the puff to before it is one
+    response moving, which is what learning looks like in time.
     """
     paired = block_rate(rows, "CR", win)
     if not paired:
         return
     urs = block_rate(rows, "UR", win)
-    onsets = block_onset(rows)
+    onsets = block_onset(rows, win)
     pr = block_rate(probes, "CR", win) if probes else []
 
     f, (a, b_ax) = plt.subplots(2, 1, figsize=(13.5, 8.4), sharex=True,
@@ -454,30 +472,20 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
         oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
         b_ax.errorbar(ox, om, yerr=oe, fmt="-o", color=CR_C, lw=2.2, ms=7.5,
                       ecolor=CR_C, elinewidth=1.4, capsize=4, alpha=.95,
-                      label="mean CR onset  ·  the CRs only", zorder=5)
+                      label="mean blink onset  ·  every response (CR, ?CR and UR)",
+                      zorder=5)
         for x_, y_, sd_, n_ in onsets:
             b_ax.annotate("n=%d" % n_, (x_, y_), textcoords="offset points",
                           xytext=(10, -3.5), ha="left", fontsize=8, color=MUT)
         trend(b_ax, ox, om, CR_C)
-        # The same blocks over EVERY scoreable trial.  The line above is conditioned on
-        # already being a CR, so it cannot show the shift that makes one: a block gets
-        # better by trials crossing into the window, and a mean taken inside the window
-        # cannot see them arrive.  This one can, and on a learner it falls while the
-        # other stays put.
-        allo = block_onset(rows, win, every=True)
-        if allo and len(allo) > 2:
-            ax_, am = [o[0] for o in allo], [o[1] for o in allo]
-            b_ax.plot(ax_, am, "-s", color=MUT, lw=1.6, ms=5.5, alpha=.85, zorder=4,
-                      label="mean blink onset  ·  every scoreable trial")
-            trend(b_ax, ax_, am, MUT, where="upper left", pad=(8, -8))
         b_ax.axhspan(win["lo_ms"], win["hi_ms"], color=CR_C, alpha=.07, zorder=0)
-        lows = [o[1] - (o[2] or 0) for o in onsets] + [o[1] for o in (allo or [])]
-        highs = [o[1] + (o[2] or 0) for o in onsets] + [o[1] for o in (allo or [])]
+        lows = [o[1] - (o[2] or 0) for o in onsets]
+        highs = [o[1] + (o[2] or 0) for o in onsets]
         b_ax.set_ylim(min([win["lo_ms"]] + lows) - 30, max([win["hi_ms"]] + highs) + 30)
-        b_ax.legend(fontsize=8.5, frameon=False, loc="lower right", ncol=2,
+        b_ax.legend(fontsize=8.5, frameon=False, loc="lower right",
                     handletextpad=.5, columnspacing=1.6)
     else:
-        b_ax.text(.5, .5, "no CR onsets to average", transform=b_ax.transAxes,
+        b_ax.text(.5, .5, "no responses to average", transform=b_ax.transAxes,
                   ha="center", va="center", fontsize=10, color=MUT)
     b_ax.set_ylabel("mean blink onset ± SD  (ms)", fontsize=11)
     b_ax.set_xticks(xs)
@@ -518,7 +526,7 @@ def paper(rows, probes, proto, win, title, odir, key="cond"):
     us0 = des["isi_ms"]
     lo, hi = win["lo_ms"], win["hi_ms"]
     RED, EDGE = P["ur"], P["ur"]
-    onsets = block_onset(rows)
+    onsets = block_onset(rows, win)
     rates = block_rate(rows, "CR", win)
 
     f = plt.figure(figsize=(11.6, 10.6))
@@ -619,28 +627,20 @@ def paper(rows, probes, proto, win, title, odir, key="cond"):
         ox = [o[0] for o in onsets]
         om = [o[1] for o in onsets]
         oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
+        # see block_onset(): over every response, never over the CRs alone.  A mean taken
+        # inside the CR window cannot show trials arriving in it, which is what a block
+        # improving actually consists of.
         c_ax.errorbar(ox, om, yerr=oe, fmt="D", ms=5.2, mfc="none", mec=EDGE, mew=1.1,
-                      ecolor=EDGE, elinewidth=1.0, capsize=2.5, ls="none", zorder=3,
-                      label="CRs only")
+                      ecolor=EDGE, elinewidth=1.0, capsize=2.5, ls="-", lw=1.2,
+                      color=EDGE, zorder=3)
         trend(c_ax, ox, om, RED)
-        # see block_onset(): a mean taken inside the CR window cannot show trials
-        # arriving in it, which is what a block improving actually consists of
-        allo = block_onset(rows, win, every=True)
-        if allo and len(allo) > 2:
-            ax_, am = [o[0] for o in allo], [o[1] for o in allo]
-            c_ax.plot(ax_, am, "-", color=MUT, lw=1.3, alpha=.9, zorder=2,
-                      label="every scoreable trial")
-            trend(c_ax, ax_, am, MUT, where="upper left", pad=(8, -8))
-            c_ax.legend(fontsize=7.5, frameon=False, loc="lower left",
-                        handletextpad=.5, borderaxespad=.2)
         c_ax.set_xticks(ox)
         c_ax.set_xticklabels(["block %d" % b for b in ox], rotation=90, fontsize=7.5)
-        c_ax.set_ylim(min(0, lo - 120),
-                      max(list(om) + [o[1] for o in (allo or [])]) + max(oe) + 120)
+        c_ax.set_ylim(min(0, lo - 120), max(om) + max(oe) + 120)
     else:
-        c_ax.text(.5, .5, "no CR onsets to average", transform=c_ax.transAxes,
+        c_ax.text(.5, .5, "no responses to average", transform=c_ax.transAxes,
                   ha="center", va="center", fontsize=9, color=MUT)
-    c_ax.set_title("Mean blink onset", fontsize=10.5, color=INK)
+    c_ax.set_title("Mean blink onset  ·  CR, ?CR and UR", fontsize=10.5, color=INK)
     c_ax.set_ylabel("ms from CS", fontsize=9.5)
     c_ax.tick_params(labelsize=8)
     c_ax.grid(axis="y", color=GRID, lw=.7); c_ax.set_axisbelow(True)

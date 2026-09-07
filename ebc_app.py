@@ -319,6 +319,7 @@ PHASE = {"timeline": "putting the recordings in order",
          "triage": "checking the LED signal quality",
          "protocol": "building trials", "eyes": "tracking eyelids",
          "score": "scoring", "figures": "drawing figures",
+         "clips": "cutting the example clips",
          "export_csv": "writing tables", "workbooks": "building workbooks",
          "qc": "quality-check pages",
          "starting": "starting", "checking": "checking this computer",
@@ -340,6 +341,9 @@ PHASE_ADVICE = {
     "eyes": "A short seek per trial - roughly 4 minutes per recording.",
     "score": "Seconds.",
     "figures": "Seconds.",
+    "clips": "Cutting four short videos - one trial of each kind, with the eye ratio "
+             "and the blink count drawn on them - so you can see what was scored. "
+             "About a minute.",
     "export_csv": "Seconds.",
     "workbooks": "Seconds.",
     "qc": "Drawing the LED check pages - open these first when it finishes.",

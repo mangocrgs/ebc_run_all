@@ -75,7 +75,10 @@ def run_parallel(script, cfg_path, tags, jobs, log_dir):
 
 
 DELIVER_DIR = "EBC results"
-DELIVER_EXT = (".xlsx", ".png", ".csv")
+# .mp4 is here for the exemplar clips ebc_clips writes.  They are small - a few seconds
+# of one crop - and they are the one output somebody can check the analysis against
+# without opening a spreadsheet, so they belong next to the recordings like the rest.
+DELIVER_EXT = (".xlsx", ".png", ".csv", ".mp4")
 
 
 def deliver(cfg, odir):
@@ -241,6 +244,10 @@ def main():
         run("ebc_score.py", cfg_path)
     if "report" in todo:
         run("ebc_figures.py", cfg_path)
+        # Before the workbooks, which list the clips on a sheet of their own.  Allowed to
+        # fail: it re-decodes four short windows of video, and a recording that has been
+        # moved since the run is not a reason to lose the workbooks and the figures.
+        run("ebc_clips.py", cfg_path, allow_fail=True)
         run("ebc_export_csv.py", cfg_path)
         run("ebc_workbooks.py", cfg_path)
         run("ebc_qc.py", cfg_path, "leds")

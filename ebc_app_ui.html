@@ -2165,15 +2165,17 @@ const PHASES = {checking:"checking this computer", starting:"starting",
                 stimulus:"reading the LEDs", triage:"checking the LED signal quality",
                 timeline:"putting the recordings in order",
                 protocol:"building trials", eyes:"tracking eyelids", score:"scoring",
-                figures:"drawing figures", export_csv:"writing tables",
+                figures:"drawing figures", clips:"cutting the example clips",
+                export_csv:"writing tables",
                 workbooks:"building workbooks", qc:"quality-check pages",
                 done:"done", error:"stopped", idle:"idle"};
 
 // Where each stage sits along the whole run. Reading the LEDs and tracking eyelids are
 // the long ones and carry per-recording progress; the rest are seconds.
-const WEIGHT = {checking:0, starting:.01, locate:.02, stimulus:.05, triage:.60,
-                protocol:.62, eyes:.64, score:.92, figures:.94, export_csv:.96,
-                workbooks:.98, qc:.99, done:1};
+const WEIGHT = {checking:0, starting:.01, timeline:.015, locate:.02, stimulus:.05,
+                triage:.60,
+                protocol:.62, eyes:.64, score:.92, figures:.93, clips:.94,
+                export_csv:.96, workbooks:.98, qc:.99, done:1};
 
 const phaseName = s => s.phase_label || PHASES[s.phase] || s.phase;
 

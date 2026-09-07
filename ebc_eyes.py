@@ -81,6 +81,50 @@ def face_box(path, tag, wdir, W, H, fps, nfr):
     return box
 
 
+def geometry(cfg, rec, wdir, W, H, fps, nfr):
+    """The crop every trial of one recording is cut from, and what sits inside it.
+
+    Both the face and the anchoring LED are inside one rectangle, so the stimulus onset
+    can be re-found in the same frames the eyelid is measured in rather than trusted from
+    the seek.  `FS` slices the face out of that crop and `LS` the LED patch.
+
+    It is a function rather than the inside of main() because ebc_clips renders its
+    exemplar clips from these very pixels.  A clip cut from a different rectangle than
+    the one that was measured is not evidence of what was measured, and two copies of
+    this arithmetic would drift apart the first time either was touched.
+    """
+    with open(os.path.join(wdir, rec["tag"] + "_stim.json"), encoding="utf-8") as fh:
+        stim = json.load(fh)
+    MS = 1000.0 / fps
+    fb = face_box(rec["path"], rec["tag"], wdir, W, H, fps, nfr)
+    us_anchored = rec.get("anchor", "cs") == "us" and rec["role"] != "baseline_us"
+    anchor_led = "blue" if (rec["role"] == "baseline_us" or us_anchored) else "yellow"
+    # A US-anchored trial is cut around the *inferred* CS onset, so the blue flash sits
+    # us_onset_ms into the window.  Find it there and step back to keep k0 meaning what it
+    # means everywhere else: the index of CS onset.  Nothing downstream has to change.
+    us_lag = int(round(cfg["protocol"]["us_onset_ms"] / MS)) if us_anchored else 0
+    led = stim["leds"].get(anchor_led) or list(stim["leds"].values())[0]
+    if led.get("position"):                       # where the LED actually lit up
+        lx, ly = led["position"]["x"], led["position"]["y"]
+        # a camera moved mid-recording leaves the LED in two places; carry both
+        wander = max(led["position"]["spread_x"], led["position"]["spread_y"]) // 2
+    else:
+        bx, by, bw, bh = led["box"]
+        lx, ly, wander = bx + bw // 2, by + bh // 2, max(bw, bh) // 2
+    led_half = LED_HALF + wander
+
+    fx0 = max(0, fb["x0"] - FACE_MARGIN); fx1 = min(W, fb["x1"] + FACE_MARGIN)
+    fy0 = max(0, fb["y0"] - FACE_MARGIN); fy1 = min(H, fb["y1"] + FACE_MARGIN)
+    cx0, cy0, cw, ch = crop_box(min(fx0, lx - led_half), min(fy0, ly - led_half),
+                                max(fx1, lx + led_half), max(fy1, ly + led_half), W, H)
+    FS = (slice(int(fy0) - cy0, min(int(fy1) - cy0, ch)), slice(int(fx0) - cx0, min(int(fx1) - cx0, cw)))
+    LS = (slice(max(0, ly - led_half - cy0), min(ch, ly + led_half - cy0)),
+          slice(max(0, lx - led_half - cx0), min(cw, lx + led_half - cx0)))
+    return dict(stim=stim, fb=fb, crop=(cx0, cy0, cw, ch), FS=FS, LS=LS,
+                anchor_led=anchor_led, led_xy=(int(lx), int(ly)), led_half=int(led_half),
+                us_anchored=us_anchored, us_lag=us_lag)
+
+
 def main():
     cfg = C.load(sys.argv[1])
     tag = sys.argv[2]
@@ -117,8 +161,6 @@ def main():
             log(tag, "traces on disk are for a different set of trials "
                      "(%d cached vs %d now, %d anchor(s) moved) - recutting"
                 % (len(have), len(trials), len(stale)))
-    with open(os.path.join(wdir, tag + "_stim.json"), encoding="utf-8") as fh:
-        stim = json.load(fh)
 
     path = rec["path"]
     W, H, fps, nfr = probe(path)

@@ -422,6 +422,30 @@ def is_scoreable(cls, win):
     return not (c in (win.get("excluded_labels") or ()) or c.startswith("spontaneous"))
 
 
+def is_response(cls, win):
+    """Whether this blink is a response to the trial's stimuli at all.
+
+    Every scoreable class except alpha/startle: CR, ?CR, UR, and the late response a
+    probe can give.  This is the set the mean blink ONSET is taken over, and it is not
+    the same set the rates are taken over, deliberately.
+
+    A rate asks "how many of the trials were CRs", and a startle is a trial that was not,
+    so it belongs in that denominator.  A mean onset asks "when does this person's blink
+    happen", and a startle happened before either stimulus could have caused it - it is a
+    twitch that the CS interrupted rather than caused, arriving 30-90 ms in, and dropping
+    a handful of those into the average pulls it down by tens of milliseconds and makes a
+    block look early for a reason that has nothing to do with learning.
+
+    What it does keep is a ?CR and a UR, and that is the point of having the function.
+    The mean taken over the CRs alone is conditioned on already being inside the CR
+    window, so it cannot show the thing it is drawn to show: a block improves by trials
+    crossing INTO the window, and a mean computed inside the window cannot see them
+    arrive.  Over CR, ?CR and UR together the blink is free to be anywhere, and the mean
+    walks in from after the puff to before it - which is the learning itself.
+    """
+    return is_scoreable(cls, win) and not str(cls).startswith("alpha")
+
+
 def pair_window_s(proto):
     """How long after a CS onset a US may fall and still belong to that CS.
 

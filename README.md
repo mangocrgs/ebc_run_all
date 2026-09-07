@@ -664,8 +664,9 @@ the individual onsets that went into it.
 | `ebc_eyes.py` | Per recording: eyelid tracking in a window around every trial. |
 | `ebc_score.py` | One pooled closure scale, blink metrics, response classes. |
 | `ebc_figures.py` | Onset scatter, acquisition curve, closure rasters — one set per trial group — and `cond_paper_figure.png`, the same numbers in the published style. |
+| `ebc_clips.py` | Four short MP4s: one prototypical trial of each kind, with the eye ratio, the closure trace and the blink count drawn on the recording's own frames. |
 | `ebc_export_csv.py` | Trials, stimulus events and full traces as CSV. |
-| `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me. |
+| `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me and its figures as live Excel charts. |
 | `ebc_qc.py` | `leds` — the LED check page per recording. `trial <tag> <n>` — an eye filmstrip with the measured closure printed on each frame. |
 | `ebc_run_all.py` | The driver. |
 | `ebc_app.py`, `ebc_app_ui.html` | The window and what it shows. Writes a study file and runs the driver on it. |
@@ -730,6 +731,9 @@ Everything lands in `<video_dir>/analysis_EBC/`:
 - `EBC_<study>_conditioning.xlsx`, `_extinction.xlsx`, `_baseline_cs.xlsx`, `_baseline_us.xlsx`
 - `qc_leds_<tag>.png` — the stimulus-detection check, one per recording
 - `cond_*`, `ext_*`, `baseline_*` PNG figures
+- `clip_CR.mp4`, `clip_qCR.mp4`, `clip_CSonly.mp4`, `clip_UR.mp4` — one prototypical trial
+  of each kind, with the numbers on it; `clips_index.csv` and `clips.json` say which trial
+  each one is and why that one
 - `trials_*.csv`, `stimulus_events.csv`, `closure_traces_all.csv`
 - `trials_to_score_by_hand.csv` — the trials the scorer will not stand behind
 - `_work/` — cache, safe to delete (costs a full re-run)
@@ -737,6 +741,94 @@ Everything lands in `<video_dir>/analysis_EBC/`:
 The app cannot open any of these itself: it draws its window with WebView2, which has no
 downloads and no file viewer. The results list says so, and a click on any entry opens the
 output folder with that file selected, which is the one thing the app *can* do.
+
+### The figures in the workbooks are Excel's, not pictures of Excel's
+
+A PNG is finished: it can be looked at and nothing else. Every figure in a workbook is
+also an **Excel chart drawn from cells on its own sheet**, so the colours, the axes, the
+trendline and which blocks are in it are all editable in the program people already use
+to edit them — and, more to the point, you can see exactly which numbers produced the
+picture. A line under each figure's title names the range its chart reads, e.g.
+`A4:G14 on this sheet`.
+
+**One figure per sheet, and one thing per figure.** The rendered acquisition PNG puts
+three series and two panels on one page; that is a good page to print and a bad one to
+edit, and separating it is most of what makes it editable in practice. A conditioning
+workbook carries:
+
+| Sheet | The one thing it shows |
+|---|---|
+| `Figure index` | Every chart in the workbook, which sheet it is on, and the exact cells it reads |
+| `F1 CR rate by block` | The acquisition curve, with Excel's own trendline and R² |
+| `F2 Response mix by block` | CR / ?CR / UR / startle as percentages that add to 100 — what a rising CR rate is rising *out of* |
+| `F3 Probes vs paired` | The CS-only probe rate against the paired rate. Blocks with no scoreable probe are blank, not zero, and the line breaks across them |
+| `F4 Mean blink onset by block` | When the blink happens, ± SD, with the CR window's edges on the same axis |
+| `F5 Onset per trial` | Every trial's onset in the order it was run, in the column of the class it was given |
+| `F6 Probe onset per trial` | The same for the CS-only probes |
+| `F7 Mean closure by block` | The eyelid trace itself, averaged per block — the readable form of ninety overlaid traces |
+| `Closure traces (data)` | Every trial's full trace, and deliberately **no** chart: ninety grey lines on one axis is a picture nobody can read a trial off. Select any subset and chart it yourself |
+| `Figures (rendered)` | The finished PNGs, each captioned with the F-sheet that holds its numbers |
+
+Extinction and the baselines have no blocks, so they get `F1 Onset per trial`,
+`F2 Mean closure by recording` and the same two trailing sheets.
+
+### Mean blink onset is over every response, never over the CRs alone
+
+Every mean onset in this app — the figures, the block summary, the session summary — is
+taken over **CR, ?CR and UR together**, and this is not a detail.
+
+A mean taken over the CRs is conditioned on the blink already being inside the CR window,
+and a block improves by trials *crossing into* that window. A mean computed inside it
+cannot see them arrive, so it reads flat on somebody who is plainly learning: on Marie the
+CR-only mean runs 214 ms in block 1 to 245 in block 10 (R² 0.001) while her CR rate goes
+33% to 86%. Over every response the same blocks run 341 ms to 245 ms — the blink moving
+from after the puff to before it, which is the learning itself.
+
+Startle blinks are left out, and that is the other half of the rule. A **rate** asks how
+many trials were CRs, so a startle belongs in its denominator: it was a trial that was
+not one. A **mean onset** asks when this person's blink happens, and a startle began
+before either stimulus could have caused anything — it is a twitch the CS interrupted
+rather than caused, and a handful of them pull a block's average down by tens of
+milliseconds for a reason that has nothing to do with learning.
+
+`ebc_config.is_response()` is the single authority, next to `is_scoreable()`, and the
+figures and the workbooks both read it, so a sheet and a picture cannot disagree.
+
+### Watch what was scored
+
+`ebc_clips.py` cuts four short MP4s per participant — a CR, a ?CR, a CS-only trial and a
+UR — each showing the recording's own pixels with the eye ratio measured off them, the
+closure trace being drawn as it happens, the running blink count and **both stimulus LEDs
+read off each frame**. They answer the one question a table of onsets cannot: does the
+number the scorer produced match what the video shows? Somebody who has never read this
+code should be able to watch six seconds and say yes or no.
+
+Everything drawn is read back from the run, never recomputed. The crop is the one
+`ebc_eyes.geometry()` measured in, the eye ratios are the per-frame values it wrote, the
+closure trace is the one `ebc_score` pooled and scored, and the class, onset and blink
+count are the row that went into the workbook. Played at a quarter speed: the whole trial
+is under a second and a half at 119.88 fps, and a blink at real time is a frame or two of
+nothing much.
+
+**Which trial each clip is of** is decided by `prototypical()`, and it picks the most
+*ordinary* member of the set rather than the most striking one — a clip picked for being
+impressive teaches the reader what the best case looks like and nothing about what was
+scored. The score is a distance from the middle (how far this trial's onset is from the
+median, in robust SDs of the set), and everything added to it is a reason to distrust the
+trial: a shallower blink than the set's typical one, a face not tracked the whole way, a
+quality flag, a recording further down the role order, and a flat penalty for a movement
+below the app's own full-blink criterion — that is a lid flicker, not a response, and
+captioning one "this is what a response looks like" is a false claim. Trials the scorer
+will not stand behind are never candidates.
+
+**A kind with no trial to show is reported as missing, and nothing is substituted for
+it.** Marie's retest produced no ?CR the scorer will stand behind; her workbook says so on
+the `Video clips` sheet, in those words. That is a result about the participant, not a gap
+in the output.
+
+The `Video clips` sheet in each workbook names the recording, trial number, block, class,
+onset and position in the recording for every clip, plus the sentence saying why that
+trial was chosen — so any clip can be checked against the numbers it claims to show.
 
 ### Trials to score by hand
 
