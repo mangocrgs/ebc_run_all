@@ -7,7 +7,7 @@ what not to over-read, so a sheet that leaves this folder still explains itself.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import json, numpy as np
+import json, re, numpy as np
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -740,9 +740,9 @@ def fig_onset_per_trial(wb, name, title, rows, us_anchored, xlabel):
     labels and time zero is the US: the CS lines mean nothing there and are left off.
     """
     if us_anchored:
-        cls_cols = [(UR_PUFF_LBL, C.xl("us")), (ALPHA_US_LBL, C.xl("cs")),
-                    (MOVING_LBL, C.xl("faint"))]
-        ref_cols = [("US onset = 0 ms", C.xl("us"), "solid")]
+        cls_cols = [(UR_PUFF_LBL, C.dml("us")), (ALPHA_US_LBL, C.dml("cs")),
+                    (MOVING_LBL, C.dml("faint"))]
+        ref_cols = [("US onset = 0 ms", C.dml("us"), "solid")]
         yaxis = "Blink latency (ms from blue LED / US onset)"
         note = ("Anchored on the puff: 0 ms is the blue LED, and every latency here is "
                 "measured from it. There is no CS in this recording, so nothing here can "
@@ -750,18 +750,18 @@ def fig_onset_per_trial(wb, name, title, rows, us_anchored, xlabel):
                 "window is measured from. " + FIG_EDIT_NOTE)
         ymin, ymax = -120, 400
     else:
-        cls_cols = [(CR_LBL, C.xl("cr"))]
+        cls_cols = [(CR_LBL, C.dml("cr"))]
         if QCR_LBL:
-            cls_cols.append((QCR_LBL, C.xl("us_mid")))
-        cls_cols += [(UR_LBL, C.xl("ur")), (ALPHA_LBL, C.xl("cs")),
-                     (MOVING_LBL, C.xl("faint"))]
-        ref_cols = [("CS onset = 0 ms", C.xl("cs"), "solid"),
-                    ("US onset = %.0f ms" % NOM["us_onset_ms"], C.xl("us"), "dash")]
+            cls_cols.append((QCR_LBL, C.dml("us_mid")))
+        cls_cols += [(UR_LBL, C.dml("ur")), (ALPHA_LBL, C.dml("cs")),
+                     (MOVING_LBL, C.dml("faint"))]
+        ref_cols = [("CS onset = 0 ms", C.dml("cs"), "solid"),
+                    ("US onset = %.0f ms" % NOM["us_onset_ms"], C.dml("us"), "dash")]
         # Both edges of the CR window, on the chart rather than in a caption - but only
         # when they were measured, or they would simply redraw the two lines above.
         if WIN["measured"]:
-            ref_cols += [("CR window opens = %.0f ms" % CR_LO, C.xl("cr"), "sysDash"),
-                         ("CR window closes = %.0f ms" % CR_HI, C.xl("cr"), "sysDash")]
+            ref_cols += [("CR window opens = %.0f ms" % CR_LO, C.dml("cr"), "sysDash"),
+                         ("CR window closes = %.0f ms" % CR_HI, C.dml("cr"), "sysDash")]
         yaxis = "Blink onset (ms from yellow LED / CS onset)"
         note = ("Each trial's scored onset, in the order the trials were run, in the "
                 "column of the class it was given. A trial appears in exactly one class "
@@ -818,7 +818,7 @@ def fig_cr_rate(wb, paired):
                               [8, 16, 10, 10], [None, None, None, "0.0"])
     fig_chart(ws, fig_anchor(heads), "CR rate by block", "Block",
               "% of scoreable trials",
-              [_series(ws, 4, FIG_HDR + 1, last, C.xl("cr"), trendline=True)],
+              [_series(ws, 4, FIG_HDR + 1, last, C.dml("cr"), trendline=True)],
               xmin=0.5, xmax=max(blocks) + 0.5, ymin=0, ymax=100)
     return ("CR rate by block", "the acquisition curve", "F1 CR rate by block", rng)
 
@@ -857,9 +857,9 @@ def fig_response_mix(wb, paired):
     ch.add_data(Reference(ws, min_col=3, max_col=6, min_row=FIG_HDR, max_row=last),
                 titles_from_data=True)
     ch.set_categories(Reference(ws, min_col=1, min_row=FIG_HDR + 1, max_row=last))
-    for s, colr in zip(ch.series, (C.xl("cr"), C.xl("us_mid"), C.xl("ur"), C.xl("cs"))):
+    for s, colr in zip(ch.series, (C.dml("cr"), C.dml("us_mid"), C.dml("ur"), C.dml("cs"))):
         s.graphicalProperties = GraphicalProperties(solidFill=colr)
-        s.graphicalProperties.line = LineProperties(solidFill=C.xl("surface"), w=6000)
+        s.graphicalProperties.line = LineProperties(solidFill=C.dml("surface"), w=6000)
     ws.add_chart(ch, fig_anchor(heads))
     return ("Response mix by block", "CR / ?CR / UR / startle, adding to 100%",
             "F2 Response mix by block", rng)
@@ -895,8 +895,8 @@ def fig_probe_vs_paired(wb, paired, csonly):
                               [None, None, "0.0", None, "0.0"])
     fig_chart(ws, fig_anchor(heads), "Probe vs paired CR rate", "Block",
               "% of scoreable trials",
-              [_series(ws, 3, FIG_HDR + 1, last, C.xl("cr")),
-               _series(ws, 5, FIG_HDR + 1, last, C.xl("cs"), symbol="triangle",
+              [_series(ws, 3, FIG_HDR + 1, last, C.dml("cr")),
+               _series(ws, 5, FIG_HDR + 1, last, C.dml("cs"), symbol="triangle",
                        dashed="dash")],
               xmin=0.5, xmax=max(blocks) + 0.5, ymin=0, ymax=100)
     return ("CS-only probes against the paired trials",
@@ -930,10 +930,10 @@ def fig_mean_onset(wb, paired):
     hi = max(d[2] + (d[3] or 0) for d in data)
     fig_chart(ws, fig_anchor(heads),
               "Mean blink onset by block", "Block", "ms from CS onset",
-              [_series(ws, 3, FIG_HDR + 1, last, C.xl("cr"), sd_col=4, trendline=True),
-               _series(ws, 6, FIG_HDR + 1, last, C.xl("muted"), symbol="none",
+              [_series(ws, 3, FIG_HDR + 1, last, C.dml("cr"), sd_col=4, trendline=True),
+               _series(ws, 6, FIG_HDR + 1, last, C.dml("muted"), symbol="none",
                        dashed="sysDash"),
-               _series(ws, 7, FIG_HDR + 1, last, C.xl("muted"), symbol="none",
+               _series(ws, 7, FIG_HDR + 1, last, C.dml("muted"), symbol="none",
                        dashed="sysDash")],
               xmin=0.5, xmax=max(blocks) + 0.5,
               ymin=round(min(lo, CR_LO) - 40), ymax=round(max(hi, CR_HI) + 40))
@@ -990,18 +990,13 @@ def fig_mean_closure(wb, name, groups, title, what):
     for i, s in enumerate(lc.series):
         f = i / max(len(lc.series) - 1, 1)
         s.graphicalProperties.line = LineProperties(
-            solidFill=_blend(C.PALETTE["cs"], C.PALETTE["cr"], f), w=14000)
+            solidFill=C.dml_blend("cs", "cr", f), w=14000)
         s.smooth = False
     lc.x_axis.tickLblSkip = 12
     ws.add_chart(lc, fig_anchor(heads))
     return (title, what.lower(), name, rng)
 
 
-def _blend(a, b, f):
-    """Two house colours mixed, as openpyxl wants them."""
-    A = [int(a.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
-    B = [int(b.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
-    return "FF" + "".join("%02X" % round(x + (y - x) * f) for x, y in zip(A, B))
 
 
 # ------------------------------------------------- the charts are checked after saving
@@ -1024,6 +1019,10 @@ CHART_SEQ = {
 }
 
 
+DML_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+HEX6 = re.compile(r"^[0-9A-Fa-f]{6}$")
+
+
 def check_charts(path):
     """Read the saved workbook back and say whether Excel will accept its charts."""
     import xml.etree.ElementTree as ET
@@ -1034,6 +1033,15 @@ def check_charts(path):
                  if n.startswith("xl/charts/chart") and n.endswith(".xml")]
         for n in parts:
             root = ET.fromstring(z.read(n))
+            # A chart colour is DrawingML: six hex digits, no alpha.  The eight-digit
+            # ARGB a cell fill wants makes Excel refuse to open the WORKBOOK - it is not
+            # a chart drawn in the wrong colour, it is a file that will not open - so
+            # this is checked before anything else and named exactly.
+            for cl in root.iter(DML_NS + "srgbClr"):
+                if not HEX6.match(cl.get("val") or ""):
+                    bad.append("%s: chart colour %r is not six hex digits - use "
+                               "ebc_config.dml(), not xl()"
+                               % (n.split("/")[-1], cl.get("val")))
             for el in root.iter():
                 tag = el.tag.replace(CHART_NS, "")
                 seq = CHART_SEQ.get(tag)
@@ -1092,6 +1100,15 @@ def build(block):
     main_sheet = "Paired trials" if paired else "%s trials" % main_type
     sess = sorted({r["session"] for r in rows}, key=lambda t: TAG_ORDER.index(t))
     wb = Workbook()
+    # The conditioning book is the heavy one and it is heavy for one reason: 90% of it is
+    # the four rendered PNGs on the last sheet.  So it is written as two - the numbers,
+    # which people filter and sort and which should open instantly, and the figures, which
+    # carry the pictures and the seven live charts.  The split follows the blocks: a book
+    # with paired trials has seven figures and four PNGs, the others have two and two and
+    # are a fifth of the size, so splitting those would be filing for its own sake.
+    split = bool(paired)
+    fb = Workbook() if split else wb
+    fig_file = "EBC_%s_%s_figures.xlsx" % (STUDY, block)
 
     def blockhdr(ws, r, title):
         c = ws.cell(row=r, column=1, value=title)
@@ -1134,22 +1151,36 @@ def build(block):
                else [(main_sheet, "One row per %s trial." % main_type.lower())])
     sheets += [
                ("Stimulus events", "Every accepted CS and US event with frame and time."),
-               ("Figure index", "Every chart in this workbook: which sheet it is on and "
-                                "the exact cells it is drawn from."),
-               ("F1, F2, F3 ...", "One figure per sheet, each an Excel chart drawn from "
-                                  "the numbers printed beside it. One thing per chart - "
-                                  "change anything you like, the picture follows."),
                ("Closure traces (data)", "Every trial's full eyelid trace, time x trial. "
                                          "Data only: the averaged, readable version is a "
-                                         "figure sheet of its own."),
-               ("Video clips", "A few seconds of the recording itself for one trial of "
-                               "each kind, with the eye ratio and the blink count drawn "
-                               "on it. Which trial each clip shows, and why that one."),
-               ("Figures (rendered)", "The same figures as finished PNGs - richer, and "
-                                      "not editable. Each caption says which F-sheet "
-                                      "holds its numbers.")]
+                                         "figure sheet in the figures workbook.")]
+    FIG_SHEETS = [("Figure index", "Every chart in this workbook: which sheet it is on "
+                                   "and the exact cells it is drawn from."),
+                  ("F1, F2, F3 ...", "One figure per sheet, each an Excel chart drawn "
+                                     "from the numbers printed beside it. One thing per "
+                                     "chart - change anything you like, the picture "
+                                     "follows."),
+                  ("Video clips", "A few seconds of the recording itself for one trial "
+                                  "of each kind, with the eye ratio and the blink count "
+                                  "drawn on it. Which trial each clip shows, and why."),
+                  ("Figures (rendered)", "The same figures as finished PNGs - richer, "
+                                         "and not editable. Each caption says which "
+                                         "F-sheet holds its numbers.")]
+    if not split:
+        sheets += FIG_SHEETS
     for k, v in sheets:
         kv(ws, r, k, v, 20); r += 1
+    if split:
+        r += 1
+        blockhdr(ws, r, "THE FIGURES ARE IN THEIR OWN WORKBOOK"); r += 1
+        kv(ws, r, fig_file,
+           "The figures were 90%% of the weight of this file - four rendered PNGs on one "
+           "sheet - and they are a different job from filtering a trial table, so they "
+           "are next to this workbook rather than inside it. It holds the figure index, "
+           "one editable chart per sheet, the video clips and the rendered PNGs. Every "
+           "chart in it reads cells printed on its own sheet, so it stands alone: "
+           "nothing in it points back into this file.", 84)
+        r += 1
     widths(ws, [30, 112])
     ws.sheet_view.showGridLines = False
 
@@ -1414,23 +1445,23 @@ def build(block):
     # ---------------- the figures, one per sheet ----------------
     # Index first so it comes before the sheets it lists; it is filled in at the end,
     # once each figure has reported the range its chart actually reads.
-    idx_ws = wb.create_sheet("Figure index")
+    idx_ws = fb.create_sheet("Figure index")
     FIGS = []
     us_anchored = bool(main) and main[0]["trial_type"] == "US-only"
     if paired:
-        FIGS.append(fig_cr_rate(wb, paired))
-        FIGS.append(fig_response_mix(wb, paired))
-        FIGS.append(fig_probe_vs_paired(wb, paired, csonly) if csonly else None)
-        FIGS.append(fig_mean_onset(wb, paired))
+        FIGS.append(fig_cr_rate(fb, paired))
+        FIGS.append(fig_response_mix(fb, paired))
+        FIGS.append(fig_probe_vs_paired(fb, paired, csonly) if csonly else None)
+        FIGS.append(fig_mean_onset(fb, paired))
         FIGS.append(fig_onset_per_trial(
-            wb, "F5 Onset per trial", "Blink onset per paired trial", main, False,
+            fb, "F5 Onset per trial", "Blink onset per paired trial", main, False,
             "Paired CS-US trial, in the order they were run"))
         if csonly:
             FIGS.append(fig_onset_per_trial(
-                wb, "F6 Probe onset per trial", "Blink onset per CS-only probe", csonly,
+                fb, "F6 Probe onset per trial", "Blink onset per CS-only probe", csonly,
                 False, "CS-only probe (one per block)"))
         FIGS.append(fig_mean_closure(
-            wb, "F7 Mean closure by block", [("Block %d" % b,
+            fb, "F7 Mean closure by block", [("Block %d" % b,
                                               [r for r in paired if r["block"] == b])
                                              for b in sorted({r["block"] for r in paired
                                                               if r["block"]})],
@@ -1438,12 +1469,12 @@ def build(block):
             "The paired trials of each block"))
     else:
         FIGS.append(fig_onset_per_trial(
-            wb, "F1 Onset per trial",
+            fb, "F1 Onset per trial",
             "Blink latency per trial, from the puff" if us_anchored
             else "Blink onset per trial", main, us_anchored,
             "%s trial, in the order they were run" % main_type))
         FIGS.append(fig_mean_closure(
-            wb, "F2 Mean closure by recording",
+            fb, "F2 Mean closure by recording",
             [(SESSMETA[t]["label"], [r for r in main if r["session"] == t]) for t in sess],
             "Mean eyelid closure, recording by recording",
             "The trials of each recording"))
@@ -1490,7 +1521,7 @@ def build(block):
     # a clip whose trial cannot be found in the trial table proves nothing about it.
     CLIPS = clips_manifest()
     if CLIPS and (CLIPS.get("clips") or CLIPS.get("missing")):
-        ws = wb.create_sheet("Video clips")
+        ws = fb.create_sheet("Video clips")
         ws.sheet_view.showGridLines = False
         ws.cell(row=1, column=1, value="Watch what was scored"
                 ).font = F(bold=True, size=13, color=INK)
@@ -1551,7 +1582,7 @@ def build(block):
         widths(ws, [20, 30, 22, 13, 8, 22, 13, 16, 54])
 
     # ---------------- Figures (rendered) ----------------
-    ws = wb.create_sheet("Figures (rendered)")
+    ws = fb.create_sheet("Figures (rendered)")
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Rendered figures"
     ws["A1"].font = F(bold=True, size=13, color=INK)
@@ -1574,7 +1605,7 @@ def build(block):
         # where the data behind it lives.
         # only sheets this workbook actually has: a book with no probes has no F3, and
         # naming one would send the reader looking for a tab that is not there
-        names = [n for n in PNG_DATA.get(fn, ()) if n in wb.sheetnames]
+        names = [n for n in PNG_DATA.get(fn, ()) if n in fb.sheetnames]
         if names:
             c = ws.cell(row=r, column=1,
                         value="Editable version, with the numbers: sheet %s" % and_list(names))
@@ -1631,19 +1662,67 @@ def build(block):
     style_header(ws, 4)
     widths(ws, [36, 52, 30, 26])
 
-    out = os.path.join(OUTDIR, cfg["file"])
-    try:
-        wb.save(out)
-    except PermissionError:
-        alt = out.replace(".xlsx", "_NEW.xlsx")
-        wb.save(alt)
-        print(f"!! {os.path.basename(out)} is open in Excel - wrote {os.path.basename(alt)} instead")
-        out = alt
-    parts, bad = check_charts(out)
-    for b in bad:
-        print("!! INVALID CHART - Excel will delete every chart in this workbook: " + b)
-    print(f"saved {out}  ({len(paired)} paired + {len(csonly)} CS-only, "
-          f"{len(parts)} live chart(s){', ' + str(len(bad)) + ' INVALID' if bad else ''})")
+    # ---------------- the figures workbook's own cover ----------------
+    # It is a separate file, so it gets sent on its own, so it has to explain itself on
+    # its own: the design and the CR window the pictures were drawn against, the rule the
+    # mean onset follows, and the name of the workbook holding the trial tables.
+    if split:
+        ws = fb.active
+        ws.title = "Read me"
+        r = masthead(ws)
+        ws.cell(row=r, column=1, value=cfg["title"] + " - figures"
+                ).font = F(bold=True, size=14, color=INK)
+        ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=2)
+        r += 2
+        blockhdr(ws, r, "WHAT THIS WORKBOOK IS"); r += 1
+        kv(ws, r, "One figure per sheet",
+           "Every figure here is an Excel chart drawn from cells printed on its own "
+           "sheet, and a line under each title names the range it reads. Change a "
+           "colour, an axis, a trendline or which blocks are in it - the picture "
+           "follows. Start at the Figure index.", 70); r += 1
+        kv(ws, r, "The numbers are in " + cfg["file"],
+           "This file carries the pictures. The trial tables, the summaries, the "
+           "stimulus events and the full closure traces are in that one, next to it. "
+           "Nothing here reads from it: every chart is fed by the cells on its own "
+           "sheet, so this workbook is complete on its own.", 70); r += 1
+        r += 1
+        for hdr_, items in (("PROTOCOL", PROTOCOL),
+                            ("WHAT THESE FIGURES COVER", cfg["what"][:1])):
+            blockhdr(ws, r, hdr_); r += 1
+            for k, v in items:
+                kv(ws, r, k, v); r += 1
+            r += 1
+        blockhdr(ws, r, "HOW TO READ THE MEAN BLINK ONSET"); r += 1
+        kv(ws, r, "Every response, never the CRs alone", ONSET_NOTE, 84); r += 1
+        r += 1
+        blockhdr(ws, r, "SHEETS"); r += 1
+        for k, v in FIG_SHEETS:
+            kv(ws, r, k, v, 20); r += 1
+        widths(ws, [30, 112])
+        ws.sheet_view.showGridLines = False
+
+    def write(book, name, what):
+        path = os.path.join(OUTDIR, name)
+        try:
+            book.save(path)
+        except PermissionError:
+            path = path.replace(".xlsx", "_NEW.xlsx")
+            book.save(path)
+            print("!! %s is open in Excel - wrote %s instead"
+                  % (name, os.path.basename(path)))
+        parts, bad = check_charts(path)
+        for b in bad:
+            print("!! INVALID CHART - Excel will refuse to open this workbook: " + b)
+        print("saved %s  (%s, %d live chart(s)%s, %.1f MB)"
+              % (path, what, len(parts),
+                 ", %d INVALID" % len(bad) if bad else "",
+                 os.path.getsize(path) / 1e6))
+
+    write(wb, cfg["file"], "%d paired + %d CS-only, the numbers"
+          % (len(paired), len(csonly)) if split else
+          "%d paired + %d CS-only" % (len(paired), len(csonly)))
+    if split:
+        write(fb, fig_file, "the figures")
 
 
 for b in (sys.argv[2:] or list(BOOKS)):

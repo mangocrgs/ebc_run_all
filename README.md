@@ -728,7 +728,8 @@ recording takes roughly 12 minutes for the LED pass and about 4 more for the eye
 
 Everything lands in `<video_dir>/analysis_EBC/`:
 
-- `EBC_<study>_conditioning.xlsx`, `_extinction.xlsx`, `_baseline_cs.xlsx`, `_baseline_us.xlsx`
+- `EBC_<study>_conditioning.xlsx` (the numbers) and `_conditioning_figures.xlsx` (the
+  figures), plus `_extinction.xlsx`, `_baseline_cs.xlsx`, `_baseline_us.xlsx`
 - `qc_leds_<tag>.png` — the stimulus-detection check, one per recording
 - `cond_*`, `ext_*`, `baseline_*` PNG figures
 - `clip_CR.mp4`, `clip_qCR.mp4`, `clip_CSonly.mp4`, `clip_UR.mp4` — one prototypical trial
@@ -772,18 +773,47 @@ workbook carries:
 Extinction and the baselines have no blocks, so they get `F1 Onset per trial`,
 `F2 Mean closure by recording` and the same two trailing sheets.
 
-**Every workbook is checked after it is written** (`ebc_workbooks.check_charts`) and the
-run prints how many live charts it contains. This is not decoration. Excel does not report
-an invalid chart: it offers to "recover" the workbook, silently deletes **every** chart
-part in it and saves that — so a workbook full of live charts arrives on someone else's
-machine as bare numbers, with nothing anywhere saying why. Two such bugs shipped and were
-found only by unzipping a workbook Excel had been through:
+### The conditioning workbook is two files
 
+`EBC_<study>_conditioning.xlsx` holds the numbers — the summaries, the trial tables, the
+stimulus events, the full closure traces — and opens in a moment.
+`EBC_<study>_conditioning_figures.xlsx` holds the pictures: the figure index, the seven
+editable charts, the video-clip list and the rendered PNGs.
+
+The split follows the weight. **90% of the old 2.2 MB file was the four rendered PNGs on
+one sheet**; filtering a trial table and editing a figure are different jobs, and the
+first should not have to load the second. Splitting takes the numbers to 0.4 MB. Only
+books with blocks split: extinction and the baselines carry two figures and two PNGs, are
+a fifth of the size, and splitting them would be filing for its own sake.
+
+Each file stands alone. The figures workbook has its own cover with the protocol, the CR
+window and the mean-onset rule, and **every chart in it reads cells printed on its own
+sheet** — nothing points back into the other file, so either can be sent on its own.
+
+### Charts Excel will actually open
+
+**Every workbook is checked after it is written** (`ebc_workbooks.check_charts`) and the
+run prints how many live charts it contains and how big the file is. This is not
+decoration. An invalid chart is not reported as an error and is not drawn wrongly: Excel
+**refuses to open the workbook**, and if the offer to "recover" it is declined, nothing
+opens at all. Three such bugs shipped, and they meant that **no workbook this app ever
+produced would open in Excel** — nobody had looked, because the charts were a side
+feature until the figure sheets made them the point.
+
+- **A chart colour must be six hex digits.** A cell fill is spreadsheet markup and takes
+  opaque ARGB (`FF24466F`); a chart is DrawingML and `<a:srgbClr val>` is
+  `ST_HexColorRGB`, exactly `RRGGBB`. `ebc_config.xl()` is for cells, `dml()` for charts,
+  and passing the first to the second is what refused the file. Found by building one
+  probe workbook per feature and asking Excel itself which it would open.
 - openpyxl 3.1.5 writes `<c:minus>` before `<c:plus>` in an error bar. `CT_ErrBars` is a
   sequence and requires `plus` first. `ebc_config.patch_openpyxl_charts()` corrects the
   library's element order once, at import.
 - `CT_ScatterChart` requires `<c:scatterStyle>` as its first child and openpyxl omits it
   unless it is set. Every scatter chart now sets `ebc_config.SCATTER_STYLE`.
+
+If figures ever go missing from a workbook again, **unzip it and look for `xl/charts/`** —
+that is the tell. The oracle that settles it is Excel itself, driven over COM:
+`$xl.Workbooks.Open($path)` either succeeds or throws.
 
 ### Mean blink onset is over every response, never over the CRs alone
 

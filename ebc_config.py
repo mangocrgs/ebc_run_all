@@ -70,8 +70,32 @@ def ink(name):
 
 
 def xl(name):
-    """The same colour as openpyxl wants it - ARGB, opaque."""
+    """The same colour as a CELL wants it - ARGB, opaque, eight hex digits.
+
+    Fills, fonts, borders and colour scales.  NOT charts: see dml().
+    """
     return "FF" + PALETTE[name].lstrip("#")
+
+
+def dml(name):
+    """The same colour as a CHART wants it - RRGGBB, six hex digits.
+
+    A chart is DrawingML, not spreadsheet markup, and `<a:srgbClr val="...">` is
+    ST_HexColorRGB: exactly six hex digits, with no alpha.  Handing it the eight-digit
+    ARGB that a cell fill wants produces a file Excel will not open AT ALL - not a chart
+    it draws wrongly, not a chart it drops: the whole workbook is refused, and if the
+    "recover" offer is declined nothing opens.  Every chart colour this app writes goes
+    through here, and check_charts() in ebc_workbooks refuses to let one through that
+    does not.
+    """
+    return PALETTE[name].lstrip("#")
+
+
+def dml_blend(a, b, f):
+    """Two palette colours mixed, as a chart wants them."""
+    A = [int(PALETTE[a].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    B = [int(PALETTE[b].lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "".join("%02X" % round(x + (y - x) * f) for x, y in zip(A, B))
 
 
 def patch_openpyxl_charts():

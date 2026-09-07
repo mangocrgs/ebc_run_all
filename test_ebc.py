@@ -598,6 +598,38 @@ def _plot_group(chart):
     return next(c for c in pa if c.tag.endswith("Chart"))
 
 
+def test_a_chart_colour_is_six_hex_digits_and_a_cell_colour_is_eight():
+    """The bug that made every workbook this app ever wrote refuse to open.
+
+    A cell fill is spreadsheet markup and wants opaque ARGB.  A chart is DrawingML and
+    `<a:srgbClr val>` is ST_HexColorRGB - exactly six hex digits.  Handing a chart the
+    eight-digit cell colour does not draw the wrong colour and does not drop the chart:
+    Excel refuses to open the FILE, and if the offer to recover it is declined, nothing
+    opens at all.  Confirmed against Excel itself, one probe workbook per feature.
+    """
+    for name in ("cr", "cs", "us", "ur", "muted", "faint", "us_mid", "surface"):
+        assert re.fullmatch(r"[0-9A-Fa-f]{6}", C.dml(name)), (name, C.dml(name))
+        assert re.fullmatch(r"FF[0-9A-Fa-f]{6}", C.xl(name)), (name, C.xl(name))
+    assert C.xl("cr") == "FF" + C.dml("cr")
+    assert re.fullmatch(r"[0-9A-Fa-f]{6}", C.dml_blend("cs", "cr", 0.5))
+    for f, want in ((0.0, C.dml("cs")), (1.0, C.dml("cr"))):
+        assert C.dml_blend("cs", "cr", f).upper() == want.upper(), f
+
+
+def test_no_chart_in_the_workbook_builder_is_given_a_cell_colour():
+    """The rule, enforced on the source: C.xl() must not reach a chart.
+
+    ebc_workbooks reads a config as it is imported, so the check is on its text - and
+    the text is where the mistake is made, one call site at a time.
+    """
+    src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "ebc_workbooks.py"), encoding="utf-8").read()
+    for pat in (r"LineProperties\([^)]*C\.xl\(", r"GraphicalProperties\([^)]*C\.xl\(",
+                r"solidFill=C\.xl\("):
+        hit = re.search(pat, src)
+        assert not hit, "a chart is being given a cell colour: " + hit.group(0)
+
+
 def test_error_bars_put_plus_before_minus():
     """openpyxl 3.1.5 writes them the other way round; CT_ErrBars is a sequence."""
     C.patch_openpyxl_charts()
@@ -667,9 +699,10 @@ def test_every_rendered_figure_points_at_a_sheet_that_exists():
     """
     src = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "ebc_workbooks.py"), encoding="utf-8").read()
+    # sheets are created on either book - wb holds the numbers, fb the figures
     made = set(re.findall(r'create_sheet\(\s*"([^"]+)"', src))
-    made |= set(re.findall(r'fig_sheet\(wb,\s*"([^"]+)"', src))
-    made |= set(re.findall(r'wb,\s*"(F\d[^"]*)"', src))
+    made |= set(re.findall(r'f?b?w?b,\s*"(F\d[^"]*)"', src))
+    made |= set(re.findall(r'fb,\s*"([^"]+)"', src))
     named = set()
     for block in re.findall(r'PNG_DATA = \{(.*?)\n\}', src, re.S):
         named |= set(re.findall(r'"([^"]+)"\s*[,\]]', block))
