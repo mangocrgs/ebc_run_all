@@ -15,7 +15,7 @@
 ; does not create it.
 
 #define AppName    "EBC Analyzer"
-#define AppVersion "1.5"
+#define AppVersion "1.6"
 #define Publisher  "Cerebral Dynamics, Plasticity & Learning"
 #define ExeName    "EBC Analyzer.exe"
 
