@@ -36,6 +36,12 @@ from ebc_video import probe, frames
 
 P = C.PALETTE
 OUT_FPS = 30.0                  # what the file plays at
+# How fast the trial runs on screen, as a fraction of real time.  It has to be stated
+# rather than inherited: one output frame per recorded frame gives 0.25x on a 119.88 fps
+# camera and 0.15x on Charles's 200 fps one, so "the clips" were not one speed at all.
+# 0.125 puts a 60 ms lid closure on screen for half a second, which is what makes the
+# blink watchable rather than merely present.  --speed 0.5 / 0.25 / 0.1 overrides it.
+SPEED = 0.125
 HOLD_S = 0.9                    # a still at the end, so the last frame can be read
 W, H = 1280, 800
 HEAD_H, MID_H, PLOT_H = 104, 452, 208
@@ -383,8 +389,24 @@ def footer(d, text):
 
 
 # ------------------------------------------------------------------ one clip
-def encode(path, images):
-    """Hand the finished frames to ffmpeg.  H.264 if it has it, MPEG-4 if it does not."""
+def playback(n, fps, speed):
+    """Which rendered frame each output frame shows, for a chosen speed.
+
+    The overlay is drawn once per RECORDED frame - that is the expensive part and it is
+    the same picture however slowly it is played - and the speed is a matter of which of
+    those frames each output frame repeats.  Time-based rather than an integer repeat
+    count, so any speed works and none of them drifts.
+    """
+    n_out = max(1, int(round(n / fps / speed * OUT_FPS)))
+    return [min(n - 1, int(round(i * (n - 1) / max(n_out - 1, 1)))) for i in range(n_out)]
+
+
+def encode(path, frames_of):
+    """Hand the finished frames to ffmpeg.  H.264 if it has it, MPEG-4 if it does not.
+
+    `frames_of` is called to get a fresh iterator, because the fallback codec has to send
+    them all again - and because the frames are yielded rather than held twice.
+    """
     for codec, extra in (("libx264", ["-preset", "medium", "-crf", "18",
                                       "-pix_fmt", "yuv420p", "-movflags", "+faststart"]),
                          ("mpeg4", ["-q:v", "3"])):
@@ -393,7 +415,7 @@ def encode(path, images):
                "-i", "-", "-c:v", codec] + extra + [path]
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
-            for im in images:
+            for im in frames_of():
                 p.stdin.write(im.tobytes())
             p.stdin.close()
         except (BrokenPipeError, OSError):
@@ -411,7 +433,7 @@ def encode(path, images):
     return None
 
 
-def render(cfg, M, row, kind, note, out_path, wdir, win, why):
+def render(cfg, M, row, kind, note, out_path, wdir, win, why, speed=SPEED):
     """One clip: the trial's own frames, with what was measured off them drawn on."""
     tag = row["session"]
     rec = next(r for r in cfg["recordings"] if r["tag"] == tag)
@@ -436,10 +458,10 @@ def render(cfg, M, row, kind, note, out_path, wdir, win, why):
     source = "%s  ·  %s  ·  aligned on the %s LED" % (
         os.path.basename(rec["file"]), ROLE_WORD.get(rec["role"], rec["role"]),
         geo["anchor_led"])
-    foot = ("Window %+.0f to %+.0f ms around the stimulus, %d frames at %.2f fps played "
-            "at %g fps - %.1fx slow motion.  Eye ratio, closure and blink count are read "
-            "back from the run, not recomputed for this clip.  %s  %s"
-            % (t[0], t[n - 1], n, fps, OUT_FPS, fps / OUT_FPS, C.LAB, C.VERSION))
+    foot = ("PLAYING AT x%g OF REAL TIME (%.0fx slow motion).  Window %+.0f to %+.0f ms "
+            "around the stimulus, %d frames recorded at %.2f fps.  Every number here is "
+            "read back from the run, not recomputed for this clip.  EBC Analyzer %s"
+            % (speed, 1.0 / speed, t[0], t[n - 1], n, fps, C.VERSION))
 
     buf = list(frames(rec["path"], "crop=%d:%d:%d:%d" % (cw, ch, cx0, cy0),
                       cw * ch * 3, ss=(f0 - pre) / fps, n=n))
@@ -504,11 +526,11 @@ def render(cfg, M, row, kind, note, out_path, wdir, win, why):
                  [(LAMP[kd][0], bool(on[i]), LAMP[kd][1]) for _, kd, on in boxes])
         plot.trace(d, t[:n], closure[:n], i)
         out.append(im)
-    out += [out[-1]] * int(round(HOLD_S * OUT_FPS))
-    codec = encode(out_path, out)
-    print("   %-8s %-13s trial %-3d %-24s -> %s (%s, %d frames)"
+    order = playback(n, fps, speed) + [n - 1] * int(round(HOLD_S * OUT_FPS))
+    codec = encode(out_path, lambda: (out[j] for j in order))
+    print("   %-8s %-13s trial %-3d %-24s -> %s (%s, %.1fs at x%g)"
           % (kind, row["session_name"], row["session_trial"], row["scored_class"],
-             os.path.basename(out_path), codec, len(out)), flush=True)
+             os.path.basename(out_path), codec, len(order) / OUT_FPS, speed), flush=True)
     return dict(kind=kind, file=os.path.basename(out_path), session=tag,
                 session_name=row["session_name"], session_trial=row["session_trial"],
                 role=rec["role"], recording=rec["file"], block=row["block"],
@@ -529,7 +551,20 @@ def main():
     with open(os.path.join(wdir, "merged_rows.json"), encoding="utf-8") as fh:
         ROWS = json.load(fh)
     win = M.get("cr_window") or C.cr_window(C.fill(M["protocol"]))
-    only = [a for a in sys.argv[2:] if not a.startswith("-")]
+    args = sys.argv[2:]
+    only = [a for a in args if not a.startswith("-")]
+    speed = SPEED
+    if "--speed" in args:
+        try:
+            speed = float(args[args.index("--speed") + 1])
+        except (IndexError, ValueError):
+            sys.exit("--speed needs a number: the fraction of real time to play at, "
+                     "e.g. --speed 0.25")
+        if not 0.01 <= speed <= 1.0:
+            sys.exit("--speed must be between 0.01 and 1.0 (1.0 is real time)")
+        only = [a for a in only if a != args[args.index("--speed") + 1]]
+    print("clips play at x%g of real time (%.0fx slow motion)" % (speed, 1.0 / speed),
+          flush=True)
 
     made, missing = [], []
     for kind, prefix, tt, roles, note in KINDS:
@@ -548,12 +583,12 @@ def main():
             why += (" - a close call: another trial was almost exactly as typical, so "
                     "nothing turns on this one being the one shown")
         got = render(cfg, M, row, kind, note,
-                     os.path.join(odir, "clip_%s.mp4" % kind), wdir, win, why)
+                     os.path.join(odir, "clip_%s.mp4" % kind), wdir, win, why, speed)
         if got:
-            made.append(got)
+            made.append(dict(got, speed=speed))
 
     with open(os.path.join(odir, "clips.json"), "w", encoding="utf-8") as fh:
-        json.dump(dict(study=cfg["study"], clips=made,
+        json.dump(dict(study=cfg["study"], speed=speed, clips=made,
                        missing=[dict(kind=k, note=n) for k, n in missing]), fh, indent=1)
     if made:
         keys = list(made[0])

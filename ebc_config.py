@@ -74,6 +74,39 @@ def xl(name):
     return "FF" + PALETTE[name].lstrip("#")
 
 
+def patch_openpyxl_charts():
+    """Make openpyxl write error bars in the order the file format requires.
+
+    openpyxl 3.1.5 emits `<c:minus>` before `<c:plus>`.  ECMA-376 CT_ErrBars is a
+    SEQUENCE - errDir, errBarType, errValType, noEndCap, plus, minus, val, spPr - so that
+    order is invalid, and Excel does not report it as an error: it offers to "recover"
+    the workbook and silently deletes every chart part in it.  A workbook full of live
+    charts therefore arrived on the other side as a workbook full of bare numbers, with
+    nothing anywhere saying why.
+
+    Fixing it in the library's own element order is the whole repair: `Serialisable`
+    serialises in `__elements__` order, so one corrected tuple makes every error bar this
+    app writes valid.  Written to be safe to call twice and to survive an openpyxl that
+    fixes this itself - it moves `plus` in front of `minus` and changes nothing else.
+    Returns True if it had to change anything.
+    """
+    from openpyxl.chart.error_bar import ErrorBars
+    e = list(ErrorBars.__elements__)
+    if "plus" not in e or "minus" not in e or e.index("plus") < e.index("minus"):
+        return False
+    e.remove("plus")
+    e.insert(e.index("minus"), "plus")
+    ErrorBars.__elements__ = tuple(e)
+    return True
+
+
+# CT_ScatterChart requires <c:scatterStyle> as its first child (minOccurs=1) and openpyxl
+# leaves it out unless it is set.  "lineMarker" rather than "marker" because it is the
+# value that lets each series keep the line setting it was given - a scatter of dots and a
+# reference line are both drawn on these charts, from their own spPr.
+SCATTER_STYLE = "lineMarker"
+
+
 def mpl_font(plt):
     """Set the figure face once, for every figure this run draws.
 

@@ -24,6 +24,11 @@ from openpyxl.drawing.image import Image as XLImage
 import ebc_config as C
 from ebc_paths import BASE, work_dir, out_dir
 
+# Before a single chart is built: openpyxl writes error bars in an order the file format
+# forbids, and Excel answers that by deleting every chart in the workbook without saying
+# so.  See ebc_config.patch_openpyxl_charts().
+C.patch_openpyxl_charts()
+
 CFG = C.load(sys.argv[1] if len(sys.argv) > 1 else None)
 WORK, OUT = work_dir(CFG), out_dir(CFG)
 M = json.load(open(os.path.join(WORK, "merged.json"), encoding="utf-8"))
@@ -645,6 +650,9 @@ def _series(ws, col, first, last, colr, joined=True, symbol="circle", size=7,
 def fig_chart(ws, anchor, title, xlab, ylab, series, xmin=None, xmax=None,
               ymin=None, ymax=None, height=10.5, width=19, legend=True):
     ch = ScatterChart()
+    # Required by the format and omitted by openpyxl; without it Excel treats the chart
+    # as damaged.  See ebc_config.SCATTER_STYLE.
+    ch.scatterStyle = C.SCATTER_STYLE
     ch.style = 2
     ch.title = title
     ch.x_axis.title = xlab
@@ -994,6 +1002,54 @@ def _blend(a, b, f):
     A = [int(a.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
     B = [int(b.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
     return "FF" + "".join("%02X" % round(x + (y - x) * f) for x, y in zip(A, B))
+
+
+# ------------------------------------------------- the charts are checked after saving
+# Excel does not report an invalid chart.  It offers to recover the workbook and then
+# deletes every chart part in it, so the failure looks like "the figures are missing" on
+# somebody else's machine, days later, with nothing to go on.  These are the sequence
+# rules the charts this file writes have to satisfy, checked against what actually landed
+# on disk - the only place the answer is not a guess.
+CHART_NS = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+# ECMA-376 CT_*: each is a SEQUENCE, so the children must appear in this relative order,
+# and the starred ones are required.
+CHART_SEQ = {
+    "scatterChart": ("scatterStyle*", "varyColors", "ser", "dLbls", "axId", "extLst"),
+    "lineChart": ("grouping*", "varyColors", "ser", "dLbls", "dropLines", "hiLowLines",
+                  "upDownBars", "marker", "smooth", "axId", "extLst"),
+    "barChart": ("barDir*", "grouping", "varyColors", "ser", "dLbls", "gapWidth",
+                 "overlap", "serLines", "axId", "extLst"),
+    "errBars": ("errDir", "errBarType*", "errValType*", "noEndCap", "plus", "minus",
+                "val", "spPr", "extLst"),
+}
+
+
+def check_charts(path):
+    """Read the saved workbook back and say whether Excel will accept its charts."""
+    import xml.etree.ElementTree as ET
+    import zipfile
+    bad = []
+    with zipfile.ZipFile(path) as z:
+        parts = [n for n in z.namelist()
+                 if n.startswith("xl/charts/chart") and n.endswith(".xml")]
+        for n in parts:
+            root = ET.fromstring(z.read(n))
+            for el in root.iter():
+                tag = el.tag.replace(CHART_NS, "")
+                seq = CHART_SEQ.get(tag)
+                if not seq:
+                    continue
+                order = [s.rstrip("*") for s in seq]
+                got = [c.tag.replace(CHART_NS, "") for c in el]
+                seen = [order.index(g) for g in got if g in order]
+                if seen != sorted(seen):
+                    bad.append("%s: <%s> children out of order: %s"
+                               % (n.split("/")[-1], tag, ", ".join(got)))
+                for s in seq:
+                    if s.endswith("*") and s[:-1] not in got:
+                        bad.append("%s: <%s> is missing the required <%s>"
+                                   % (n.split("/")[-1], tag, s[:-1]))
+    return parts, bad
 
 
 LOGO = os.path.join(BASE, "assets", "logo_full.png")
@@ -1446,7 +1502,11 @@ def build(block):
             "trial tables of this workbook or of a companion one, at the row given, so "
             "any clip can be checked against the numbers it claims to show. They are "
             "chosen for being ORDINARY - the trial closest to the middle of that kind - "
-            "not for being the clearest."))
+            "not for being the clearest. They play at %s of real time, because the whole "
+            "trial lasts under a second and a half and a blink at real speed is a frame "
+            "or two of nothing much."
+            % ("x%g (%.0fx slow motion)" % (CLIPS["speed"], 1.0 / CLIPS["speed"])
+               if CLIPS.get("speed") else "a fraction of real time")))
         c.font = F(size=9, color=MUT)
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=7)
         ws.cell(row=2, column=1).alignment = Alignment(wrap_text=True, vertical="top")
@@ -1579,7 +1639,11 @@ def build(block):
         wb.save(alt)
         print(f"!! {os.path.basename(out)} is open in Excel - wrote {os.path.basename(alt)} instead")
         out = alt
-    print(f"saved {out}  ({len(paired)} paired + {len(csonly)} CS-only)")
+    parts, bad = check_charts(out)
+    for b in bad:
+        print("!! INVALID CHART - Excel will delete every chart in this workbook: " + b)
+    print(f"saved {out}  ({len(paired)} paired + {len(csonly)} CS-only, "
+          f"{len(parts)} live chart(s){', ' + str(len(bad)) + ' INVALID' if bad else ''})")
 
 
 for b in (sys.argv[2:] or list(BOOKS)):

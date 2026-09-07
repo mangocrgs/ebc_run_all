@@ -576,6 +576,88 @@ def test_every_pipeline_stage_has_a_name_on_the_progress_bar():
         assert ran <= got, "%s does not know about %s" % (name, sorted(ran - got))
 
 
+# ---------------------------------------- charts Excel will actually agree to open
+# Excel does not report an invalid chart.  It offers to "recover" the workbook, deletes
+# every chart part in it and saves that, so the whole thing arrives on somebody else's
+# machine as bare numbers with nothing anywhere saying why.  Both bugs below shipped and
+# were found only by unzipping a workbook Excel had been through.
+CHART_NS = "{http://schemas.openxmlformats.org/drawingml/2006/chart}"
+
+
+def _chart_xml(chart):
+    """One chart serialised the way it lands in the file, as text."""
+    from openpyxl.xml.functions import tostring
+    x = tostring(chart._write())
+    return x.decode("utf-8") if isinstance(x, bytes) else x
+
+
+def _plot_group(chart):
+    """The <c:scatterChart> / <c:lineChart> element inside a serialised chart."""
+    import xml.etree.ElementTree as ET
+    pa = ET.fromstring(_chart_xml(chart)).find(CHART_NS + "chart").find(CHART_NS + "plotArea")
+    return next(c for c in pa if c.tag.endswith("Chart"))
+
+
+def test_error_bars_put_plus_before_minus():
+    """openpyxl 3.1.5 writes them the other way round; CT_ErrBars is a sequence."""
+    C.patch_openpyxl_charts()
+    from openpyxl.chart.error_bar import ErrorBars
+    e = list(ErrorBars.__elements__)
+    assert e.index("plus") < e.index("minus"), e
+
+
+def test_patching_the_element_order_twice_does_not_shuffle_it():
+    C.patch_openpyxl_charts()
+    from openpyxl.chart.error_bar import ErrorBars
+    before = ErrorBars.__elements__
+    assert C.patch_openpyxl_charts() is False
+    assert ErrorBars.__elements__ == before
+
+
+def test_a_scatter_chart_carries_the_style_the_format_requires():
+    """CT_ScatterChart's scatterStyle is minOccurs=1 and openpyxl omits it."""
+    from openpyxl.chart import ScatterChart
+    assert "scatterStyle" not in _chart_xml(ScatterChart()), \
+        "openpyxl started writing it by itself - the workaround can go"
+    ch = ScatterChart()
+    ch.scatterStyle = C.SCATTER_STYLE
+    kids = [c.tag.replace(CHART_NS, "") for c in _plot_group(ch)]
+    assert kids[0] == "scatterStyle", kids
+
+
+def test_an_error_bar_chart_serialises_in_schema_order():
+    """The end-to-end check: build one the way the workbooks do, and read the XML back."""
+    from openpyxl import Workbook
+    from openpyxl.chart import ScatterChart, Reference, Series
+    from openpyxl.chart.error_bar import ErrorBars
+    from openpyxl.chart.data_source import NumDataSource, NumRef
+    C.patch_openpyxl_charts()
+    wb = Workbook()
+    ws = wb.active
+    for i in range(1, 5):
+        ws.append([i, i * 10.0, 2.0])
+    s = Series(Reference(ws, min_col=2, min_row=1, max_row=4),
+               Reference(ws, min_col=1, min_row=1, max_row=4))
+    sd = Reference(ws, min_col=3, min_row=1, max_row=4)
+    s.errBars = ErrorBars(errDir="y", errValType="cust", errBarType="both",
+                          plus=NumDataSource(numRef=NumRef(f=sd)),
+                          minus=NumDataSource(numRef=NumRef(f=sd)))
+    ch = ScatterChart()
+    ch.scatterStyle = C.SCATTER_STYLE
+    ch.series.append(s)
+    grp = _plot_group(ch)
+    eb = grp.find(".//" + CHART_NS + "errBars")
+    got = [c.tag.replace(CHART_NS, "") for c in eb]
+    assert got.index("plus") < got.index("minus"), got
+    kids = [c.tag.replace(CHART_NS, "") for c in grp]
+    assert kids[0] == "scatterStyle", kids
+    ser = [c.tag.replace(CHART_NS, "") for c in grp.find(CHART_NS + "ser")]
+    order = ["idx", "order", "tx", "spPr", "marker", "dPt", "dLbls", "trendline",
+             "errBars", "xVal", "yVal", "smooth"]
+    seen = [order.index(g) for g in ser if g in order]
+    assert seen == sorted(seen), ser
+
+
 def test_every_rendered_figure_points_at_a_sheet_that_exists():
     """PNG_DATA tells the reader where a picture's numbers are; a stale name misleads.
 
