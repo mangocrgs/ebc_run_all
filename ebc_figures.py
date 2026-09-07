@@ -99,6 +99,38 @@ def cr_band(ax, win, xmax, label_it=True):
                 color=CR_C, fontsize=9, ha="left", va="bottom", zorder=8, bbox=PLATE)
 
 
+def trend(ax, xs, ys, col, where="upper right", pad=(-8, -8)):
+    """A straight line through the blocks, with the R² that says how straight it is.
+
+    The published figures this lab works from put one on every block panel, and it is
+    worth having for the reason they do: a CR rate that climbs is the whole claim, and a
+    line with an R² of 0.03 says the climb is not in these ten numbers.  It is drawn
+    dashed and thin so it can never be mistaken for the data.
+
+    Two points make a perfect line and no case, so nothing is drawn below three; a
+    vertical fit (every block the same x, which cannot happen here but would divide by
+    zero if it did) is refused rather than caught afterwards.  Returns R², or None.
+    """
+    x = np.asarray(xs, float)
+    y = np.asarray(ys, float)
+    ok = np.isfinite(x) & np.isfinite(y)
+    x, y = x[ok], y[ok]
+    if len(x) < 3 or np.ptp(x) == 0:
+        return None
+    m, c = np.polyfit(x, y, 1)
+    fit = m * x + c
+    ss_res = float(np.sum((y - fit) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+    xx = np.array([x.min(), x.max()])
+    ax.plot(xx, m * xx + c, ls=(0, (5, 4)), lw=1.6, color=col, alpha=.85, zorder=4)
+    ax.annotate("R² = %.3f" % r2, xy=(1, 1) if "right" in where else (0, 1),
+                xycoords="axes fraction", xytext=pad, textcoords="offset points",
+                ha="right" if "right" in where else "left", va="top",
+                fontsize=9.5, color=col)
+    return r2
+
+
 def groups_present(rows, proto):
     """The trial sets worth plotting on their own, in the order they were run."""
     g = []
@@ -265,6 +297,13 @@ def scatter(rows, key, role, sub, title, proto, win, odir, n_blocks, per_block):
         h += [Line2D([], [], color=INK, lw=2.8, marker="o", ms=9, mfc="white", mew=2.2,
                      label="block mean (learning curve)")]
     h += [Line2D([], [], color=LINK, lw=1.2, label="trial order")]
+    # The two edges of the CR window, named the way the published figures name them, so
+    # a reader coming from one of those knows which line is which without the caption.
+    if not anchored_us:
+        h += [Line2D([], [], color=CR_C, lw=1.0, ls=(0, (5, 4)), alpha=.65,
+                     label="CR lower-bound (%.0f ms)" % win["lo_ms"]),
+              Line2D([], [], color=CR_C, lw=1.0, ls=(0, (5, 4)), alpha=.65,
+                     label="CR upper-bound (%.0f ms)" % win["hi_ms"])]
     if any(r["first_response_obscured"] == "yes" and r["secondary_onset_ms"] for r in rows):
         h += [Line2D([], [], ls="", marker="o", ms=13, mfc="none", mec=MUT, alpha=.7,
                      label="response recovered behind an artefact")]
@@ -377,6 +416,9 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
     for x_, y_, n_, _k in paired:
         a.annotate("%.0f%%\nn=%d" % (y_, n_), (x_, y_), textcoords="offset points",
                    xytext=(0, 12), ha="center", fontsize=8.5, color=MUT, linespacing=1.3)
+    # The straight line through the blocks, and the R² that says whether the climb the
+    # eye reads into ten points is in the numbers at all.
+    trend(a, xs, cr_r, CR_C, pad=(-8, -22))
     a.set_ylim(-5, 122); a.set_xlim(min(xs) - .5, max(xs) + .5)
     a.set_ylabel("% of scoreable trials in the block", fontsize=11)
     a.set_title("Acquisition — the blink shifts from reacting to the puff, to anticipating it",
@@ -396,6 +438,7 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
         for x_, y_, sd_, n_ in onsets:
             b_ax.annotate("n=%d" % n_, (x_, y_), textcoords="offset points",
                           xytext=(10, -3.5), ha="left", fontsize=8, color=MUT)
+        trend(b_ax, ox, om, CR_C)
         b_ax.axhspan(win["lo_ms"], win["hi_ms"], color=CR_C, alpha=.07, zorder=0)
         b_ax.set_ylim(win["lo_ms"] - 25, win["hi_ms"] + 25)
     else:
@@ -416,6 +459,176 @@ def acquisition(rows, proto, win, title, odir, key="cond", probes=None):
     f.subplots_adjust(left=.075, right=.985, top=.855, bottom=.095)
     p = os.path.join(odir, "%s_acquisition.png" % key)
     f.savefig(p, dpi=170); plt.close(f)
+    print("wrote " + os.path.basename(p))
+
+
+def paper(rows, probes, proto, win, title, odir, key="cond"):
+    """The same numbers again, drawn the way this lab's published figures draw them.
+
+    Four panels, in the order the reference works through them: what the windows ARE, the
+    onset of every trial against them, then the two block summaries with a straight line
+    and an R² on each.  It is deliberately plainer than the diagnostic figures - one
+    marker, one colour, four named boundaries in a legend - because it is meant to sit
+    beside a figure drawn from another system and be read as the same measurement rather
+    than as a different one.
+
+    The y axis is time from CS onset, as everywhere else here.  The reference plots the
+    same quantity on an absolute axis, with the CS at 600 ms, because its trial window
+    opens 600 ms before the CS; adding that offset would make every number on the axis
+    disagree with the same number in the workbooks, which is a worse thing than an axis
+    that starts somewhere else.  The four boundaries are the ones it names, and they mean
+    the same: the CR window's edges each sit one reflex latency after their own stimulus.
+    """
+    des = C.design(proto)
+    us0 = des["isi_ms"]
+    lo, hi = win["lo_ms"], win["hi_ms"]
+    RED, EDGE = P["ur"], P["ur"]
+    onsets = block_onset(rows)
+    rates = block_rate(rows, "CR")
+
+    f = plt.figure(figsize=(11.6, 10.6))
+    # The right margin is wide because panel B's legend hangs in it, the way the
+    # reference's does; C and D are narrower for it, which is also how they are drawn
+    # there - the per-trial panel is the wide one.
+    gs = f.add_gridspec(3, 2, height_ratios=[.38, 1.60, 1.12],
+                        hspace=.30, wspace=.26, left=.095, right=.835,
+                        top=.900, bottom=.075)
+    a_ax = f.add_subplot(gs[0, :])
+    b_ax = f.add_subplot(gs[1, :])
+    c_ax = f.add_subplot(gs[2, 0])
+    d_ax = f.add_subplot(gs[2, 1])
+
+    def letter(ax, ch):
+        ax.annotate(ch, xy=(0, 1), xycoords="axes fraction", xytext=(-42, 20),
+                    textcoords="offset points", fontsize=13, fontweight="bold",
+                    color=INK, va="top", ha="left")
+
+    # ---- A: the windows themselves, on a bare time axis
+    hi_x = max(hi + 120, us0 + 200)
+    a_ax.set_xlim(-90, hi_x); a_ax.set_ylim(0, 1)
+    a_ax.annotate("", xy=(hi_x, .52), xytext=(-90, .52),
+                  arrowprops=dict(arrowstyle="-|>", color=INK, lw=1.6))
+    a_ax.text(hi_x, .62, "ms", fontsize=9, color=INK, ha="right", va="bottom")
+    bands = [(0, lo, "spontaneous / startle", P["cs_soft"]),
+             (lo, hi, "conditioned responses: CRs", P["cr_soft"])]
+    qhi = des["cs_offset_ms"]
+    if qhi > hi + .5:                     # the ?CR band, where this lab scores neither
+        bands.append((hi, qhi, "neither: ?CR", P["us_soft"]))
+    bands.append((max(hi, qhi), hi_x, "unconditioned responses: URs", P["ur_soft"]))
+    span = hi_x + 90.0
+    for x0, x1, txt, col in bands:
+        a_ax.axvspan(x0, x1, ymin=.44, ymax=.68, color=col, lw=0, zorder=1)
+        # A band too narrow to hold its own name is labelled above the axis instead of
+        # under it, where the two bound labels already are: the ?CR band is 50 ms wide
+        # on the standard window and its name is wider than the band.
+        narrow = (min(x1, hi_x) - x0) / span < .13
+        a_ax.text((x0 + min(x1, hi_x)) / 2, .78 if narrow else .36, txt,
+                  fontsize=7.5 if narrow else 8, color=MUT, ha="center",
+                  va="bottom" if narrow else "top", style="italic")
+    for x, lab_, col in ((0, "CS", CS_C), (us0, "US", US_C)):
+        a_ax.plot([x, x], [.44, .84], color=col, lw=2.0, zorder=3)
+        a_ax.text(x, .88, "%s  %.0f" % (lab_, x), fontsize=10, color=col, ha="center",
+                  va="bottom", fontweight="semibold")
+    for x, col in ((lo, CS_C), (hi, US_C)):
+        a_ax.plot([x, x], [.30, .68], color=col, lw=1.2, ls=":", zorder=3)
+    a_ax.text(lo, .26, "CR lower-bound  %.0f" % lo, fontsize=8, color=CS_C, ha="center",
+              va="top")
+    a_ax.text(hi, .26, "CR upper-bound  %.0f" % hi, fontsize=8, color=US_C, ha="center",
+              va="top")
+    a_ax.set_title(window_note(win).split("  ·  ")[0]
+                   + ("   ·   mean reflex delay %.0f ms, both bounds one reflex after "
+                      "their own stimulus" % win["reflex_ms"] if win["measured"]
+                      else "   ·   no US-only baseline, so the protocol's own cut-offs "
+                           "are used"),
+                   fontsize=9.5, loc="left", color=MUT, pad=8)
+    a_ax.axis("off")
+    letter(a_ax, "A")
+
+    # ---- B: every trial
+    xs = [r["group_index"] for r in rows if r["scored_onset_ms"] is not None]
+    ys = [r["scored_onset_ms"] for r in rows if r["scored_onset_ms"] is not None]
+    top = max([hi + 120] + ([float(np.percentile(ys, 97)) + 60] if ys else []))
+    bot = min([-60] + ([float(np.percentile(ys, 3)) - 60] if ys else []))
+    cy = np.clip(ys, bot, top)
+    b_ax.plot(xs, cy, "-", color=LINK, lw=.9, zorder=2)
+    b_ax.plot(xs, cy, "D", ms=5.2, mfc="none", mec=EDGE, mew=1.1, zorder=3)
+    # A blink far outside the axis is held at the edge and told, rather than drawn
+    # somewhere it is not: an unlabelled marker on the frame reads as a value there.
+    for x_, y_ in zip(xs, ys):
+        if y_ > top:
+            b_ax.annotate("%.0f" % y_, (x_, top), textcoords="offset points",
+                          xytext=(0, -11), ha="center", fontsize=7, color=EDGE)
+    h = []
+    for y, col, ls, name in ((0, CS_C, "-", "CS onset"),
+                             (us0, US_C, "-", "US onset"),
+                             (lo, CS_C, ":", "CR lower-bound"),
+                             (hi, US_C, ":", "CR upper-bound")):
+        b_ax.axhline(y, color=col, lw=1.5 if ls == "-" else 1.3, ls=ls, zorder=1)
+        h.append(Line2D([], [], color=col, lw=1.5, ls=ls, label=name))
+    h.append(Line2D([], [], ls="", marker="D", ms=5.2, mfc="none", mec=EDGE, mew=1.1,
+                    label="blink onset"))
+    b_ax.set_xlim(0, (max(xs) if xs else 1) + 1); b_ax.set_ylim(bot, top)
+    step = max(1, len(rows) // 34)
+    tk = [r["group_index"] for r in rows][::step]
+    b_ax.set_xticks(tk)
+    b_ax.set_xticklabels(["Trial %d" % t for t in tk], rotation=90, fontsize=6.8)
+    b_ax.set_ylabel("Blink onset (ms from CS)", fontsize=10)
+    b_ax.legend(handles=h, fontsize=8, frameon=True, loc="center left",
+                bbox_to_anchor=(1.005, .5), handlelength=2.0, borderpad=.6)
+    b_ax.tick_params(labelsize=8)
+    b_ax.grid(axis="y", color=GRID, lw=.7); b_ax.set_axisbelow(True)
+    letter(b_ax, "B")
+
+    # ---- C: mean onset per block, with its spread
+    if onsets:
+        ox = [o[0] for o in onsets]
+        om = [o[1] for o in onsets]
+        oe = [o[2] if o[2] is not None else 0.0 for o in onsets]
+        c_ax.errorbar(ox, om, yerr=oe, fmt="D", ms=5.2, mfc="none", mec=EDGE, mew=1.1,
+                      ecolor=EDGE, elinewidth=1.0, capsize=2.5, ls="none", zorder=3)
+        trend(c_ax, ox, om, RED)
+        c_ax.set_xticks(ox)
+        c_ax.set_xticklabels(["block %d" % b for b in ox], rotation=90, fontsize=7.5)
+        c_ax.set_ylim(min(0, lo - 120), max(om) + max(oe) + 120)
+    else:
+        c_ax.text(.5, .5, "no CR onsets to average", transform=c_ax.transAxes,
+                  ha="center", va="center", fontsize=9, color=MUT)
+    c_ax.set_title("Mean blink onset", fontsize=10.5, color=INK)
+    c_ax.set_ylabel("ms from CS", fontsize=9.5)
+    c_ax.tick_params(labelsize=8)
+    c_ax.grid(axis="y", color=GRID, lw=.7); c_ax.set_axisbelow(True)
+    letter(c_ax, "C")
+
+    # ---- D: how many of them were CRs
+    if rates:
+        rx = [p[0] for p in rates]
+        ry = [p[1] for p in rates]
+        d_ax.plot(rx, ry, "D", ms=5.2, mfc=RED, mec=EDGE, mew=1.0, ls="none", zorder=3)
+        # left, because an acquisition curve rises to the right and the R² would sit on
+        # top of the last blocks - the ones it is a claim about
+        trend(d_ax, rx, ry, RED, where="upper left", pad=(8, -8))
+        d_ax.set_xticks(rx)
+        d_ax.set_xticklabels(["block %d" % b for b in rx], rotation=90, fontsize=7.5)
+    d_ax.set_ylim(-5, 105)
+    d_ax.set_title("Percentage of CRs", fontsize=10.5, color=INK)
+    d_ax.set_ylabel("% of scoreable trials", fontsize=9.5)
+    d_ax.tick_params(labelsize=8)
+    d_ax.grid(axis="y", color=GRID, lw=.7); d_ax.set_axisbelow(True)
+    letter(d_ax, "D")
+
+    for ax in (b_ax, c_ax, d_ax):
+        for s in ("top", "right"):
+            ax.spines[s].set_visible(False)
+        for s in ("left", "bottom"):
+            ax.spines[s].set_color(RULE)
+
+    f.suptitle(title, fontsize=15, y=.985, x=.010, ha="left", va="top",
+               color=INK, fontweight="semibold")
+    f.text(.010, .944, "the same trials as the other figures, drawn in the published "
+                       "style: one marker, the four boundaries named, a straight line "
+                       "through the blocks", fontsize=9, color=MUT, ha="left", va="top")
+    p = os.path.join(odir, "%s_paper_figure.png" % key)
+    f.savefig(p, dpi=200); plt.close(f)
     print("wrote " + os.path.basename(p))
 
 
@@ -533,6 +746,7 @@ def main():
                 proto["n_blocks"], proto["paired_per_block"])
         if key == "cond_paired":
             acquisition(rows, proto, win, title, odir, probes=PROBES)
+            paper(rows, PROBES, proto, win, title, odir)
         rasters(rows, M["traces"], key, role, title, proto, win, odir, order)
 
 

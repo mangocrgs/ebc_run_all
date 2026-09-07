@@ -121,7 +121,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.2.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.4.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib
@@ -233,7 +233,20 @@ its own heading so a fifty-minute log can be read from the top.
 
 4. **Paired CS-US trials — the measurement.**
    CR count, CR percentage, the block-by-block learning curve, the mean CR onset with its
-   SD per block, and the per-trial scatter.
+   SD per block, and the per-trial scatter. Both block panels carry a straight line
+   through them and its **R²**, which is the check on the curve the eye draws: a CR rate
+   that climbs is the whole claim, and an R² of 0.03 says the climb is not in those ten
+   numbers.
+
+   The same trials are drawn a second time as **`cond_paper_figure.png`**, in the style
+   of the published figures this lab works from — the windows as a diagram, every trial
+   against them with the four boundaries named (CS onset, US onset, CR lower-bound, CR
+   upper-bound), then the two block panels. It is deliberately plainer than the
+   diagnostic figures, one marker and one colour, so it can sit beside a figure drawn
+   from another system and be read as the same measurement. Its y axis is time from CS
+   onset, like everything else here: the published figures put the CS at 600 ms because
+   their trial window opens 600 ms before it, and adopting that offset would make every
+   number on the axis disagree with the same number in the workbooks.
 
 5. **CS-only probes during conditioning — did the learning hold?**
    A probe delivers no puff, so a response on one cannot be a reaction to anything but the
@@ -623,7 +636,7 @@ the individual onsets that went into it.
 | `ebc_protocol.py` | Pulses to trials; pairs CS with US; recovers the blocks and checks them against the protocol. |
 | `ebc_eyes.py` | Per recording: eyelid tracking in a window around every trial. |
 | `ebc_score.py` | One pooled closure scale, blink metrics, response classes. |
-| `ebc_figures.py` | Onset scatter, acquisition curve, closure rasters — one set per trial group. |
+| `ebc_figures.py` | Onset scatter, acquisition curve, closure rasters — one set per trial group — and `cond_paper_figure.png`, the same numbers in the published style. |
 | `ebc_export_csv.py` | Trials, stimulus events and full traces as CSV. |
 | `ebc_workbooks.py` | One Excel workbook per role, each with its own read-me. |
 | `ebc_qc.py` | `leds` — the LED check page per recording. `trial <tag> <n>` — an eye filmstrip with the measured closure printed on each frame. |
