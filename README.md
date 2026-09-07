@@ -73,11 +73,24 @@ it found is in the run's own record. Which of the two baselines came first means
 and is not flagged; neither is a recording the camera never dated, nor one whose role is
 still the placeholder the app had to put in the dropdown for a name that says nothing.
 
-The same panel also says when the **rows have been moved out of the recording order** with
-the ▲▼ arrows. Nothing is wrong when it does: `ebc_timeline` sorts the recordings by the
-camera clock before a frame is decoded, so the run uses that order whatever the page shows
-— but the chapter numbers in the *Order* column follow the arrows, and a number the run
-will not use should not sit there unexplained.
+**The same panel checks the order two more ways**, and names the exact pair each time.
+
+- **A position set against the filming order.** The *Order* column numbers the recordings
+  by the row they are in, and the ▲▼ arrows move rows — so putting `CSUS 2` below `CSUS 3`
+  makes it chapter 3, which makes chapter 3 the one filmed *before* chapter 2. No session
+  was recorded that way, and the panel says which two and which was filmed first.
+- **Numbers in the names that run backwards.** Rename the second conditioning chapter
+  `CSUS 5` and nothing else notices: both are conditioning, so the role check is happy,
+  and both really are chapters of that take, so the take check is happy. What is left is a
+  name claiming it was filmed fifth while the camera says second. Only names that state
+  the role take part — a camera's own `GX012908.MP4` carries a five-digit number that
+  means nothing about order.
+
+Neither blocks, and neither changes a number: `ebc_timeline` sorts by the camera clock
+before a frame is decoded, so the run reads the recordings in the filming order whatever
+the page or the names say. What is wrong is the claim left standing in front of the next
+person to read it — and if it is the camera's clock that is wrong, that is worth knowing
+before the numbers are quoted, which is the other reason to say so.
 
 **Starting over** is in the top bar, next to the status pill, and stays there. It unticks
 the recordings, empties the study name, puts away a finished run and keeps the folder —
@@ -108,7 +121,7 @@ Nothing is uploaded, and the recordings are read where they sit.
 The whole thing packages into one installer you can send to anybody:
 
 ```
-packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.1.exe   (~240 MB)
+packaging\build.bat        ->  packaging\Setup EBC Analyzer 1.3.2.exe   (~240 MB)
 ```
 
 **The machine it lands on needs nothing.** Python, OpenCV, MediaPipe, SciPy, matplotlib

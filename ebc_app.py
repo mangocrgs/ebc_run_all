@@ -705,6 +705,19 @@ def preflight(body):
              "the run and fix the Role column in step 1 if so - the roles decide what is "
              "measured against what, and every number below inherits them."
              % (f["why"][0].upper() + f["why"][1:]))
+
+    # The order the recordings are ticked in is not the order they are read in - the
+    # camera clock decides that, in the first stage of the run - so an order set by hand
+    # against it changes nothing and is worth one line rather than a refusal.
+    for f in order_findings(items):
+        note("%s is ticked as number %d of %s, after %s at number %d - but the camera "
+             "filmed %s first."
+             % (f["file"], f["shown"], ROLE_NAME.get(f["role"], f["role"]), f["after"],
+                f["after_shown"], f["file"]), "warn",
+             "The recordings are laid end to end on the camera's clock, so the run uses "
+             "the filming order and this numbering is not what it will read. Nothing is "
+             "lost either way - but if the camera's order is the one that is wrong, stop "
+             "and check the recorded times before quoting these numbers.")
     for i in items:
         if i.get("anchor") == "us" and i.get("role") in C.NO_US_ROLES:
             return fail("'%s' is set to take trials from the US LED, but its role "
@@ -1111,6 +1124,101 @@ ROLE_STAGE = {"baseline_cs": 0, "baseline_us": 0, "conditioning": 1, "extinction
 ROLE_STAGE_WORD = ("a baseline", "conditioning", "extinction")
 
 
+def name_number(stem):
+    """The number somebody put on the end of a recording's name, if they put one there.
+
+    `CSUS 2` -> 2, `csus3` -> 3, `extinction` -> None.  It is the LAST run of digits, so
+    `CSUS 2 test` is 2 and not 2-then-something; and a name with no digits at all returns
+    None rather than 1, because "no number" and "number one" are different claims and
+    only one of them can be wrong.
+    """
+    m = re.findall(r"\d+", stem)
+    return int(m[-1]) if m else None
+
+
+def sequence_findings(vids, rows):
+    """Numbers in the names that run against the order the camera filmed them in.
+
+    `CSUS 1`, `CSUS 2`, `CSUS 3` is a person numbering the conditioning chapters as they
+    went.  The numbers are a claim about order, and like every other claim in a file name
+    they can be wrong: rename the second chapter `CSUS 5` and nothing anywhere notices -
+    both are conditioning, so the role check is happy, and the take check is happy
+    because both really are chapters of that take.  What is left is a name saying this
+    was filmed fifth while the camera says it was filmed second.
+
+    Only recordings whose OWN NAME states the role take part.  A camera's own
+    `GX012908.MP4` carries a five-digit number that means nothing about order, and
+    comparing it against a hand-typed 2 would invent a disagreement out of nothing.
+    """
+    out = []
+    by_role = {}
+    for v in vids:
+        r = rows.get(v["name"]) or {}
+        stem = os.path.splitext(v["name"])[0]
+        role = guess_role(stem)
+        n = name_number(stem)
+        if role and n is not None and r.get("dated") and r.get("rank") is not None:
+            by_role.setdefault(role, []).append((r["rank"], n, v))
+    for role, group in by_role.items():
+        group.sort()                                   # into the order the camera filmed
+        for i in range(1, len(group)):
+            (_, n, v), (_, pn, pv) = group[i], group[i - 1]
+            if n >= pn:
+                continue
+            out.append({
+                "name": v["name"], "path": v["path"], "number": n,
+                "after": pv["name"], "after_number": pn, "role": role,
+                "role_word": ROLE_WORD.get(role, role),
+                "why": ("%s is numbered %d and %s is numbered %d, but the camera filmed "
+                        "%s FIRST. Two of these names cannot both be right: either the "
+                        "numbers are the wrong way round, or one of these is not %s."
+                        % (pv["name"], pn, v["name"], n, pv["name"],
+                           ROLE_WORD.get(role, role))),
+            })
+    return out
+
+
+ROLE_NAME = {"conditioning": "conditioning", "extinction": "extinction",
+             "baseline_cs": "the CS-only baseline", "baseline_us": "the US-only baseline"}
+
+
+def order_findings(items):
+    """Recordings ticked into a position the camera contradicts.
+
+    Within a role the page numbers the recordings by the row they are in - the Order
+    column's "chapter 1, 2, 3" - and the arrows move rows.  Move CSUS 2 below CSUS 3 and
+    it becomes chapter 3, which makes chapter 3 the one filmed BEFORE chapter 2: an order
+    no session can have been recorded in.  `items` arrive in the row order, which is what
+    makes that visible here at all.
+
+    It is not a refusal and cannot be one.  ebc_timeline sorts by the camera clock before
+    a frame is decoded, so the run reads the recordings in the filming order whatever the
+    rows say; what is wrong is the number on the page, and the reason to say so is that
+    somebody looking at it would otherwise believe the run had used it.
+    """
+    out, seen = [], {}
+    for it in items:
+        role = it.get("role")
+        if role not in ROLE_NAME:
+            continue
+        if not (it.get("dated") and it.get("rank") is not None):
+            continue
+        seen.setdefault(role, []).append(it)
+    for role, group in seen.items():
+        for i in range(1, len(group)):
+            it, prev = group[i], group[i - 1]
+            if it["rank"] >= prev["rank"]:
+                continue
+            out.append({
+                "file": os.path.basename(it.get("path") or "") or it.get("label") or "",
+                "shown": i + 1, "role": role,
+                "after": (os.path.basename(prev.get("path") or "")
+                          or prev.get("label") or ""),
+                "after_shown": i,
+            })
+    return out
+
+
 def stage_why(role, after_role):
     """Why this pair cannot be in this order, in one clause."""
     if ROLE_STAGE[role] == 0:
@@ -1355,6 +1463,9 @@ def list_dir(path):
             # A name that contradicts the camera is not a note on one row - it changes
             # what the study IS, so it is raised before the protocol is even set.
             base["conflicts"] = role_findings(vids, rows)
+            # The numbers people type into the names are a claim about order, and the
+            # camera can check it: `CSUS 5` filmed before `CSUS 3` is one of them wrong.
+            base["sequence"] = sequence_findings(vids, rows)
             # And where the camera can say what a NAMELESS recording is, the Role column
             # says so instead of showing a placeholder.  `GX012908.MP4` in a labelled
             # take used to arrive as "conditioning" with a note that the app had picked

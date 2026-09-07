@@ -610,6 +610,80 @@ def test_the_take_answers_before_the_neighbours_do():
     assert "same take" in f[0]["why"]
 
 
+# ------------------------- a position ticked against the order the camera filmed in
+def test_a_chapter_moved_below_one_filmed_later_is_flagged():
+    """The user's case: move CSUS 2 under CSUS 3 and it is numbered chapter 3, which
+    makes chapter 3 the one filmed first."""
+    rows = _items([("CSUS 1.MP4", "conditioning"), ("CSUS 2.MP4", "conditioning"),
+                   ("CSUS 3.MP4", "conditioning")])
+    rows[1], rows[2] = rows[2], rows[1]            # as if the arrows had been used
+    f = A.order_findings(rows)
+    assert len(f) == 1, f
+    assert f[0]["file"] == "CSUS 2.MP4" and f[0]["shown"] == 3
+    assert f[0]["after"] == "CSUS 3.MP4" and f[0]["after_shown"] == 2
+
+
+def test_the_order_the_camera_filmed_in_is_not_flagged():
+    assert A.order_findings(_items([("CSUS 1.MP4", "conditioning"),
+                                    ("CSUS 2.MP4", "conditioning"),
+                                    ("CSUS 3.MP4", "conditioning")])) == []
+
+
+def test_positions_are_counted_within_one_role():
+    """A baseline between two conditioning chapters does not push their numbers about."""
+    rows = _items([("CSUS 1.MP4", "conditioning"), ("US ONLY.MP4", "baseline_us"),
+                   ("CSUS 2.MP4", "conditioning")])
+    assert A.order_findings(rows) == []
+
+
+# ------------------------- numbers in the names that run against the filming order
+def test_a_chapter_numbered_after_one_filmed_later_is_flagged():
+    """Rename the second conditioning chapter `CSUS 5` and nothing used to notice: both
+    are conditioning, so the role check is happy, and both really are chapters of that
+    take, so the take check is happy. What is left is a name claiming it was filmed
+    fifth while the camera says second."""
+    files = ["CSUS 1.MP4", "CSUS 5.MP4", "CSUS 3.MP4"]
+    f = A.sequence_findings(_vids(files), _solo(files))
+    assert len(f) == 1, f
+    assert f[0]["name"] == "CSUS 3.MP4" and f[0]["number"] == 3
+    assert f[0]["after"] == "CSUS 5.MP4" and f[0]["after_number"] == 5
+
+
+def test_names_numbered_in_the_filming_order_are_not_flagged():
+    files = ["CSUS 1.MP4", "CSUS 2.MP4", "CSUS 3.MP4", "CSUS 4.MP4"]
+    assert A.sequence_findings(_vids(files), _solo(files)) == []
+
+
+def test_each_role_is_numbered_on_its_own():
+    """extinction 1 filmed after CSUS 3 is not a number running backwards - they are
+    different roles, and each carries its own count."""
+    files = ["CSUS 1.MP4", "CSUS 2.MP4", "extinction 1.MP4", "extinction 2.MP4"]
+    assert A.sequence_findings(_vids(files), _solo(files)) == []
+
+
+def test_a_name_with_no_number_claims_no_position():
+    """`extinction.MP4` before `extinction 2.MP4` is the usual pair and says nothing
+    about order; "no number" and "number one" are different claims."""
+    files = ["extinction.MP4", "extinction 2.MP4"]
+    assert A.sequence_findings(_vids(files), _solo(files)) == []
+    assert A.name_number("extinction") is None and A.name_number("CSUS 2") == 2
+    assert A.name_number("CSUS3") == 3 and A.name_number("CSUS 2 test") == 2
+
+
+def test_a_camera_number_is_not_a_position():
+    """`GX012908.MP4` carries a five-digit number that means nothing about order, and
+    its name states no role, so it takes no part."""
+    files = ["CSUS 1.MP4", "GX012908.MP4", "CSUS 2.MP4"]
+    assert A.sequence_findings(_vids(files), _solo(files)) == []
+
+
+def test_an_undated_recording_makes_no_claim_about_order():
+    files = ["CSUS 1.MP4", "CSUS 5.MP4", "CSUS 3.MP4"]
+    rows = _solo(files)
+    rows["CSUS 3.MP4"]["dated"] = False
+    assert A.sequence_findings(_vids(files), rows) == []
+
+
 # ------------------------------------- roles that contradict the session's own clock
 # name_findings asks whether the NAME agrees with the camera.  These ask the question
 # that reaches the numbers: whether the ROLE the run is about to use does.  The Role

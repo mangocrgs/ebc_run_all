@@ -247,11 +247,13 @@ tbody tr.bad:hover{background:var(--alert-bg)}
 .tlw .what{margin:11px 0 0;padding-top:9px;border-top:1px solid var(--rule);
   font-size:12.5px;color:var(--muted)}
 .tlw .stages{font-size:12.5px;color:var(--muted);margin:0}
-/* Nothing is wrong here - the run will do the right thing whatever the rows say - so it
-   is told in the quiet colours rather than the alarming ones. */
-.tlw.mild{border-color:var(--rule);background:var(--sunken)}
-.tlw.mild h4{color:var(--ink)}
-.tlw.mild p{margin:4px 0 0;font-size:12.5px;color:var(--muted)}
+/* An order that contradicts the camera is a real mistake and is named as one - but the
+   run reads the camera clock itself and will not act on it, so it is amber and not the
+   alert red kept for a role that would change what is measured. */
+.tlw.warn{border-color:var(--warn);background:var(--warn-bg)}
+.tlw.warn h4{color:var(--warn)}
+.tlw.warn .one{border-left-color:var(--warn)}
+.tlw p{margin:4px 0 0}
 
 /* ---------------------------------------------------------------- env check */
 .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -1217,25 +1219,83 @@ function stageWhen(f){
     : ` Both carry the camera time ${esc(a)}; the order is the camera's.`;
 }
 
-/* The other way an order goes wrong: the arrows.  They reorder the rows, and the chapter
-   numbers in the Order column follow them - but ebc_timeline sorts the recordings by the
-   camera clock before a single frame is read, so a hand-made order is overwritten and the
-   page has been showing chapter numbers the run will not use.  Saying so is the whole
-   fix: the run is right either way, the page was the thing that lied. */
-function movedRows(){
+/* The second way an order goes wrong, and the one the arrows make it easy to do: the
+   chapter numbers in the Order column are the row order, so moving CSUS 2 below CSUS 3
+   makes it chapter 3 - and chapter 3 was then filmed BEFORE chapter 2, which no session
+   can have been.  Each inversion is named, both recordings and both chapter numbers,
+   because "these rows are out of order" was true and useless: it did not say which two,
+   or why the pair cannot be that way round.
+
+   Every role is checked, not only conditioning, because `order` within a role is what
+   the study file carries for all of them; the chapter WORD is used only where the page
+   shows chapter numbers. */
+function orderFindings(){
   const on = picked().filter(v => v.dated && v.rank != null);
-  return on.some((v, i) => i > 0 && v.rank < on[i-1].rank);
+  const out = [];
+  for (const role of new Set(on.map(v => v.role))){
+    const rows = on.filter(v => v.role === role);   // in the order the page shows them
+    rows.forEach((v, i) => {
+      if (i && v.rank < rows[i-1].rank)
+        out.push({v, shown: i + 1, before: rows[i-1], beforeShown: i, role});
+    });
+  }
+  return out;
+}
+
+function orderWord(role, n){
+  return role === "conditioning" ? `chapter ${n}` : `number ${n} of ${ROLE_NAME[role]}`;
+}
+
+function renderOrderWarn(){
+  const f = orderFindings();
+  if (!f.length) return "";
+  return `<div class="tlw warn">
+    <h4>${f.length === 1 ? "One recording is" : f.length + " recordings are"} numbered
+        against the order ${f.length === 1 ? "it was" : "they were"} filmed in</h4>`
+    + f.map(x => `<div class="one">
+        <b class="mono">${esc(x.v.name)}</b> is set as
+        <b>${orderWord(x.role, x.shown)}</b>, after <b class="mono">${esc(x.before.name)}</b>
+        at <b>${orderWord(x.role, x.beforeShown)}</b> &mdash; but the camera filmed
+        <b class="mono">${esc(x.v.name)}</b> <b>first</b>.
+        <div class="why">The one filmed first is the earlier chapter: they are laid end to
+          end on one clock, so this pair cannot be that way round. Use
+          &#9650;&#9660; to put ${esc(x.v.name)} back above ${esc(x.before.name)}, or press
+          <b>Browse&hellip;</b> again on the same folder to restore the recording
+          order.</div>
+      </div>`).join("")
+    + `<p class="what">The analysis reads the camera clock before it decodes anything and
+       lays the recordings out in that order, so it will do the right thing whatever these
+       numbers say &mdash; but a number here that the run does not use should not be left
+       standing.</p></div>`;
+}
+
+/* And the third: the numbers people typed into the names.  ebc_app.sequence_findings()
+   is the authority - it reads the camera order and the numbers together - and this only
+   draws what it found.  Unlike the two above it does not depend on what is ticked: a
+   name is wrong whether or not the recording is going into this run. */
+function renderSequenceWarn(){
+  const f = (LAST && LAST.sequence) || [];
+  if (!f.length) return "";
+  return `<div class="tlw warn">
+    <h4>${f.length === 1 ? "Two names are" : "Some names are"} numbered against the order
+        the camera filmed them in</h4>`
+    + f.map(x => `<div class="one">
+        <b class="mono">${esc(x.after)}</b> is numbered <b>${x.after_number}</b> and
+        <b class="mono">${esc(x.name)}</b> is numbered <b>${x.number}</b>, but the camera
+        filmed <b class="mono">${esc(x.after)}</b> <b>first</b>.
+        <div class="why">Both names claim to be ${esc(x.role_word)}, and the numbers on
+          them claim an order the recordings themselves contradict. Either the numbers are
+          the wrong way round, or one of these is not ${esc(x.role_word)}.</div>
+      </div>`).join("")
+    + `<p class="what">The analysis takes its order from the camera, never from the
+       numbers, so this does not change what is measured &mdash; but the names are what
+       everyone reads afterwards, and one of these is telling the next person something
+       untrue.</p></div>`;
 }
 
 function renderTimelineWarn(found){
   const box = $("#tlwarn");
-  const moved = movedRows() ? `<div class="tlw mild">
-    <h4>These rows are not in the order the camera recorded them</h4>
-    <p>The analysis lays the conditioning chapters end to end on <b>the camera's</b>
-       clock, which it reads before anything is decoded, so it will use the recording
-       order however the rows are arranged here &mdash; the chapter numbers in the
-       <b>Order</b> column are the only thing the arrows change. Press
-       <b>Browse&hellip;</b> again on the same folder to put the rows back.</p></div>` : "";
+  const moved = renderSequenceWarn() + renderOrderWarn();
   if (!found.length){ box.innerHTML = moved; return; }
   box.innerHTML = moved + `<div class="tlw">
     <h4>${found.length === 1 ? "One ticked role does not match" : found.length +
@@ -1299,8 +1359,14 @@ function renderVids(d){
         <option value="us" ${v.anchor==="us"?"selected":""}>US LED</option>
       </select></td>
       <td><span class="ord">${v.role==="conditioning"?chapterOf(i):"—"}</span>
-          <button class="mv" data-i="${i}" data-d="-1" title="move earlier">&#9650;</button>
-          <button class="mv" data-i="${i}" data-d="1" title="move later">&#9660;</button></td>
+          <button class="mv" data-i="${i}" data-d="-1" title="Move this row up. The
+                  analysis takes its order from the camera clock, so this changes the
+                  chapter number shown here, not the order the recordings are read in."
+                  >&#9650;</button>
+          <button class="mv" data-i="${i}" data-d="1" title="Move this row down. The
+                  analysis takes its order from the camera clock, so this changes the
+                  chapter number shown here, not the order the recordings are read in."
+                  >&#9660;</button></td>
       </tr>`).join("") + `</tbody></table>`;
 
   const all = $("#all");
@@ -1651,11 +1717,11 @@ function refreshGuide(){
       participant&rsquo;s recordings.`;
   else if (!step1done)
     $("#todo1").innerHTML = `<b>Tick</b> the recordings to analyse, then set what each one is
-      in the <b>Role</b> column. Conditioning chapters are stitched into one timeline in the
-      order shown &mdash; use &#9650;&#9660; if the recording order differs.`;
+      in the <b>Role</b> column. They are listed in the order the camera filmed them, which
+      is the order the conditioning chapters are stitched together in.`;
   else
-    $("#todo1").innerHTML = `${on.length} ticked. Check the <b>Role</b> of each one, and the
-      chapter order, then move on to step 2.`;
+    $("#todo1").innerHTML = `${on.length} ticked. Check the <b>Role</b> of each one against
+      what the camera says above, then move on to step 2.`;
 
   const study = $("#study").value.trim();
   if (namesPending) $("#todo2").innerHTML = `Settle the <b>file names</b> above first &mdash;
