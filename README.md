@@ -14,6 +14,9 @@ protocol disagree.
 One participant per run, driven by a small JSON file, so the same checkout processes any
 number of participants.
 
+To change the code, see **`MAINTAINING.md`**: which file holds what, the edit-test-run-commit
+loop, how to work with an AI assistant on it, and how to rebuild the installer.
+
 ## Point and click
 
 Not everyone wants a terminal.  Double-click the **EBC Analyzer** shortcut on the Desktop
