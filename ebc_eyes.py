@@ -172,33 +172,16 @@ def main():
     log(tag, "trial window -%.0f to +%.0f ms  (%s)"
         % (PRE_MS, POST_MS, C.design(cfg["protocol"])["label"].lower()))
 
-    fb = face_box(path, tag, wdir, W, H, fps, nfr)
+    geo = geometry(cfg, rec, wdir, W, H, fps, nfr)
+    fb = geo["fb"]
+    cx0, cy0, cw, ch = geo["crop"]
+    FS, LS = geo["FS"], geo["LS"]
+    anchor_led = geo["anchor_led"]
+    lx, ly = geo["led_xy"]
+    us_lag = geo["us_lag"]
     log(tag, "face box x[%.0f,%.0f] y[%.0f,%.0f] from %d samples"
         % (fb["x0"], fb["x1"], fb["y0"], fb["y1"], fb["n"]))
 
-    us_anchored = rec.get("anchor", "cs") == "us" and rec["role"] != "baseline_us"
-    anchor_led = "blue" if (rec["role"] == "baseline_us" or us_anchored) else "yellow"
-    # A US-anchored trial is cut around the *inferred* CS onset, so the blue flash sits
-    # us_onset_ms into the window.  Find it there and step back to keep k0 meaning what it
-    # means everywhere else: the index of CS onset.  Nothing downstream has to change.
-    us_lag = int(round(cfg["protocol"]["us_onset_ms"] / MS)) if us_anchored else 0
-    led = stim["leds"].get(anchor_led) or list(stim["leds"].values())[0]
-    if led.get("position"):                       # where the LED actually lit up
-        lx, ly = led["position"]["x"], led["position"]["y"]
-        # a camera moved mid-recording leaves the LED in two places; carry both
-        wander = max(led["position"]["spread_x"], led["position"]["spread_y"]) // 2
-    else:
-        bx, by, bw, bh = led["box"]
-        lx, ly, wander = bx + bw // 2, by + bh // 2, max(bw, bh) // 2
-    led_half = LED_HALF + wander
-
-    fx0 = max(0, fb["x0"] - FACE_MARGIN); fx1 = min(W, fb["x1"] + FACE_MARGIN)
-    fy0 = max(0, fb["y0"] - FACE_MARGIN); fy1 = min(H, fb["y1"] + FACE_MARGIN)
-    cx0, cy0, cw, ch = crop_box(min(fx0, lx - led_half), min(fy0, ly - led_half),
-                                max(fx1, lx + led_half), max(fy1, ly + led_half), W, H)
-    FS = (slice(int(fy0) - cy0, min(int(fy1) - cy0, ch)), slice(int(fx0) - cx0, min(int(fx1) - cx0, cw)))
-    LS = (slice(max(0, ly - led_half - cy0), min(ch, ly + led_half - cy0)),
-          slice(max(0, lx - led_half - cx0), min(cw, lx + led_half - cx0)))
     log(tag, "trial crop %dx%d@(%d,%d)  anchor=%s LED at (%d,%d)" % (cw, ch, cx0, cy0, anchor_led, lx, ly))
 
     import cv2

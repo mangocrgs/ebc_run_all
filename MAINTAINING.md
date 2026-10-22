@@ -130,9 +130,16 @@ Two things the assistant cannot know unless told:
 
 ## 4. Rebuilding the installed app
 
+The build uses an isolated environment at `build/venv`, installed from
+`packaging/requirements-build.lock.txt` (the tested versions; direct constraints are in
+`requirements-build.txt`). MediaPipe 0.10.14 requires Protobuf >=4.25.3,<5;
+building from a shared Python with Protobuf 7 breaks FaceMesh at runtime.
+`packaging/build.bat` checks both source and frozen FaceMesh before packaging.
+Do not replace its isolated interpreter with a global `py -3 -m PyInstaller` command.
+
 Needed once on the build machine: Python 3.12, `ffmpeg` on PATH, Inno Setup
 (`winget install JRSoftware.InnoSetup`), and
-`py -3 -m pip install pyinstaller opencv-python mediapipe numpy scipy matplotlib openpyxl pillow pywebview`.
+`packaging\build.bat` installs the Python dependencies in its isolated environment.
 
 1. **Bump the version in two places**: `VERSION = "1.7"` near the top of `ebc_config.py`
    (the app shows it) and `#define AppVersion "1.7"` near the top of
@@ -144,8 +151,13 @@ Needed once on the build machine: Python 3.12, `ffmpeg` on PATH, Inno Setup
    The same three commands by hand, for when `build.bat` is unsuitable:
 
    ```
-   py -3 packaging\make_assets.py
-   py -3 -m PyInstaller --clean --noconfirm --distpath build\dist --workpath build\work packaging\ebc_analyzer.spec
+   py -3 -m venv build\venv
+   build\venv\Scripts\python.exe -m pip install -r packaging\requirements-build.lock.txt
+   build\venv\Scripts\python.exe -m pip check
+   build\venv\Scripts\python.exe ebc_selftest.py
+   build\venv\Scripts\python.exe packaging\make_assets.py
+   build\venv\Scripts\python.exe -m PyInstaller --clean --noconfirm --distpath build\dist --workpath build\work packaging\ebc_analyzer.spec
+   "build\dist\EBC Analyzer\EBC Analyzer.exe" --stage ebc_selftest.py
    "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" packaging\ebc_analyzer.iss
    ```
 

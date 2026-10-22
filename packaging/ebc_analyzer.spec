@@ -1,6 +1,6 @@
 # PyInstaller recipe for EBC Analyzer.  Build it with packaging/build.bat, or:
 #
-#     py -3 -m PyInstaller --clean --noconfirm packaging/ebc_analyzer.spec
+#     build/venv/Scripts/python.exe -m PyInstaller --clean --noconfirm packaging/ebc_analyzer.spec
 #
 # What comes out is dist/EBC Analyzer/, a folder holding "EBC Analyzer.exe" and
 # everything it needs.  A folder rather than one file on purpose: mediapipe and OpenCV
@@ -23,6 +23,12 @@ import io
 import os
 import re
 import shutil
+from importlib.metadata import version
+from packaging.specifiers import SpecifierSet
+
+if version("protobuf") not in SpecifierSet(">=4.25.3,<5"):
+    raise SystemExit("Incompatible protobuf for FaceMesh. Build with packaging/build.bat "
+                     "to use the isolated, compatible environment.")
 
 from PyInstaller.utils.hooks import collect_all
 
@@ -32,7 +38,7 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))                    # noqa: 
 STAGES = ["ebc_run_all.py", "ebc_timeline.py", "ebc_locate.py", "ebc_stimulus.py",
           "ebc_triage.py", "ebc_protocol.py", "ebc_eyes.py", "ebc_score.py",
           "ebc_figures.py", "ebc_clips.py", "ebc_export_csv.py", "ebc_workbooks.py",
-          "ebc_qc.py",
+          "ebc_qc.py", "ebc_selftest.py",
           "ebc_app.py", "ebc_config.py", "ebc_media.py", "ebc_paths.py",
           "ebc_signal.py", "ebc_video.py"]
 
@@ -56,7 +62,7 @@ datas = [(os.path.join(ROOT, s), ".") for s in STAGES]
 datas += [(os.path.join(ROOT, "ebc_app_ui.html"), "."),
           (os.path.join(ROOT, "assets"), "assets")]
 
-hiddenimports = ["cv2", "mediapipe", "numpy", "scipy", "scipy.signal", "scipy.stats",
+hiddenimports = ["packaging.specifiers", "cv2", "mediapipe", "numpy", "scipy", "scipy.signal", "scipy.stats",
                  "scipy.ndimage", "scipy.interpolate", "matplotlib", "matplotlib.pyplot",
                  "openpyxl", "PIL", "PIL.Image",
                  # ebc_clips draws its overlay with these two, and it travels as source,

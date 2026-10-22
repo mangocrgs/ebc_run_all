@@ -1235,6 +1235,139 @@ def test_the_buttons_the_page_promises_are_wired():
         assert ('$("#%s").onclick' % b) in src, "#%s is never wired" % b
 
 
+def test_stop_terminates_pipeline_workers_and_releases_stdout():
+    """Stop must end descendants too: a worker inherits the pipeline's stdout pipe."""
+    import threading
+    from unittest.mock import patch
+
+    if os.name != "nt":
+        return  # Windows process-tree cancellation is the regression under test.
+    old_state = A.STATE.copy()
+    worker = None
+    with tempfile.TemporaryDirectory() as d:
+        ready = os.path.join(d, "ready")
+        child_code = "import time; time.sleep(30)"
+        code = ("import subprocess,sys,time; "
+                "p=subprocess.Popen([sys.executable,'-c',%r]); "
+                "open(%r,'w').write(str(p.pid)); time.sleep(30)"
+                % (child_code, ready))
+        result = []
+        errors = []
+        assign = A.WindowsProcessTree.assign
+
+        def delayed_assign(job, p):
+            import time
+            time.sleep(0.25)  # Simulate the launcher being descheduled.
+            assert not os.path.exists(ready), "pipeline ran before joining its Windows job"
+            assign(job, p)
+
+        def run():
+            try:
+                result.append(A.run_pipeline("unused.json", d, False))
+            except Exception as e:
+                errors.append(e)
+
+        try:
+            A.STATE.update(A.blank_state())
+            with patch.object(A, "helper_cmd", return_value=[sys.executable, "-c", code]), \
+                    patch.object(A.WindowsProcessTree, "assign", delayed_assign):
+                worker = threading.Thread(target=run, daemon=True)
+                worker.start()
+                import time
+                deadline = time.monotonic() + 10
+                while not os.path.exists(ready) and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert os.path.exists(ready), "synthetic pipeline failed to start"
+                handler = object.__new__(A.Handler)
+                handler.path = "/api/stop?t=" + A.TOKEN
+                handler.headers = {"Content-Length": "2"}
+                handler.rfile = io.BytesIO(b"{}")
+                responses = []
+                handler._send = lambda status, payload: responses.append((status, payload))
+                handler._post()
+                assert responses == [(200, {"ok": True})], responses
+                worker.join(timeout=5)
+                assert not errors, errors
+                assert not worker.is_alive(), "Stop left a worker holding stdout open"
+                assert result and result[0] != 0
+                assert A.PROC["p"] is None
+        finally:
+            # Only kill the synthetic processes this test created, even on failure.
+            if os.path.exists(ready):
+                pid = io.open(ready).read().strip()
+                subprocess.run(["taskkill", "/F", "/T", "/PID", pid],
+                               capture_output=True)
+            p = A.PROC.get("p")
+            if p and p.poll() is None:
+                p.kill()
+            if worker:
+                worker.join(timeout=5)
+            A.STATE.clear()
+            A.STATE.update(old_state)
+
+
+def test_immediate_stop_survives_runner_initialisation():
+    """Stop after Run is accepted must survive a delayed worker thread starting."""
+    from unittest.mock import patch
+    old_state = A.STATE.copy()
+    pending = []
+    observed = []
+
+    class DeferredThread:
+        def __init__(self, target, args, daemon):
+            pending.append(lambda: target(*args))
+
+        def start(self):
+            pass  # Deterministically delay the scheduler until after Stop.
+
+    def post(path, body):
+        import json
+        data = json.dumps(body).encode()
+        handler = object.__new__(A.Handler)
+        handler.path = path + "?t=" + A.TOKEN
+        handler.headers = {"Content-Length": str(len(data))}
+        handler.rfile = io.BytesIO(data)
+        responses = []
+        handler._send = lambda status, payload: responses.append(status)
+        handler._post()
+        return responses
+
+    def preflight(body):
+        observed.append(A.STATE["cancel"])
+        return A.fail("Test ends before touching recordings")
+
+    try:
+        A.STATE.update(A.blank_state())
+        with patch.object(A.threading, "Thread", DeferredThread):
+            assert post("/api/run", {"items": [{"tag": "test", "label": "test"}]}) == [200]
+        assert A.STATE["running"], "Run was not reserved before its thread started"
+        assert post("/api/stop", {}) == [200]
+        with patch.object(A, "preflight", preflight):
+            pending[0]()
+        assert observed == [True], "runner initialisation erased the Stop request"
+        assert not A.STATE["running"]
+    finally:
+        A.STATE.clear()
+        A.STATE.update(old_state)
+
+
+def test_stop_before_pipeline_launch_does_not_start_work():
+    """A Stop during preflight must prevent a later pipeline launch."""
+    from unittest.mock import patch
+    old_cancel = A.STATE["cancel"]
+    try:
+        A.STATE["cancel"] = True
+        with tempfile.TemporaryDirectory() as d:
+            marker = os.path.join(d, "unexpected-launch")
+            cmd = [sys.executable, "-c", "open(%r, 'w').close()" % marker]
+            with patch.object(A, "helper_cmd", return_value=cmd):
+                rc = A.run_pipeline("unused.json", d, False)
+            assert not os.path.exists(marker), "pipeline started despite Stop"
+            assert rc != 0
+    finally:
+        A.STATE["cancel"] = old_cancel
+
+
 if __name__ == "__main__":
     import traceback
     fns = [(n, f) for n, f in sorted(globals().items())

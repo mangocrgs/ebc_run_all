@@ -6,7 +6,7 @@ rem   packaging\build.bat
 rem
 rem What comes out is
 rem
-rem     packaging\Setup EBC Analyzer 1.5.exe        (~240 MB)
+rem     packaging\Setup EBC Analyzer 1.7.2.exe        (~240 MB)
 rem
 rem which installs an app carrying Python, OpenCV, MediaPipe, SciPy, matplotlib and
 rem ffmpeg inside it.  The machine it lands on needs none of those, and no
@@ -20,7 +20,7 @@ rem which is deliberately not the folder the installer installs into, so a build
 rem overwrites the copy someone already has installed.
 rem
 rem Needs, on this machine and once:
-rem     py -3 -m pip install pyinstaller opencv-python mediapipe numpy scipy matplotlib openpyxl pillow
+rem     Python 3.12; dependencies are installed from requirements-build.txt into build/venv
 rem     winget install JRSoftware.InnoSetup
 rem plus an ffmpeg on PATH - that is the one that gets packaged.
 rem ===========================================================================
@@ -35,16 +35,26 @@ if not exist "%ISCC%" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 where py >nul 2>&1 || (echo   Python was not found on PATH. & pause & exit /b 1)
 where ffmpeg >nul 2>&1 || (echo   ffmpeg is not on PATH, so it cannot be packaged. & pause & exit /b 1)
 
+set "BUILD_PY=%STAGE%\venv\Scripts\python.exe"
+if not exist "%BUILD_PY%" (
+  py -3 -m venv "%STAGE%\venv" || (echo Failed to create build environment. & pause & exit /b 1)
+)
+"%BUILD_PY%" -m pip install -r "%HERE%requirements-build.lock.txt" || (echo Dependency install failed. & pause & exit /b 1)
+"%BUILD_PY%" -m pip check || (echo Incompatible dependencies. & pause & exit /b 1)
+"%BUILD_PY%" "%ROOT%\ebc_selftest.py" || (echo FaceMesh runtime check failed. & pause & exit /b 1)
+
 echo.
 echo   [1/3] Cutting the logo into the shapes the app uses...
-py -3 "%HERE%make_assets.py" || (echo   Asset step failed. & pause & exit /b 1)
+"%BUILD_PY%" "%HERE%make_assets.py" || (echo   Asset step failed. & pause & exit /b 1)
 
 echo.
 echo   [2/3] Building the app. A few minutes.
-py -3 -m PyInstaller --clean --noconfirm ^
+"%BUILD_PY%" -m PyInstaller --clean --noconfirm ^
    --distpath "%STAGE%\dist" --workpath "%STAGE%\work" ^
    "%HERE%ebc_analyzer.spec" || (echo. & echo   Build failed - the log above says why. & pause & exit /b 1)
 if not exist "%APP%" (echo   Build finished but %APP% is not there. & pause & exit /b 1)
+
+"%APP%" --stage ebc_selftest.py || (echo Frozen FaceMesh check failed. & pause & exit /b 1)
 
 if not exist "%ISCC%" (
   echo.
@@ -63,7 +73,7 @@ echo   [3/3] Packing the installer. Several minutes - it is compressing ~885 MB.
 echo.
 echo   Done.
 echo.
-echo     installer   %HERE%Setup EBC Analyzer 1.5.exe
+echo     installer   %HERE%Setup EBC Analyzer 1.7.2.exe
 echo     app folder  %STAGE%\dist\EBC Analyzer\
 echo.
 echo   Send the installer to anyone. They double-click it; nothing else is needed on

@@ -1,0 +1,14 @@
+# FaceMesh uses the legacy Solutions API; do not upgrade these independently.
+mediapipe==0.10.14
+protobuf>=4.25.3,<5
+numpy<2
+scipy==1.16.2
+matplotlib==3.10.6
+openpyxl
+pillow
+pywebview
+pyinstaller
+packaging
+opencv-contrib-python==4.11.0.86
+jax==0.4.38
+jaxlib==0.4.38

@@ -20,3 +20,8 @@ app/
 build/
 dist/
 Setup EBC Analyzer *.exe
+
+# Local repair backups (the current source and build recipe are tracked)
+/app.*/
+/backups/
+*.bak

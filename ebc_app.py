@@ -27,6 +27,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import shutil
 import socket
 import socketserver
@@ -75,7 +76,7 @@ def blank_state():
 
 
 STATE = blank_state()
-PROC = {"p": None}
+PROC = {"p": None, "job": None}
 PICK_LOCK = threading.Lock()
 SEEN_LINES = set()          # lines already shown by the log tailer, to avoid echoes
 
@@ -520,21 +521,95 @@ def tail_logs(out, stop):
     sweep()                                # one last look for the closing lines
 
 
+class WindowsProcessTree:
+    """Own the pipeline and its descendants without enumerating other processes."""
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes as W
+        self.api = ctypes.WinDLL("kernel32", use_last_error=True)
+        signatures = {
+            "CreateJobObjectW": ([W.LPVOID, W.LPCWSTR], W.HANDLE),
+            "AssignProcessToJobObject": ([W.HANDLE, W.HANDLE], W.BOOL),
+            "TerminateJobObject": ([W.HANDLE, W.UINT], W.BOOL),
+            "CloseHandle": ([W.HANDLE], W.BOOL),
+        }
+        for name, (args, result) in signatures.items():
+            fn = getattr(self.api, name)
+            fn.argtypes, fn.restype = args, result
+        self.handle = self.api.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def assign(self, p):
+        import ctypes
+        if not self.api.AssignProcessToJobObject(self.handle, int(p._handle)):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def resume(self, p):
+        # Popen closes the primary thread handle, so resume the suspended process
+        # through its retained process handle after assigning it to the job.
+        import ctypes
+        from ctypes import wintypes as W
+        api = ctypes.WinDLL("ntdll")
+        api.NtResumeProcess.argtypes = [W.HANDLE]
+        api.NtResumeProcess.restype = W.LONG
+        status = api.NtResumeProcess(int(p._handle))
+        if status < 0:
+            raise OSError("Could not resume the analysis (NTSTATUS 0x%08X)."
+                          % (status & 0xffffffff))
+
+    def terminate(self):
+        import ctypes
+        if not self.api.TerminateJobObject(self.handle, 1):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def close(self):
+        try:
+            self.terminate()
+        finally:
+            self.api.CloseHandle(self.handle)
+
+
 def run_pipeline(cfg_path, out, force):
     env = helper_env()
     cmd = helper_cmd(STAGE, "ebc_run_all.py", "--config", cfg_path)
     if force:
         cmd.append("--force")
+    job = None
     try:
-        p = subprocess.Popen(cmd, cwd=BASE, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                             errors="replace", bufsize=1, env=env)
+        # Publish the process under the same lock Stop uses. A request during
+        # preflight must prevent launch; a request during launch must find it.
+        with LOCK:
+            if STATE["cancel"]:
+                return -1
+            job = WindowsProcessTree() if os.name == "nt" else None
+            try:
+                p = subprocess.Popen(cmd, cwd=BASE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                     errors="replace", bufsize=1, env=env,
+                                     creationflags=(0x00000004 if job else 0),  # CREATE_SUSPENDED
+                                     start_new_session=(os.name != "nt"))
+                if job:
+                    try:
+                        job.assign(p)
+                        job.resume(p)
+                    except OSError:
+                        p.kill()
+                        p.wait()
+                        p.stdout.close()
+                        raise
+            except OSError:
+                if job:
+                    job.close()
+                raise
+            PROC["p"] = p
+            PROC["job"] = job
     except OSError as e:
         raise PipelineError(fail(
             "The analysis could not be started.", str(e),
             "ebc_run_all.py must sit next to ebc_app.py. Check that it is in:\n    "
             + BASE))
-    PROC["p"] = p
     stop = threading.Event()
     t = threading.Thread(target=tail_logs, args=(out, stop), daemon=True)
     t.start()
@@ -545,7 +620,12 @@ def run_pipeline(cfg_path, out, force):
     finally:
         stop.set()
         t.join(timeout=5)
-        PROC["p"] = None
+        p.stdout.close()
+        with LOCK:
+            if job:
+                job.close()
+            PROC["p"] = None
+            PROC["job"] = None
     return p.returncode
 
 
@@ -807,7 +887,7 @@ def runner(body):
         with LOCK:
             STATE.update(running=True, phase="checking", phase_label=PHASE["checking"],
                          error=None, log=[], triage=None, manual=None, notes=[],
-                         started=time.time(), finished=None, cancel=False,
+                         started=time.time(), finished=None,
                          order=[i["tag"] for i in items],
                          videos={i["tag"]: {"label": i["label"], "pct": 0.0,
                                             "stage": "waiting its turn", "detail": "",
@@ -1771,26 +1851,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "Wait for it to finish, then rename."))
             return self._send(200, {"ok": True, "data": do_renames(pairs)})
         if u.path == "/api/run":
-            if STATE["running"]:
-                return self._send(409, fail(
-                    "A run is already going.", STATE.get("phase_label") or "",
-                    "Wait for it to finish, or press Stop first."))
             if not body.get("items"):
                 return self._send(400, fail(
                     "No recordings are ticked.", "",
                     "Tick at least one video in step 1, then press Run analysis."))
+            with LOCK:
+                busy = STATE["running"]
+                if not busy:
+                    # Reserve the run before starting its thread so an immediate
+                    # Stop cannot be erased by delayed runner initialisation.
+                    STATE.update(running=True, cancel=False)
+            if busy:
+                return self._send(409, fail(
+                    "A run is already going.", STATE.get("phase_label") or "",
+                    "Wait for it to finish, or press Stop first."))
             threading.Thread(target=runner, args=(body,), daemon=True).start()
             return self._send(200, {"ok": True})
         if u.path == "/api/stop":
             with LOCK:
                 STATE["cancel"] = True
-            p = PROC.get("p")
-            if p and p.poll() is None:
+                p = PROC.get("p")
+                job = PROC.get("job")
                 try:
-                    p.terminate()
-                except OSError:
-                    pass
-            log("stop requested - waiting for the current step to end")
+                    # The job includes Python workers and ffmpeg, even if the
+                    # orchestrator has already exited with a worker still alive.
+                    if job:
+                        job.terminate()
+                    elif p and p.poll() is None:
+                        os.killpg(p.pid, signal.SIGTERM)
+                except OSError as e:
+                    if p and p.poll() is None:
+                        return self._send(500, fail(
+                            "The analysis could not be stopped.", str(e),
+                            "Press Stop again, or close the app."))
+            log("stop requested - ending the analysis and its workers")
             return self._send(200, {"ok": True})
         if u.path == "/api/reset":
             if STATE["running"]:
