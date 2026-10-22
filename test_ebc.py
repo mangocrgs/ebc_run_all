@@ -1368,6 +1368,38 @@ def test_stop_before_pipeline_launch_does_not_start_work():
         A.STATE["cancel"] = old_cancel
 
 
+
+def test_report_keeps_results_in_one_output_folder():
+    """Finishing a report must not create a second copy beside the recordings."""
+    import ebc_run_all as R
+    from unittest.mock import patch
+    for custom_output in (False, True):
+        with tempfile.TemporaryDirectory() as d:
+            videos = os.path.join(d, "recordings")
+            os.makedirs(videos)
+            video = os.path.join(videos, "sample.mp4")
+            with open(video, "wb") as fh:
+                fh.write(b"placeholder")
+            output = os.path.join(d, "chosen output") if custom_output else os.path.join(videos, "analysis_EBC")
+            cfg = dict(study="sample", video_dir=videos, out_dir=output,
+                       protocol=dict(PROTO), recordings=[dict(tag="sample", path=video,
+                       file="sample.mp4", role="conditioning")])
+            def report(script, *args, **kwargs):
+                # Stand in for video/report tools; exercise the real orchestration
+                # and filesystem behavior at the end of a completed report.
+                if script == "ebc_workbooks.py":
+                    with open(os.path.join(output, "EBC_sample.xlsx"), "wb") as fh:
+                        fh.write(b"workbook produced by report stage")
+                return 0
+            with patch.object(sys, "argv", ["ebc_run_all.py", "--config", "unused.json", "--from", "report"]), \
+                 patch.object(R.C, "load", return_value=cfg), patch.object(R, "run", side_effect=report):
+                R.main()
+            with open(os.path.join(output, "EBC_sample.xlsx"), "rb") as fh:
+                assert fh.read() == b"workbook produced by report stage"
+            assert os.path.isdir(os.path.join(output, "_work")), "the resumable cache must stay with results"
+            assert not os.path.exists(os.path.join(videos, "EBC results")), "report created duplicate results"
+
+
 if __name__ == "__main__":
     import traceback
     fns = [(n, f) for n, f in sorted(globals().items())
